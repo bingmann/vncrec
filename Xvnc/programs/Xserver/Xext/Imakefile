@@ -1,0 +1,24 @@
+XCOMM $XConsortium: Imakefile,v 5.39 94/11/21 18:30:11 kaleb Exp $
+#include <Server.tmpl>
+
+#if HasShm
+  SHMSRCS = shm.c
+  SHMOBJS = shm.o
+#endif
+       SRCS = shape.c $(SHMSRCS) mbuf.c mbufpx.c mbufbf.c	\
+              mitmisc.c xtest.c xtest1di.c xtest1dd.c sleepuntil.c	\
+	      bigreq.c sync.c xcmisc.c
+       OBJS = shape.o $(SHMOBJS) mbuf.o mbufpx.o mbufbf.o	\
+              mitmisc.o xtest.o xtest1di.o xtest1dd.o sleepuntil.o	\
+              bigreq.o sync.o xcmisc.o
+   INCLUDES = -I../include -I$(INCLUDESRC) -I$(EXTINCSRC)
+   LINTLIBS = ../dix/llib-ldix.ln ../os/llib-los.ln
+
+NormalLibraryObjectRule()
+NormalLibraryTarget(ext,$(OBJS))
+LintLibraryTarget(ext,$(SRCS))
+NormalLintTarget($(SRCS))
+
+InstallLinkKitLibrary(ext,$(LINKKITDIR)/lib)
+
+DependTarget()

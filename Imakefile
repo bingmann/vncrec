@@ -1,0 +1,16 @@
+#define IHaveSubdirs
+#define PassCDebugFlags
+
+SUBDIRS = libvncauth vncviewer vncpasswd
+
+world:
+	make Makefiles
+	make depend
+	make all
+
+MakeSubdirs($(SUBDIRS))
+DependSubdirs($(SUBDIRS))
+
+all::
+	(set -e; cd Xvnc; unset MAKEFLAGS MAKELEVEL; \
+	 ./vncxmkmf; make Makefiles; make depend; make all )

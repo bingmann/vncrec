@@ -1,0 +1,7 @@
+#define IHaveSubdirs
+#define PassCDebugFlags
+
+SUBDIRS = lib/font programs/Xserver
+
+MakeSubdirs($(SUBDIRS))
+DependSubdirs($(SUBDIRS))

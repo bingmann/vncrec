@@ -1,0 +1,91 @@
+
+VNC Source Distribution for Unix platforms
+==========================================
+
+VNC is Copyright Olivetti & Oracle Research Laboratory.  This software is
+distributed under the GNU General Public Licence as published by the Free
+Software Foundation.  See the file LICENCE.TXT for the conditions under
+which this software is made available.  VNC also contains code from other
+sources.  See the Acknowledgements section below, and the individual files
+for details of the conditions under which they are made available.
+
+
+There are four programs here:
+
+	vncviewer - this is the VNC viewer, or client, program for X.
+
+	vncserver - this is a wrapper script which makes starting an X VNC
+		    server (i.e. desktop) more convenient.  It is written in
+		    Perl, so to use the script you need that.
+
+	vncpasswd - this program allows you to change the password used to
+		    access your X VNC desktops.  The vncserver script uses
+		    this program when you first start a VNC server.
+
+	Xvnc - this is the X VNC server - it is both an X server and a VNC
+	       server.  You normally use the vncserver script to start Xvnc.
+
+
+First you must have a reasonably recent version of X installed (this includes
+/usr/openwin on Solaris machines).  To build everything, do:
+
+	% xmkmf
+	% make world
+
+This should build first the vncauth library which is used by each of the
+programs, then vncviewer, vncpasswd and finally Xvnc.  Xvnc differs from the
+other programs in that it uses its own imake configuration files which are
+taken from the X11R6 distribution.  These have only been set up for Solaris,
+Linux and Digital Unix, so if you're porting it to another platform, you'll
+need to do some work here.  See the Xvnc/README file for more details.
+
+If it all builds OK you can then install the programs by running the vncinstall
+script.  For example if you want to put them in /usr/local/bin, do:
+
+	% ./vncinstall /usr/local/bin
+
+See the file README.vncserver for information on setting up the vncserver
+script.
+
+
+
+ACKNOWLEDGEMENTS
+================
+
+This distribution contains public domain DES software by Richard Outerbridge.
+This is:
+
+    Copyright (c) 1988,1989,1990,1991,1992 by Richard Outerbridge.
+    (GEnie : OUTER; CIS : [71755,204]) Graven Imagery, 1992.
+
+
+This distribution contains software from the X Window System, Version 11,
+Release 6.  This is:
+
+    Copyright (C) 1994 X Consortium
+
+    Permission is hereby granted, free of charge, to any person obtaining a
+    copy of this software and associated documentation files (the
+    "Software"), to deal in the Software without restriction, including
+    without limitation the rights to use, copy, modify, merge, publish,
+    distribute, sublicense, and/or sell copies of the Software, and to
+    permit persons to whom the Software is furnished to do so, subject to
+    the following conditions:
+
+    The above copyright notice and this permission notice shall be included
+    in all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+    OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+    MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+    IN NO EVENT SHALL THE X CONSORTIUM BE LIABLE FOR ANY CLAIM, DAMAGES OR
+    OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+    ARISING FROM, OUT OF OR IN CONNEC- TION WITH THE SOFTWARE OR THE USE OR
+    OTHER DEALINGS IN THE SOFTWARE.
+
+    Except as contained in this notice, the name of the X Consortium shall
+    not be used in advertising or otherwise to promote the sale, use or
+    other deal- ings in this Software without prior written authorization
+    from the X Consor- tium.
+
+    X Window System is a trademark of X Consortium, Inc.

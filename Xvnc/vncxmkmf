@@ -1,0 +1,62 @@
+#!/bin/sh
+#
+#  Copyright (C) 1997, 1998 Olivetti & Oracle Research Laboratory
+#
+#  This is free software; you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation; either version 2 of the License, or
+#  (at your option) any later version.
+#
+#  This software is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this software; if not, write to the Free Software
+#  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307,
+#  USA.
+#
+
+#
+# Get this directory as argument.  If not specified use pwd to work it out.
+#
+
+case $# in
+0)
+  thisDir=`pwd`
+  ;;
+1)
+  if [ "$1" = "-help" ]; then
+    echo "usage: $0 [this-directory]"
+    exit 1
+  fi
+  thisDir=$1
+  ;;
+*)
+  echo "usage: $0 [this-directory]"
+  exit 1
+  ;;
+esac
+
+#
+# Generate a config/site.def file with the correct ConfigDir
+#
+
+echo Generating $thisDir/config/site.def
+
+sed -e "s|VNCXMKMF_PUTS_CONFIGDIR_HERE|$thisDir/config|" $thisDir/config/site.def.vncxmkmf >$thisDir/config/site.def
+
+#
+# Now make top-level makefile
+#
+
+if [ -f Makefile ]; then 
+    echo mv -f Makefile Makefile.bak
+    mv -f Makefile Makefile.bak
+fi
+
+args="-DUseInstalled ""-I$thisDir/config"
+
+echo imake $args
+imake $args

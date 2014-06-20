@@ -1,0 +1,17 @@
+
+#ifdef SunArchitecture
+CC = gcc
+CCOPTIONS =
+CDEBUGFLAGS = -O2
+#endif
+
+SRCS = args.c listen.c rfbproto.c sockets.c vncviewer.c x.c
+OBJS = args.o listen.o rfbproto.o sockets.o vncviewer.o x.o
+INCLUDES = -I../include -I.
+VNCAUTH_LIB = ../libvncauth/libvncauth.a
+
+all:: vncviewer
+
+NormalProgramTarget(vncviewer,$(OBJS),$(DEPXLIB) $(VNCAUTH_LIB),$(XLIB) $(VNCAUTH_LIB) $(LIBS),)
+
+DependTarget()

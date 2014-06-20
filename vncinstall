@@ -1,0 +1,42 @@
+#!/bin/sh
+#
+#  Copyright (C) 1997, 1998 Olivetti & Oracle Research Laboratory
+#
+#  This is free software; you can redistribute it and/or modify
+#  it under the terms of the GNU General Public License as published by
+#  the Free Software Foundation; either version 2 of the License, or
+#  (at your option) any later version.
+#
+#  This software is distributed in the hope that it will be useful,
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#  GNU General Public License for more details.
+#
+#  You should have received a copy of the GNU General Public License
+#  along with this software; if not, write to the Free Software
+#  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307,
+#  USA.
+#
+
+#
+# vncinstall - copy the VNC programs to an installation directory.
+#
+
+if [ $# -ne 1 -o ! -d "$1" ]; then 
+  echo "usage: $0 <installation-directory>  (e.g. /usr/local/bin)"
+  exit 1
+fi
+
+dst=$1
+
+for f in Xvnc/programs/Xserver/Xvnc vncviewer/vncviewer \
+	 vncpasswd/vncpasswd vncserver; do
+
+  if cmp -s $f $dst/`basename $f`; then
+    echo "`basename $f` hasn't changed"
+  else
+    echo "Copying $f to $dst"
+    cp -f $f $dst
+    chmod 0555 $dst/`basename $f`
+  fi
+done

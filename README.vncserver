@@ -1,0 +1,13 @@
+
+We recommend that you use the vncserver script to run Xvnc for you.  You can
+edit the script as appropriate for your site.  The things you are likely to
+want to change are:
+
+ * $vncClasses - this specifies the location of the Java classes for
+   the VNC viewer applet.  The default is /usr/local/vnc/classes
+
+ * Xvnc's font path and color database.  If you have an installation of
+   X which is not in the standard place you may need to add arguments to the
+   Xvnc command line to set these.  These should be appended to the $cmd
+   variable at the comment "# Add font path and color database...".
+

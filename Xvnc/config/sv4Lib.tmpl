@@ -1,0 +1,15 @@
+XCOMM $XConsortium: sv4Lib.tmpl,v 1.19 93/12/03 10:48:36 kaleb Exp $
+
+/*
+ * SVR4 shared library template
+ */
+
+/* SVR4 shared libraries are deficient in link semantics */
+XMULIBONLY = -lXmu
+#ifndef FixupLibReferences
+#define FixupLibReferences()						@@\
+XMULIB = $(XMULIBONLY) -z nodefs
+#endif
+#ifndef XawClientLibs
+#define XawClientLibs $(XAWLIB) $(XMULIBONLY) $(XTOOLLIB) $(XLIB)
+#endif

@@ -1,0 +1,58 @@
+
+This is the top level directory for the VNC X server.
+
+Imake Configuration Files
+-------------------------
+
+The config directory contains the configuration stuff to do with imake and
+building.  In that directory are all the ".cf" files, which are the
+basically the same as in the standard X11R6 config except for a few changes
+for building outside the normal X tree and building the VNC X server rather
+than the standard X server for a platform.  The files relating to linux
+(linux.cf, lnxLib.rules, lnxLib.tmpl, xf86.rules and xfree86.cf) are taken
+from the Redhat 4.2 distribution.
+
+These configuration files have only been set up for Solaris, Linux and
+Digital Unix, so if you're porting it to another platform, you'll need to
+add appropriate config files for that platform, and tweak them to get it to
+build the VNC X server.  Basically what you'll need to do is stop the
+normal X server for a platform being built and instead make sure the Xvnc
+server is built by defining XvncServer to YES.
+
+In this directory should be a script called vncxmkmf which should be used
+in place of the normal xmkmf for turning the Imakefile at the top level
+into a Makefile.  It takes an optional argument to tell it where this tree
+is located - if not specified it uses the directory it's run from.  It also
+automatically generates a site.def file in the config directory from
+site.def.vncxmkmf, setting the ConfigDir variable as appropriate.
+
+
+Sources
+-------
+
+The programs/Xserver directory contains the C sources to the X server and
+the lib/font directory contains the C sources to the font library which the
+X server needs (other libraries required are part of the standard X
+installation).  The code specific to the VNC X server is in
+programs/Xserver/hw/vnc.  Nearly all the rest of the code is from the
+standard X11R6 distribution - see the file xserver-diffs for details of all
+the changes made.
+
+The "include" directory is an assembly of header files which the normal X
+build plucks out of various places in the tree.  The X server code is a bit
+of a mess in that it often includes header files as both <hdr.h> and
+<X11/hdr.h>.  The imake configuration files should set up the include path
+so that both forms work.
+
+
+Building Xvnc
+-------------
+
+To build Xvnc, do:
+
+	./vncxmkmf
+	make Makefiles
+	make depend
+	make all
+
+This should build the Xvnc binary, putting it in programs/Xserver.
