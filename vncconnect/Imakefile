@@ -1,0 +1,11 @@
+
+#ifdef SunArchitecture
+CC = gcc
+CCOPTIONS =
+CDEBUGFLAGS = -O2
+#endif
+
+all:: vncconnect
+
+NormalProgramTarget(vncconnect,vncconnect.o,$(DEPXLIB),$(XLIB),)
+DependTarget()

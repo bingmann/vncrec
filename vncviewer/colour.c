@@ -177,6 +177,10 @@ GetPseudoColorVisualAndCmap(int depth)
     XtVaSetValues(toplevel, XtNcolormap, cmap, XtNdepth, visdepth,
 		  XtNvisual, vis, NULL);
 
+    if (appData.fullScreen) {
+      XInstallColormap(dpy, cmap);
+    }
+
     fprintf(stderr,"Using PseudoColor visual, depth %d.  Pixel format:\n",
 	    visdepth);
     PrintPixelFormat(&myFormat);
@@ -232,6 +236,10 @@ GetTrueColorVisualAndCmap(int depth)
 
     XtVaSetValues(toplevel, XtNcolormap, cmap, XtNdepth, visdepth,
 		  XtNvisual, vis, NULL);
+
+    if (appData.fullScreen) {
+      XInstallColormap(dpy, cmap);
+    }
 
     fprintf(stderr,"Using TrueColor visual, depth %d.  Pixel format:\n",
 	    visdepth);

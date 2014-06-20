@@ -26,7 +26,6 @@
 #include <X.h>
 #include <Xproto.h>
 #include "rfb.h"
-#include "propertyst.h"
 #include "selection.h"
 #include "input.h"
 #include <Xatom.h>
@@ -36,14 +35,20 @@ extern Selection *CurrentSelections;
 extern int NumCurrentSelections;
 
 
-static Bool inSetCutText = FALSE;
+static Bool inSetXCutText = FALSE;
+
+/*
+ * rfbSetXCutText sets the cut buffer to be the given string.  We also clear
+ * the primary selection.  Ideally we'd like to set it to the same thing, but I
+ * can't work out how to do that without some kind of helper X client.
+ */
 
 void
-rfbSetCutText(char *str, int len)
+rfbSetXCutText(char *str, int len)
 {
     int i = 0;
 
-    inSetCutText = TRUE;
+    inSetXCutText = TRUE;
     ChangeWindowProperty(WindowTable[0], XA_CUT_BUFFER0, XA_STRING,
 			 8, PropModeReplace, len,
 			 (pointer)str, TRUE);
@@ -70,16 +75,12 @@ rfbSetCutText(char *str, int len)
 	CurrentSelections[i].client = NullClient;
     }
 
-    inSetCutText = FALSE;
+    inSetXCutText = FALSE;
 }
 
 
-void
-rfbRootPropertyChange(PropertyPtr pProp)
+void rfbGotXCutText(char *str, int len)
 {
-    if ((pProp->propertyName == XA_CUT_BUFFER0) && (pProp->type == XA_STRING)
-	&& (pProp->format == 8) && !inSetCutText)
-    {
-	rfbSendServerCutText(pProp->data, pProp->size);
-    }
+    if (!inSetXCutText)
+	rfbSendServerCutText(str, len);
 }

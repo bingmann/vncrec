@@ -245,7 +245,7 @@ void
 usage()
 {
   fprintf(stderr,"\n"
-	  "VNC viewer version 3.3.3\n"
+	  "VNC viewer version 3.3.3r1\n"
 	  "\n"
 	  "usage: %s [<options>] <host>:<display#>\n"
 	  "       %s [<options>] -listen [<display#>]\n"

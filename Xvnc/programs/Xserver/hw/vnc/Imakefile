@@ -14,11 +14,12 @@ INCLUDES = -I. -I$(XBUILDINCDIR) -I$(FONTINCSRC) -I$(XINCLUDESRC) \
 	   -I../../cfb -I../../mfb -I../../mi -I../../include -I../../os \
 	   $(VNCCPPFLAGS)
 
-DEFINES = ServerOSDefines -DXVNCRELEASE=\"XvncRelease\"
+DEFINES = ServerOSDefines
 
 all:: $(OBJS)
 
 NormalLibraryObjectRule()
 NormalLibraryTarget(vnc,$(OBJS))
+SpecialCObjectRule(init,$(ICONFIGFILES),-DXVNCRELEASE=\"XvncRelease\")
 
 DependTarget()

@@ -59,29 +59,25 @@ in this Software without prior written authorization from the X Consortium.
 #include "regionstr.h"
 #include "dixfontstr.h"
 #include "rfb.h"
+#include "mfb.h"
 
 extern WindowPtr *WindowTable; /* Why isn't this in a header file? */
 
-/*********************************************************************/
-/* SLIGHTLY DIRTY HACK - use Composite Clip region calculated by mfb */
-/*********************************************************************/
+int rfbDeferUpdateTime = 40; /* ms */
 
-#include "mfb.h"
+
+/****************************************************************************/
+/*
+ * Macro definitions
+ */
+/****************************************************************************/
+
+/* SLIGHTLY DIRTY HACK - use Composite Clip region calculated by mfb */
 
 #define WINDOW_CLIP_REGION(_w, _gc) \
   (((mfbPrivGCPtr)((_gc)->devPrivates[mfbGCPrivateIndex].ptr))->pCompositeClip)
 
-
 #define TRC(x) /* (fprintf x) */
-
-#define SCREEN_PROLOGUE(scrn, field)		\
-    ScreenPtr pScreen = scrn;			\
-    rfbScreenInfoPtr prfb = &rfbScreen;		\
-    pScreen->field = prfb->field;
-
-#define SCREEN_EPILOGUE(field, wrapper) \
-    pScreen->field = wrapper;
-
 
 /* ADD_TO_MODIFIED_REGION adds the given region to the modified region for each
    client */
@@ -94,28 +90,29 @@ extern WindowPtr *WindowTable; /* Why isn't this in a header file? */
       }									      \
   }
 
+/* SCHEDULE_FB_UPDATE is used at the end of each drawing routine to schedule an
+   update to be sent to each client if there is one pending and the client is
+   ready for it.  */
 
-/* SEND_FB_UPDATE is used at the end of each drawing routine to send an update
-   to each client if there is one pending.  If the client is ready for it, we
-   simply send the update.  If the client isn't ready we do nothing.  */
-
-#define SEND_FB_UPDATE(pScreen,prfb)					\
+#define SCHEDULE_FB_UPDATE(pScreen,prfb)				\
   if (!prfb->dontSendFramebufferUpdate) {				\
       rfbClientPtr cl, nextCl;						\
       for (cl = rfbClientHead; cl; cl = nextCl) {			\
 	  nextCl = cl->next;						\
-	  if (FB_UPDATE_PENDING(cl)) {					\
-	      if (REGION_NOTEMPTY(pScreen,&cl->requestedRegion)) {	\
-		  rfbSendFramebufferUpdate(cl);				\
-	      }								\
+	  if (!cl->deferredUpdateScheduled && FB_UPDATE_PENDING(cl) &&	\
+	      REGION_NOTEMPTY(pScreen,&cl->requestedRegion))		\
+	  {								\
+	      rfbScheduleDeferredUpdate(cl);				\
 	  }								\
       }									\
   }
 
+/* function prototypes */
 
-static void PrintRegion(ScreenPtr pScreen, RegionPtr reg);
+static void rfbScheduleDeferredUpdate(rfbClientPtr cl);
 static void rfbCopyRegion(ScreenPtr pScreen, rfbClientPtr cl,
 			  RegionPtr src, RegionPtr dst, int dx, int dy);
+static void PrintRegion(ScreenPtr pScreen, RegionPtr reg);
 
 /* GC funcs */
 
@@ -172,6 +169,22 @@ static GCOps rfbGCOps = {
     rfbImageText8,	rfbImageText16,	rfbImageGlyphBlt,
     rfbPolyGlyphBlt,	rfbPushPixels
 };
+
+
+
+/****************************************************************************/
+/*
+ * Screen functions wrapper stuff
+ */
+/****************************************************************************/
+
+#define SCREEN_PROLOGUE(scrn, field)		\
+    ScreenPtr pScreen = scrn;			\
+    rfbScreenInfoPtr prfb = &rfbScreen;		\
+    pScreen->field = prfb->field;
+
+#define SCREEN_EPILOGUE(field, wrapper) \
+    pScreen->field = wrapper;
 
 
 /*
@@ -246,7 +259,7 @@ rfbPaintWindowBackground (pWin, pRegion, what)
 
     (*pScreen->PaintWindowBackground) (pWin, pRegion, what);
 
-    SEND_FB_UPDATE(pScreen, prfb);
+    SCHEDULE_FB_UPDATE(pScreen, prfb);
 
     SCREEN_EPILOGUE(PaintWindowBackground,rfbPaintWindowBackground);
 }
@@ -269,7 +282,7 @@ rfbPaintWindowBorder (pWin, pRegion, what)
 
     (*pScreen->PaintWindowBorder) (pWin, pRegion, what);
 
-    SEND_FB_UPDATE(pScreen, prfb);
+    SCHEDULE_FB_UPDATE(pScreen, prfb);
 
     SCREEN_EPILOGUE(PaintWindowBorder,rfbPaintWindowBorder);
 }
@@ -326,7 +339,7 @@ rfbCopyWindow (pWin, ptOldOrg, pOldRegion)
 
     (*pScreen->CopyWindow) (pWin, ptOldOrg, pOldRegion);
 
-    SEND_FB_UPDATE(pScreen, prfb);
+    SCHEDULE_FB_UPDATE(pScreen, prfb);
 
     SCREEN_EPILOGUE(CopyWindow,rfbCopyWindow);
 }
@@ -366,7 +379,7 @@ rfbClearToBackground (pWin, x, y, w, h, generateExposures)
     (*pScreen->ClearToBackground) (pWin, x, y, w, h, generateExposures);
 
     if (!generateExposures) {
-	SEND_FB_UPDATE(pScreen, prfb);
+	SCHEDULE_FB_UPDATE(pScreen, prfb);
     }
 
     SCREEN_EPILOGUE(ClearToBackground,rfbClearToBackground);
@@ -391,7 +404,7 @@ rfbRestoreAreas (pWin, prgnExposed)
 
     result = (*pScreen->RestoreAreas) (pWin, prgnExposed);
 
-    SEND_FB_UPDATE(pScreen, prfb);
+    SCHEDULE_FB_UPDATE(pScreen, prfb);
 
     SCREEN_EPILOGUE(RestoreAreas,rfbRestoreAreas);
 
@@ -569,7 +582,7 @@ rfbFillSpans(pDrawable, pGC, nInit, pptInit, pwidthInit, fSorted)
 
     (*pGC->ops->FillSpans) (pDrawable, pGC, nInit, pptInit,pwidthInit,fSorted);
 
-    SEND_FB_UPDATE(pDrawable->pScreen, prfb);
+    SCHEDULE_FB_UPDATE(pDrawable->pScreen, prfb);
 
     GC_OP_EPILOGUE(pGC);
 }
@@ -598,7 +611,7 @@ rfbSetSpans(pDrawable, pGC, psrc, ppt, pwidth, nspans, fSorted)
 
     (*pGC->ops->SetSpans) (pDrawable, pGC, psrc, ppt, pwidth, nspans, fSorted);
 
-    SEND_FB_UPDATE(pDrawable->pScreen, prfb);
+    SCHEDULE_FB_UPDATE(pDrawable->pScreen, prfb);
 
     GC_OP_EPILOGUE(pGC);
 }
@@ -644,7 +657,7 @@ rfbPutImage(pDrawable, pGC, depth, x, y, w, h, leftPad, format, pBits)
     (*pGC->ops->PutImage) (pDrawable, pGC, depth, x, y, w, h,
 			   leftPad, format, pBits);
 
-    SEND_FB_UPDATE(pDrawable->pScreen, prfb);
+    SCHEDULE_FB_UPDATE(pDrawable->pScreen, prfb);
 
     GC_OP_EPILOGUE(pGC);
 }
@@ -721,13 +734,957 @@ rfbCopyArea (pSrc, pDst, pGC, srcx, srcy, w, h, dstx, dsty)
     rgn = (*pGC->ops->CopyArea) (pSrc, pDst, pGC, srcx, srcy, w, h,
 				 dstx, dsty);
 
-    SEND_FB_UPDATE(pDst->pScreen, prfb);
+    SCHEDULE_FB_UPDATE(pDst->pScreen, prfb);
 
     GC_OP_EPILOGUE(pGC);
 
     return rgn;
 }
 
+
+/*
+ * CopyPlane - the region being modified is the destination rectangle (clipped
+ * to the window clip region).
+ */
+
+static RegionPtr
+rfbCopyPlane (pSrc, pDst, pGC, srcx, srcy, w, h, dstx, dsty, plane)
+    DrawablePtr	  pSrc;
+    DrawablePtr	  pDst;
+    register GCPtr pGC;
+    int     	  srcx,
+		  srcy;
+    int     	  w,
+		  h;
+    int     	  dstx,
+		  dsty;
+    unsigned long  plane;
+{
+    RegionPtr rgn;
+    RegionRec tmpRegion;
+    BoxRec box;
+    GC_OP_PROLOGUE(pDst, pGC);
+
+    TRC((stderr,"rfbCopyPlane called\n"));
+
+    box.x1 = dstx + pDst->x;
+    box.y1 = dsty + pDst->y;
+    box.x2 = box.x1 + w;
+    box.y2 = box.y1 + h;
+
+    SAFE_REGION_INIT(pDst->pScreen, &tmpRegion, &box, 0);
+
+    REGION_INTERSECT(pDst->pScreen, &tmpRegion, &tmpRegion,
+		     WINDOW_CLIP_REGION((WindowPtr)pDst,pGC));
+
+    ADD_TO_MODIFIED_REGION(pDst->pScreen, &tmpRegion);
+
+    REGION_UNINIT(pDst->pScreen, &tmpRegion);
+
+    rgn = (*pGC->ops->CopyPlane) (pSrc, pDst, pGC, srcx, srcy, w, h,
+				  dstx, dsty, plane);
+
+    SCHEDULE_FB_UPDATE(pDst->pScreen, prfb);
+
+    GC_OP_EPILOGUE(pGC);
+
+    return rgn;
+}
+
+/*
+ * PolyPoint - find the smallest rectangle which encloses the points drawn
+ * (and clip).
+ */
+
+static void
+rfbPolyPoint (pDrawable, pGC, mode, npt, pts)
+    DrawablePtr pDrawable;
+    GCPtr	pGC;
+    int		mode;		/* Origin or Previous */
+    int		npt;
+    xPoint 	*pts;
+{
+    int i;
+    RegionRec tmpRegion;
+    BoxRec box;
+    GC_OP_PROLOGUE(pDrawable, pGC);
+
+    TRC((stderr,"rfbPolyPoint called\n"));
+
+    if (npt) {
+	int minX = pts[0].x, maxX = pts[0].x;
+	int minY = pts[0].y, maxY = pts[0].y;
+
+	if (mode == CoordModePrevious)
+	{
+	    int x = pts[0].x, y = pts[0].y;
+
+	    for (i = 1; i < npt; i++) {
+		x += pts[i].x;
+		y += pts[i].y;
+		if (x < minX) minX = x;
+		if (x > maxX) maxX = x;
+		if (y < minY) minY = y;
+		if (y > maxY) maxY = y;
+	    }
+	}
+	else
+	{
+	    for (i = 1; i < npt; i++) {
+		if (pts[i].x < minX) minX = pts[i].x;
+		if (pts[i].x > maxX) maxX = pts[i].x;
+		if (pts[i].y < minY) minY = pts[i].y;
+		if (pts[i].y > maxY) maxY = pts[i].y;
+	    }
+	}
+
+	box.x1 = minX + pDrawable->x;
+	box.y1 = minY + pDrawable->y;
+	box.x2 = maxX + 1 + pDrawable->x;
+	box.y2 = maxY + 1 + pDrawable->y;
+
+	SAFE_REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
+
+	REGION_INTERSECT(pDrawable->pScreen, &tmpRegion, &tmpRegion,
+			 WINDOW_CLIP_REGION(((WindowPtr)pDrawable),pGC));
+
+	ADD_TO_MODIFIED_REGION(pDrawable->pScreen, &tmpRegion);
+
+	REGION_UNINIT(pDrawable->pScreen, &tmpRegion);
+    }
+
+    (*pGC->ops->PolyPoint) (pDrawable, pGC, mode, npt, pts);
+
+    if (npt) {
+	SCHEDULE_FB_UPDATE(pDrawable->pScreen, prfb);
+    }
+
+    GC_OP_EPILOGUE(pGC);
+}
+
+/*
+ * PolyLines - take the union of bounding boxes around each line (and clip).
+ */
+
+static void
+rfbPolylines (pDrawable, pGC, mode, npt, ppts)
+    DrawablePtr	  pDrawable;
+    GCPtr   	  pGC;
+    int	    	  mode;
+    int	    	  npt;
+    DDXPointPtr	  ppts;
+{
+    RegionPtr tmpRegion;
+    xRectangle *rects;
+    int i, extra, nlines, lw;
+    int x1, x2, y1, y2;
+    GC_OP_PROLOGUE(pDrawable, pGC);
+
+    TRC((stderr,"rfbPolylines called\n"));
+
+    if (npt) {
+	lw = pGC->lineWidth;
+	if (lw == 0)
+	    lw = 1;
+
+	if (npt == 1)
+	{
+	    nlines = 1;
+	    rects = (xRectangle *)xalloc(sizeof(xRectangle));
+	    if (!rects) {
+		FatalError("rfbPolylines: xalloc failed\n");
+	    }
+
+	    rects[0].x = ppts[0].x - lw + pDrawable->x; /* being safe here */
+	    rects[0].y = ppts[0].y - lw + pDrawable->y;
+	    rects[0].width = 2*lw;
+	    rects[0].height = 2*lw;
+	}
+	else
+	{
+	    nlines = npt - 1;
+	    rects = (xRectangle *)xalloc(nlines*sizeof(xRectangle));
+	    if (!rects) {
+		FatalError("rfbPolylines: xalloc failed\n");
+	    }
+
+	    /*
+	     * mitered joins can project quite a way from
+	     * the line end; the 11 degree miter limit limits
+	     * this extension to lw / (2 * tan(11/2)), rounded up
+	     * and converted to int yields 6 * lw
+	     */
+
+	    if (pGC->joinStyle == JoinMiter) {
+		extra = 6 * lw;
+	    } else {
+		extra = lw / 2;
+	    }
+
+	    x1 = ppts[0].x + pDrawable->x;
+	    y1 = ppts[0].y + pDrawable->y;
+
+	    for (i = 0; i < nlines; i++) {
+		if (mode == CoordModeOrigin) {
+		    x2 = pDrawable->x + ppts[i+1].x;
+		    y2 = pDrawable->y + ppts[i+1].y;
+		} else {
+		    x2 = x1 + ppts[i+1].x;
+		    y2 = y1 + ppts[i+1].y;
+		}
+
+		if (x1 > x2) {
+		    rects[i].x = x2 - extra;
+		    rects[i].width = x1 - x2 + 1 + 2 * extra;
+		} else {
+		    rects[i].x = x1 - extra;
+		    rects[i].width = x2 - x1 + 1 + 2 * extra;
+		}
+
+		if (y1 > y2) {
+		    rects[i].y = y2 - extra;
+		    rects[i].height = y1 - y2 + 1 + 2 * extra;
+		} else {
+		    rects[i].y = y1 - extra;
+		    rects[i].height = y2 - y1 + 1 + 2 * extra;
+		}
+
+		x1 = x2;
+		y1 = y2;
+	    }
+	}
+	tmpRegion = RECTS_TO_REGION(pDrawable->pScreen, nlines, rects,CT_NONE);
+	REGION_INTERSECT(pDrawable->pScreen, tmpRegion, tmpRegion,
+			 WINDOW_CLIP_REGION((WindowPtr)pDrawable,pGC));
+
+	ADD_TO_MODIFIED_REGION(pDrawable->pScreen, tmpRegion);
+
+	REGION_DESTROY(pDrawable->pScreen, tmpRegion);
+	xfree((char *)rects);
+    }
+
+    (*pGC->ops->Polylines) (pDrawable, pGC, mode, npt, ppts);
+
+    if (npt) {
+	SCHEDULE_FB_UPDATE(pDrawable->pScreen, prfb);
+    }
+
+    GC_OP_EPILOGUE(pGC);
+}
+
+/*
+ * PolySegment - take the union of bounding boxes around each segment (and
+ * clip).
+ */
+
+static void
+rfbPolySegment(pDrawable, pGC, nseg, segs)
+    DrawablePtr pDrawable;
+    GCPtr 	pGC;
+    int		nseg;
+    xSegment	*segs;
+{
+    RegionPtr tmpRegion;
+    xRectangle *rects;
+    int i, extra, lw;
+
+    GC_OP_PROLOGUE(pDrawable, pGC);
+
+    TRC((stderr,"rfbPolySegment called\n"));
+
+    if (nseg) {
+	rects = (xRectangle *)xalloc(nseg*sizeof(xRectangle));
+	if (!rects) {
+	    FatalError("rfbPolySegment: xalloc failed\n");
+	}
+
+	lw = pGC->lineWidth;
+	if (lw == 0)
+	    lw = 1;
+
+	extra = lw / 2;
+
+	for (i = 0; i < nseg; i++)
+	{
+	    if (segs[i].x1 > segs[i].x2) {
+		rects[i].x = segs[i].x2 - extra + pDrawable->x;
+		rects[i].width = segs[i].x1 - segs[i].x2 + 1 + 2 * extra;
+	    } else {
+		rects[i].x = segs[i].x1 - extra + pDrawable->x;
+		rects[i].width = segs[i].x2 - segs[i].x1 + 1 + 2 * extra;
+	    }
+
+	    if (segs[i].y1 > segs[i].y2) {
+		rects[i].y = segs[i].y2 - extra + pDrawable->y;
+		rects[i].height = segs[i].y1 - segs[i].y2 + 1 + 2 * extra;
+	    } else {
+		rects[i].y = segs[i].y1 - extra + pDrawable->y;
+		rects[i].height = segs[i].y2 - segs[i].y1 + 1 + 2 * extra;
+	    }
+	}
+
+	tmpRegion = RECTS_TO_REGION(pDrawable->pScreen, nseg, rects, CT_NONE);
+	REGION_INTERSECT(pDrawable->pScreen, tmpRegion, tmpRegion,
+			 WINDOW_CLIP_REGION((WindowPtr)pDrawable,pGC));
+
+	ADD_TO_MODIFIED_REGION(pDrawable->pScreen, tmpRegion);
+
+	REGION_DESTROY(pDrawable->pScreen, tmpRegion);
+	xfree((char *)rects);
+    }
+
+    (*pGC->ops->PolySegment) (pDrawable, pGC, nseg, segs);
+
+    if (nseg) {
+	SCHEDULE_FB_UPDATE(pDrawable->pScreen, prfb);
+    }
+
+    GC_OP_EPILOGUE(pGC);
+}
+
+/*
+ * PolyRectangle (rectangle outlines) - take the union of bounding boxes
+ * around each line (and clip).
+ */
+
+static void
+rfbPolyRectangle(pDrawable, pGC, nrects, rects)
+    DrawablePtr	pDrawable;
+    GCPtr	pGC;
+    int		nrects;
+    xRectangle	*rects;
+{
+    int i, extra, lw;
+    RegionPtr tmpRegion;
+    xRectangle *regRects;
+    GC_OP_PROLOGUE(pDrawable, pGC);
+
+    TRC((stderr,"rfbPolyRectangle called\n"));
+
+    if (nrects) {
+	regRects = (xRectangle *)xalloc(nrects*4*sizeof(xRectangle));
+	if (!regRects) {
+	    FatalError("rfbPolyRectangle: xalloc failed\n");
+	}
+
+	lw = pGC->lineWidth;
+	if (lw == 0)
+	    lw = 1;
+
+	extra = lw / 2;
+
+	for (i = 0; i < nrects; i++)
+	{
+	    regRects[i*4].x = rects[i].x - extra + pDrawable->x;
+	    regRects[i*4].y = rects[i].y - extra + pDrawable->y;
+	    regRects[i*4].width = rects[i].width + 1 + 2 * extra;
+	    regRects[i*4].height = 1 + 2 * extra;
+
+	    regRects[i*4+1].x = rects[i].x - extra + pDrawable->x;
+	    regRects[i*4+1].y = rects[i].y - extra + pDrawable->y;
+	    regRects[i*4+1].width = 1 + 2 * extra;
+	    regRects[i*4+1].height = rects[i].height + 1 + 2 * extra;
+
+	    regRects[i*4+2].x
+		= rects[i].x + rects[i].width - extra + pDrawable->x;
+	    regRects[i*4+2].y = rects[i].y - extra + pDrawable->y;
+	    regRects[i*4+2].width = 1 + 2 * extra;
+	    regRects[i*4+2].height = rects[i].height + 1 + 2 * extra;
+
+	    regRects[i*4+3].x = rects[i].x - extra + pDrawable->x;
+	    regRects[i*4+3].y
+		= rects[i].y + rects[i].height - extra + pDrawable->y;
+	    regRects[i*4+3].width = rects[i].width + 1 + 2 * extra;
+	    regRects[i*4+3].height = 1 + 2 * extra;
+	}
+
+	tmpRegion = RECTS_TO_REGION(pDrawable->pScreen, nrects*4,
+				    regRects, CT_NONE);
+	REGION_INTERSECT(pDrawable->pScreen, tmpRegion, tmpRegion,
+			 WINDOW_CLIP_REGION((WindowPtr)pDrawable,pGC));
+
+	ADD_TO_MODIFIED_REGION(pDrawable->pScreen, tmpRegion);
+
+	REGION_DESTROY(pDrawable->pScreen, tmpRegion);
+	xfree((char *)regRects);
+    }
+
+    (*pGC->ops->PolyRectangle) (pDrawable, pGC, nrects, rects);
+
+    if (nrects) {
+	SCHEDULE_FB_UPDATE(pDrawable->pScreen, prfb);
+    }
+
+    GC_OP_EPILOGUE(pGC);
+}
+
+/*
+ * PolyArc - take the union of bounding boxes around each arc (and clip).
+ * Bounding boxes assume each is a full circle / ellipse.
+ */
+
+static void
+rfbPolyArc(pDrawable, pGC, narcs, arcs)
+    DrawablePtr	pDrawable;
+    register GCPtr	pGC;
+    int		narcs;
+    xArc	*arcs;
+{
+    int i, extra, lw;
+    RegionPtr tmpRegion;
+    xRectangle *rects;
+    GC_OP_PROLOGUE(pDrawable, pGC);
+
+    TRC((stderr,"rfbPolyArc called\n"));
+
+    if (narcs) {
+	rects = (xRectangle *)xalloc(narcs*sizeof(xRectangle));
+	if (!rects) {
+	    FatalError("rfbPolyArc: xalloc failed\n");
+	}
+
+	lw = pGC->lineWidth;
+	if (lw == 0)
+	    lw = 1;
+
+	extra = lw / 2;
+
+	for (i = 0; i < narcs; i++)
+	{
+	    rects[i].x = arcs[i].x - extra + pDrawable->x;
+	    rects[i].y = arcs[i].y - extra + pDrawable->y;
+	    rects[i].width = arcs[i].width + lw;
+	    rects[i].height = arcs[i].height + lw;
+	}
+
+	tmpRegion = RECTS_TO_REGION(pDrawable->pScreen, narcs, rects, CT_NONE);
+	REGION_INTERSECT(pDrawable->pScreen, tmpRegion, tmpRegion,
+			 WINDOW_CLIP_REGION((WindowPtr)pDrawable,pGC));
+
+	ADD_TO_MODIFIED_REGION(pDrawable->pScreen, tmpRegion);
+
+	REGION_DESTROY(pDrawable->pScreen, tmpRegion);
+	xfree((char *)rects);
+    }
+
+    (*pGC->ops->PolyArc) (pDrawable, pGC, narcs, arcs);
+
+    if (narcs) {
+	SCHEDULE_FB_UPDATE(pDrawable->pScreen, prfb);
+    }
+
+    GC_OP_EPILOGUE(pGC);
+}
+
+/*
+ * FillPolygon - take bounding box around polygon (and clip).
+ */
+
+static void
+rfbFillPolygon(pDrawable, pGC, shape, mode, count, pts)
+    register DrawablePtr pDrawable;
+    register GCPtr	pGC;
+    int			shape, mode;
+    int			count;
+    DDXPointPtr		pts;
+{
+    int i;
+    RegionRec tmpRegion;
+    BoxRec box;
+    GC_OP_PROLOGUE(pDrawable, pGC);
+
+    TRC((stderr,"rfbFillPolygon called\n"));
+
+    if (count) {
+	int minX = pts[0].x, maxX = pts[0].x;
+	int minY = pts[0].y, maxY = pts[0].y;
+
+	if (mode == CoordModePrevious)
+	{
+	    int x = pts[0].x, y = pts[0].y;
+
+	    for (i = 1; i < count; i++) {
+		x += pts[i].x;
+		y += pts[i].y;
+		if (x < minX) minX = x;
+		if (x > maxX) maxX = x;
+		if (y < minY) minY = y;
+		if (y > maxY) maxY = y;
+	    }
+	}
+	else
+	{
+	    for (i = 1; i < count; i++) {
+		if (pts[i].x < minX) minX = pts[i].x;
+		if (pts[i].x > maxX) maxX = pts[i].x;
+		if (pts[i].y < minY) minY = pts[i].y;
+		if (pts[i].y > maxY) maxY = pts[i].y;
+	    }
+	}
+
+	box.x1 = minX + pDrawable->x;
+	box.y1 = minY + pDrawable->y;
+	box.x2 = maxX + 1 + pDrawable->x;
+	box.y2 = maxY + 1 + pDrawable->y;
+
+	SAFE_REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
+
+	REGION_INTERSECT(pDrawable->pScreen, &tmpRegion, &tmpRegion,
+			 WINDOW_CLIP_REGION(((WindowPtr)pDrawable),pGC));
+
+	ADD_TO_MODIFIED_REGION(pDrawable->pScreen, &tmpRegion);
+
+	REGION_UNINIT(pDrawable->pScreen, &tmpRegion);
+    }
+
+    (*pGC->ops->FillPolygon) (pDrawable, pGC, shape, mode, count, pts);
+
+    if (count) {
+	SCHEDULE_FB_UPDATE(pDrawable->pScreen, prfb);
+    }
+
+    GC_OP_EPILOGUE(pGC);
+}
+
+/*
+ * PolyFillRect - take the union of the given rectangles (and clip).
+ */
+
+static void
+rfbPolyFillRect(pDrawable, pGC, nrects, rects)
+    DrawablePtr pDrawable;
+    GCPtr	pGC;
+    int		nrects;
+    xRectangle	*rects;
+{
+    RegionPtr tmpRegion;
+    xRectangle *regRects;
+    int i;
+    GC_OP_PROLOGUE(pDrawable, pGC);
+
+    TRC((stderr,"rfbPolyFillRect called\n"));
+
+    if (nrects) {
+	regRects = (xRectangle *)xalloc(nrects*sizeof(xRectangle));
+	if (!regRects) {
+	    FatalError("rfbPolyFillRect: xalloc failed\n");
+	}
+
+	for (i = 0; i < nrects; i++) {
+	    regRects[i].x = rects[i].x + pDrawable->x;
+	    regRects[i].y = rects[i].y + pDrawable->y;
+	    regRects[i].width = rects[i].width;
+	    regRects[i].height = rects[i].height;
+	}
+
+	tmpRegion = RECTS_TO_REGION(pDrawable->pScreen, nrects, regRects,
+				    CT_NONE);
+	REGION_INTERSECT(pDrawable->pScreen, tmpRegion, tmpRegion,
+			 WINDOW_CLIP_REGION((WindowPtr)pDrawable,pGC));
+
+	ADD_TO_MODIFIED_REGION(pDrawable->pScreen, tmpRegion);
+
+	REGION_DESTROY(pDrawable->pScreen, tmpRegion);
+	xfree((char *)regRects);
+    }
+
+    (*pGC->ops->PolyFillRect) (pDrawable, pGC, nrects, rects);
+
+    if (nrects) {
+	SCHEDULE_FB_UPDATE(pDrawable->pScreen, prfb);
+    }
+
+    GC_OP_EPILOGUE(pGC);
+}
+
+/*
+ * PolyFillArc - take the union of bounding boxes around each arc (and clip).
+ * Bounding boxes assume each is a full circle / ellipse.
+ */
+
+static void
+rfbPolyFillArc(pDrawable, pGC, narcs, arcs)
+    DrawablePtr	pDrawable;
+    GCPtr	pGC;
+    int		narcs;
+    xArc	*arcs;
+{
+    int i, extra, lw;
+    RegionPtr tmpRegion;
+    xRectangle *rects;
+    GC_OP_PROLOGUE(pDrawable, pGC);
+
+    TRC((stderr,"rfbPolyFillArc called\n"));
+
+    if (narcs) {
+	rects = (xRectangle *)xalloc(narcs*sizeof(xRectangle));
+	if (!rects) {
+	    FatalError("rfbPolyFillArc: xalloc failed\n");
+	}
+
+	lw = pGC->lineWidth;
+	if (lw == 0)
+	    lw = 1;
+
+	extra = lw / 2;
+
+	for (i = 0; i < narcs; i++)
+	{
+	    rects[i].x = arcs[i].x - extra + pDrawable->x;
+	    rects[i].y = arcs[i].y - extra + pDrawable->y;
+	    rects[i].width = arcs[i].width + lw;
+	    rects[i].height = arcs[i].height + lw;
+	}
+
+	tmpRegion = RECTS_TO_REGION(pDrawable->pScreen, narcs, rects, CT_NONE);
+	REGION_INTERSECT(pDrawable->pScreen, tmpRegion, tmpRegion,
+			 WINDOW_CLIP_REGION((WindowPtr)pDrawable,pGC));
+
+	ADD_TO_MODIFIED_REGION(pDrawable->pScreen, tmpRegion);
+
+	REGION_DESTROY(pDrawable->pScreen, tmpRegion);
+	xfree((char *)rects);
+    }
+
+    (*pGC->ops->PolyFillArc) (pDrawable, pGC, narcs, arcs);
+
+    if (narcs) {
+	SCHEDULE_FB_UPDATE(pDrawable->pScreen, prfb);
+    }
+
+    GC_OP_EPILOGUE(pGC);
+}
+
+/*
+ * Get a rough bounding box around n characters of the given font.
+ */
+
+static void GetTextBoundingBox(pDrawable, font, x, y, n, pbox)
+    DrawablePtr pDrawable;
+    FontPtr font;
+    int x, y, n;
+    BoxPtr pbox;
+{
+    int maxAscent, maxDescent, maxCharWidth;
+
+    if (FONTASCENT(font) > FONTMAXBOUNDS(font,ascent))
+	maxAscent = FONTASCENT(font);
+    else
+	maxAscent = FONTMAXBOUNDS(font,ascent);
+
+    if (FONTDESCENT(font) > FONTMAXBOUNDS(font,descent))
+	maxDescent = FONTDESCENT(font);
+    else
+	maxDescent = FONTMAXBOUNDS(font,descent);
+
+    if (FONTMAXBOUNDS(font,rightSideBearing) > FONTMAXBOUNDS(font,characterWidth))
+	maxCharWidth = FONTMAXBOUNDS(font,rightSideBearing);
+    else
+	maxCharWidth = FONTMAXBOUNDS(font,characterWidth);
+
+    pbox->x1 = pDrawable->x + x;
+    pbox->y1 = pDrawable->y + y - maxAscent;
+    pbox->x2 = pbox->x1 + maxCharWidth * n;
+    pbox->y2 = pbox->y1 + maxAscent + maxDescent;
+
+    if (FONTMINBOUNDS(font,leftSideBearing) < 0) {
+	pbox->x1 += FONTMINBOUNDS(font,leftSideBearing);
+    }
+}
+
+
+/*
+ * PolyText8 - use rough bounding box.
+ */
+
+static int
+rfbPolyText8(pDrawable, pGC, x, y, count, chars)
+    DrawablePtr pDrawable;
+    GCPtr	pGC;
+    int		x, y;
+    int 	count;
+    char	*chars;
+{
+    int	ret;
+    RegionRec tmpRegion;
+    BoxRec box;
+    GC_OP_PROLOGUE(pDrawable, pGC);
+
+    TRC((stderr,"rfbPolyText8 called '%.*s'\n",count,chars));
+
+    if (count) {
+	GetTextBoundingBox(pDrawable, pGC->font, x, y, count, &box);
+
+	SAFE_REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
+
+	REGION_INTERSECT(pDrawable->pScreen, &tmpRegion, &tmpRegion,
+			 WINDOW_CLIP_REGION(((WindowPtr)pDrawable),pGC));
+
+	ADD_TO_MODIFIED_REGION(pDrawable->pScreen, &tmpRegion);
+
+	REGION_UNINIT(pDrawable->pScreen, &tmpRegion);
+    }
+
+    ret = (*pGC->ops->PolyText8) (pDrawable, pGC, x, y, count, chars);
+
+    if (count) {
+	SCHEDULE_FB_UPDATE(pDrawable->pScreen, prfb);
+    }
+
+    GC_OP_EPILOGUE(pGC);
+    return ret;
+}
+
+/*
+ * PolyText16 - use rough bounding box.
+ */
+
+static int
+rfbPolyText16(pDrawable, pGC, x, y, count, chars)
+    DrawablePtr pDrawable;
+    GCPtr	pGC;
+    int		x, y;
+    int		count;
+    unsigned short *chars;
+{
+    int	ret;
+    RegionRec tmpRegion;
+    BoxRec box;
+    GC_OP_PROLOGUE(pDrawable, pGC);
+
+    TRC((stderr,"rfbPolyText16 called\n"));
+
+    if (count) {
+	GetTextBoundingBox(pDrawable, pGC->font, x, y, count, &box);
+
+	SAFE_REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
+
+	REGION_INTERSECT(pDrawable->pScreen, &tmpRegion, &tmpRegion,
+			 WINDOW_CLIP_REGION(((WindowPtr)pDrawable),pGC));
+
+	ADD_TO_MODIFIED_REGION(pDrawable->pScreen, &tmpRegion);
+
+	REGION_UNINIT(pDrawable->pScreen, &tmpRegion);
+    }
+
+    ret = (*pGC->ops->PolyText16) (pDrawable, pGC, x, y, count, chars);
+
+    if (count) {
+	SCHEDULE_FB_UPDATE(pDrawable->pScreen, prfb);
+    }
+
+    GC_OP_EPILOGUE(pGC);
+    return ret;
+}
+
+/*
+ * ImageText8 - use rough bounding box.
+ */
+
+static void
+rfbImageText8(pDrawable, pGC, x, y, count, chars)
+    DrawablePtr pDrawable;
+    GCPtr	pGC;
+    int		x, y;
+    int		count;
+    char	*chars;
+{
+    RegionRec tmpRegion;
+    BoxRec box;
+    GC_OP_PROLOGUE(pDrawable, pGC);
+
+    TRC((stderr,"rfbImageText8 called '%.*s'\n",count,chars));
+
+    if (count) {
+	GetTextBoundingBox(pDrawable, pGC->font, x, y, count, &box);
+
+	SAFE_REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
+
+	REGION_INTERSECT(pDrawable->pScreen, &tmpRegion, &tmpRegion,
+			 WINDOW_CLIP_REGION(((WindowPtr)pDrawable),pGC));
+
+	ADD_TO_MODIFIED_REGION(pDrawable->pScreen, &tmpRegion);
+
+	REGION_UNINIT(pDrawable->pScreen, &tmpRegion);
+    }
+
+    (*pGC->ops->ImageText8) (pDrawable, pGC, x, y, count, chars);
+
+    if (count) {
+	SCHEDULE_FB_UPDATE(pDrawable->pScreen, prfb);
+    }
+
+    GC_OP_EPILOGUE(pGC);
+}
+
+/*
+ * ImageText16 - use rough bounding box.
+ */
+
+static void
+rfbImageText16(pDrawable, pGC, x, y, count, chars)
+    DrawablePtr pDrawable;
+    GCPtr	pGC;
+    int		x, y;
+    int		count;
+    unsigned short *chars;
+{
+    RegionRec tmpRegion;
+    BoxRec box;
+    GC_OP_PROLOGUE(pDrawable, pGC);
+
+    TRC((stderr,"rfbImageText16 called\n"));
+
+    if (count) {
+	GetTextBoundingBox(pDrawable, pGC->font, x, y, count, &box);
+
+	SAFE_REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
+
+	REGION_INTERSECT(pDrawable->pScreen, &tmpRegion, &tmpRegion,
+			 WINDOW_CLIP_REGION(((WindowPtr)pDrawable),pGC));
+
+	ADD_TO_MODIFIED_REGION(pDrawable->pScreen, &tmpRegion);
+
+	REGION_UNINIT(pDrawable->pScreen, &tmpRegion);
+    }
+
+    (*pGC->ops->ImageText16) (pDrawable, pGC, x, y, count, chars);
+
+    if (count) {
+	SCHEDULE_FB_UPDATE(pDrawable->pScreen, prfb);
+    }
+
+    GC_OP_EPILOGUE(pGC);
+}
+
+/*
+ * ImageGlyphBlt - use rough bounding box.
+ */
+
+static void
+rfbImageGlyphBlt(pDrawable, pGC, x, y, nglyph, ppci, pglyphBase)
+    DrawablePtr pDrawable;
+    GCPtr 	pGC;
+    int 	x, y;
+    unsigned int nglyph;
+    CharInfoPtr *ppci;		/* array of character info */
+    pointer 	pglyphBase;	/* start of array of glyphs */
+{
+    RegionRec tmpRegion;
+    BoxRec box;
+    GC_OP_PROLOGUE(pDrawable, pGC);
+
+    TRC((stderr,"rfbImageGlyphBlt called\n"));
+
+    if (nglyph) {
+	GetTextBoundingBox(pDrawable, pGC->font, x, y, nglyph, &box);
+
+	SAFE_REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
+
+	REGION_INTERSECT(pDrawable->pScreen, &tmpRegion, &tmpRegion,
+			 WINDOW_CLIP_REGION(((WindowPtr)pDrawable),pGC));
+
+	ADD_TO_MODIFIED_REGION(pDrawable->pScreen, &tmpRegion);
+
+	REGION_UNINIT(pDrawable->pScreen, &tmpRegion);
+    }
+
+    (*pGC->ops->ImageGlyphBlt) (pDrawable, pGC, x, y, nglyph, ppci,pglyphBase);
+
+    if (nglyph) {
+	SCHEDULE_FB_UPDATE(pDrawable->pScreen, prfb);
+    }
+
+    GC_OP_EPILOGUE(pGC);
+}
+
+/*
+ * PolyGlyphBlt - use rough bounding box.
+ */
+
+static void
+rfbPolyGlyphBlt(pDrawable, pGC, x, y, nglyph, ppci, pglyphBase)
+    DrawablePtr pDrawable;
+    GCPtr	pGC;
+    int 	x, y;
+    unsigned int nglyph;
+    CharInfoPtr *ppci;		/* array of character info */
+    pointer	pglyphBase;	/* start of array of glyphs */
+{
+    RegionRec tmpRegion;
+    BoxRec box;
+    GC_OP_PROLOGUE(pDrawable, pGC);
+
+    TRC((stderr,"rfbPolyGlyphBlt called\n"));
+
+    if (nglyph) {
+	GetTextBoundingBox(pDrawable, pGC->font, x, y, nglyph, &box);
+
+	SAFE_REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
+
+	REGION_INTERSECT(pDrawable->pScreen, &tmpRegion, &tmpRegion,
+			 WINDOW_CLIP_REGION(((WindowPtr)pDrawable),pGC));
+
+	ADD_TO_MODIFIED_REGION(pDrawable->pScreen, &tmpRegion);
+
+	REGION_UNINIT(pDrawable->pScreen, &tmpRegion);
+    }
+
+    (*pGC->ops->PolyGlyphBlt) (pDrawable, pGC, x, y, nglyph, ppci, pglyphBase);
+
+    if (nglyph) {
+	SCHEDULE_FB_UPDATE(pDrawable->pScreen, prfb);
+    }
+
+    GC_OP_EPILOGUE(pGC);
+}
+
+/*
+ * PushPixels - be fairly safe - region modified is intersection of the given
+ * rectangle with the window clip region.
+ */
+
+static void
+rfbPushPixels(pGC, pBitMap, pDrawable, w, h, x, y)
+    GCPtr	pGC;
+    PixmapPtr	pBitMap;
+    DrawablePtr pDrawable;
+    int		w, h, x, y;
+{
+    RegionRec tmpRegion;
+    BoxRec box;
+    GC_OP_PROLOGUE(pDrawable, pGC);
+
+    TRC((stderr,"rfbPushPixels called\n"));
+
+    box.x1 = x + pDrawable->x;
+    box.y1 = y + pDrawable->y;
+    box.x2 = box.x1 + w;
+    box.y2 = box.y1 + h;
+
+    SAFE_REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
+
+    REGION_INTERSECT(pDrawable->pScreen, &tmpRegion, &tmpRegion,
+		     WINDOW_CLIP_REGION(((WindowPtr)pDrawable),pGC));
+
+    ADD_TO_MODIFIED_REGION(pDrawable->pScreen, &tmpRegion);
+
+    REGION_UNINIT(pDrawable->pScreen, &tmpRegion);
+
+    (*pGC->ops->PushPixels) (pGC, pBitMap, pDrawable, w, h, x, y);
+
+    SCHEDULE_FB_UPDATE(pDrawable->pScreen, prfb);
+
+    GC_OP_EPILOGUE(pGC);
+}
+
+
+
+/****************************************************************************/
+/*
+ * Other functions
+ */
+/****************************************************************************/
 
 /*
  * rfbCopyRegion.  Args are src and dst regions plus a translation (dx,dy).
@@ -856,941 +1813,44 @@ rfbCopyRegion(pScreen, cl, src, dst, dx, dy)
 
 
 /*
- * CopyPlane - the region being modified is the destination rectangle (clipped
- * to the window clip region).
+ * rfbDeferredUpdateCallback() is called when a client's deferredUpdateTimer
+ * goes off.
  */
 
-static RegionPtr
-rfbCopyPlane (pSrc, pDst, pGC, srcx, srcy, w, h, dstx, dsty, plane)
-    DrawablePtr	  pSrc;
-    DrawablePtr	  pDst;
-    register GCPtr pGC;
-    int     	  srcx,
-		  srcy;
-    int     	  w,
-		  h;
-    int     	  dstx,
-		  dsty;
-    unsigned long  plane;
+static CARD32
+rfbDeferredUpdateCallback(OsTimerPtr timer, CARD32 now, pointer arg)
 {
-    RegionPtr rgn;
-    RegionRec tmpRegion;
-    BoxRec box;
-    GC_OP_PROLOGUE(pDst, pGC);
+  rfbClientPtr cl = (rfbClientPtr)arg;
 
-    TRC((stderr,"rfbCopyPlane called\n"));
+  rfbSendFramebufferUpdate(cl);
 
-    box.x1 = dstx + pDst->x;
-    box.y1 = dsty + pDst->y;
-    box.x2 = box.x1 + w;
-    box.y2 = box.y1 + h;
-
-    SAFE_REGION_INIT(pDst->pScreen, &tmpRegion, &box, 0);
-
-    REGION_INTERSECT(pDst->pScreen, &tmpRegion, &tmpRegion,
-		     WINDOW_CLIP_REGION((WindowPtr)pDst,pGC));
-
-    ADD_TO_MODIFIED_REGION(pDst->pScreen, &tmpRegion);
-
-    REGION_UNINIT(pDst->pScreen, &tmpRegion);
-
-    rgn = (*pGC->ops->CopyPlane) (pSrc, pDst, pGC, srcx, srcy, w, h,
-				  dstx, dsty, plane);
-
-    SEND_FB_UPDATE(pDst->pScreen, prfb);
-
-    GC_OP_EPILOGUE(pGC);
-
-    return rgn;
+  cl->deferredUpdateScheduled = FALSE;
+  return 0;
 }
 
+
 /*
- * PolyPoint - find the smallest rectangle which encloses the points drawn
- * (and clip).
+ * rfbScheduleDeferredUpdate() is called from the SCHEDULE_FB_UPDATE macro
+ * to schedule an update.
  */
 
 static void
-rfbPolyPoint (pDrawable, pGC, mode, npt, pts)
-    DrawablePtr pDrawable;
-    GCPtr	pGC;
-    int		mode;		/* Origin or Previous */
-    int		npt;
-    xPoint 	*pts;
+rfbScheduleDeferredUpdate(rfbClientPtr cl)
 {
-    int i;
-    RegionRec tmpRegion;
-    BoxRec box;
-    GC_OP_PROLOGUE(pDrawable, pGC);
-
-    TRC((stderr,"rfbPolyPoint called\n"));
-
-    if (npt) {
-	int minX = pts[0].x, maxX = pts[0].x;
-	int minY = pts[0].y, maxY = pts[0].y;
-
-	if (mode == CoordModePrevious)
-	{
-	    int x = pts[0].x, y = pts[0].y;
-
-	    for (i = 1; i < npt; i++) {
-		x += pts[i].x;
-		y += pts[i].y;
-		if (x < minX) minX = x;
-		if (x > maxX) maxX = x;
-		if (y < minY) minY = y;
-		if (y > maxY) maxY = y;
-	    }
-	}
-	else
-	{
-	    for (i = 1; i < npt; i++) {
-		if (pts[i].x < minX) minX = pts[i].x;
-		if (pts[i].x > maxX) maxX = pts[i].x;
-		if (pts[i].y < minY) minY = pts[i].y;
-		if (pts[i].y > maxY) maxY = pts[i].y;
-	    }
-	}
-
-	box.x1 = minX + pDrawable->x;
-	box.y1 = minY + pDrawable->y;
-	box.x2 = maxX + 1 + pDrawable->x;
-	box.y2 = maxY + 1 + pDrawable->y;
-
-	SAFE_REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
-
-	REGION_INTERSECT(pDrawable->pScreen, &tmpRegion, &tmpRegion,
-			 WINDOW_CLIP_REGION(((WindowPtr)pDrawable),pGC));
-
-	ADD_TO_MODIFIED_REGION(pDrawable->pScreen, &tmpRegion);
-
-	REGION_UNINIT(pDrawable->pScreen, &tmpRegion);
-    }
-
-    (*pGC->ops->PolyPoint) (pDrawable, pGC, mode, npt, pts);
-
-    if (npt) {
-	SEND_FB_UPDATE(pDrawable->pScreen, prfb);
-    }
-
-    GC_OP_EPILOGUE(pGC);
-}
-
-/*
- * PolyLines - take the union of bounding boxes around each line (and clip).
- */
-
-static void
-rfbPolylines (pDrawable, pGC, mode, npt, ppts)
-    DrawablePtr	  pDrawable;
-    GCPtr   	  pGC;
-    int	    	  mode;
-    int	    	  npt;
-    DDXPointPtr	  ppts;
-{
-    RegionPtr tmpRegion;
-    xRectangle *rects;
-    int i, extra, nlines, lw;
-    int x1, x2, y1, y2;
-    GC_OP_PROLOGUE(pDrawable, pGC);
-
-    TRC((stderr,"rfbPolylines called\n"));
-
-    if (npt) {
-	lw = pGC->lineWidth;
-	if (lw == 0)
-	    lw = 1;
-
-	if (npt == 1)
-	{
-	    nlines = 1;
-	    rects = (xRectangle *)xalloc(sizeof(xRectangle));
-	    if (!rects) {
-		FatalError("rfbPolylines: xalloc failed\n");
-	    }
-
-	    rects[0].x = ppts[0].x - lw + pDrawable->x; /* being safe here */
-	    rects[0].y = ppts[0].y - lw + pDrawable->y;
-	    rects[0].width = 2*lw;
-	    rects[0].height = 2*lw;
-	}
-	else
-	{
-	    nlines = npt - 1;
-	    rects = (xRectangle *)xalloc(nlines*sizeof(xRectangle));
-	    if (!rects) {
-		FatalError("rfbPolylines: xalloc failed\n");
-	    }
-
-	    /*
-	     * mitered joins can project quite a way from
-	     * the line end; the 11 degree miter limit limits
-	     * this extension to lw / (2 * tan(11/2)), rounded up
-	     * and converted to int yields 6 * lw
-	     */
-
-	    if (pGC->joinStyle == JoinMiter) {
-		extra = 6 * lw;
-	    } else {
-		extra = lw / 2;
-	    }
-
-	    x1 = ppts[0].x + pDrawable->x;
-	    y1 = ppts[0].y + pDrawable->y;
-
-	    for (i = 0; i < nlines; i++) {
-		if (mode == CoordModeOrigin) {
-		    x2 = pDrawable->x + ppts[i+1].x;
-		    y2 = pDrawable->y + ppts[i+1].y;
-		} else {
-		    x2 = x1 + ppts[i+1].x;
-		    y2 = y1 + ppts[i+1].y;
-		}
-
-		if (x1 > x2) {
-		    rects[i].x = x2 - extra;
-		    rects[i].width = x1 - x2 + 1 + 2 * extra;
-		} else {
-		    rects[i].x = x1 - extra;
-		    rects[i].width = x2 - x1 + 1 + 2 * extra;
-		}
-
-		if (y1 > y2) {
-		    rects[i].y = y2 - extra;
-		    rects[i].height = y1 - y2 + 1 + 2 * extra;
-		} else {
-		    rects[i].y = y1 - extra;
-		    rects[i].height = y2 - y1 + 1 + 2 * extra;
-		}
-
-		x1 = x2;
-		y1 = y2;
-	    }
-	}
-	tmpRegion = RECTS_TO_REGION(pDrawable->pScreen, nlines, rects,CT_NONE);
-	REGION_INTERSECT(pDrawable->pScreen, tmpRegion, tmpRegion,
-			 WINDOW_CLIP_REGION((WindowPtr)pDrawable,pGC));
-
-	ADD_TO_MODIFIED_REGION(pDrawable->pScreen, tmpRegion);
-
-	REGION_DESTROY(pDrawable->pScreen, tmpRegion);
-	xfree((char *)rects);
-    }
-
-    (*pGC->ops->Polylines) (pDrawable, pGC, mode, npt, ppts);
-
-    if (npt) {
-	SEND_FB_UPDATE(pDrawable->pScreen, prfb);
-    }
-
-    GC_OP_EPILOGUE(pGC);
-}
-
-/*
- * PolySegment - take the union of bounding boxes around each segment (and
- * clip).
- */
-
-static void
-rfbPolySegment(pDrawable, pGC, nseg, segs)
-    DrawablePtr pDrawable;
-    GCPtr 	pGC;
-    int		nseg;
-    xSegment	*segs;
-{
-    RegionPtr tmpRegion;
-    xRectangle *rects;
-    int i, extra, lw;
-
-    GC_OP_PROLOGUE(pDrawable, pGC);
-
-    TRC((stderr,"rfbPolySegment called\n"));
-
-    if (nseg) {
-	rects = (xRectangle *)xalloc(nseg*sizeof(xRectangle));
-	if (!rects) {
-	    FatalError("rfbPolySegment: xalloc failed\n");
-	}
-
-	lw = pGC->lineWidth;
-	if (lw == 0)
-	    lw = 1;
-
-	extra = lw / 2;
-
-	for (i = 0; i < nseg; i++)
-	{
-	    if (segs[i].x1 > segs[i].x2) {
-		rects[i].x = segs[i].x2 - extra + pDrawable->x;
-		rects[i].width = segs[i].x1 - segs[i].x2 + 1 + 2 * extra;
-	    } else {
-		rects[i].x = segs[i].x1 - extra + pDrawable->x;
-		rects[i].width = segs[i].x2 - segs[i].x1 + 1 + 2 * extra;
-	    }
-
-	    if (segs[i].y1 > segs[i].y2) {
-		rects[i].y = segs[i].y2 - extra + pDrawable->y;
-		rects[i].height = segs[i].y1 - segs[i].y2 + 1 + 2 * extra;
-	    } else {
-		rects[i].y = segs[i].y1 - extra + pDrawable->y;
-		rects[i].height = segs[i].y2 - segs[i].y1 + 1 + 2 * extra;
-	    }
-	}
-
-	tmpRegion = RECTS_TO_REGION(pDrawable->pScreen, nseg, rects, CT_NONE);
-	REGION_INTERSECT(pDrawable->pScreen, tmpRegion, tmpRegion,
-			 WINDOW_CLIP_REGION((WindowPtr)pDrawable,pGC));
-
-	ADD_TO_MODIFIED_REGION(pDrawable->pScreen, tmpRegion);
-
-	REGION_DESTROY(pDrawable->pScreen, tmpRegion);
-	xfree((char *)rects);
-    }
-
-    (*pGC->ops->PolySegment) (pDrawable, pGC, nseg, segs);
-
-    if (nseg) {
-	SEND_FB_UPDATE(pDrawable->pScreen, prfb);
-    }
-
-    GC_OP_EPILOGUE(pGC);
-}
-
-/*
- * PolyRectangle (rectangle outlines) - take the union of bounding boxes
- * around each line (and clip).
- */
-
-static void
-rfbPolyRectangle(pDrawable, pGC, nrects, rects)
-    DrawablePtr	pDrawable;
-    GCPtr	pGC;
-    int		nrects;
-    xRectangle	*rects;
-{
-    int i, extra, lw;
-    RegionPtr tmpRegion;
-    xRectangle *regRects;
-    GC_OP_PROLOGUE(pDrawable, pGC);
-
-    TRC((stderr,"rfbPolyRectangle called\n"));
-
-    if (nrects) {
-	regRects = (xRectangle *)xalloc(nrects*4*sizeof(xRectangle));
-	if (!regRects) {
-	    FatalError("rfbPolyRectangle: xalloc failed\n");
-	}
-
-	lw = pGC->lineWidth;
-	if (lw == 0)
-	    lw = 1;
-
-	extra = lw / 2;
-
-	for (i = 0; i < nrects; i++)
-	{
-	    regRects[i*4].x = rects[i].x - extra + pDrawable->x;
-	    regRects[i*4].y = rects[i].y - extra + pDrawable->y;
-	    regRects[i*4].width = rects[i].width + 1 + 2 * extra;
-	    regRects[i*4].height = 1 + 2 * extra;
-
-	    regRects[i*4+1].x = rects[i].x - extra + pDrawable->x;
-	    regRects[i*4+1].y = rects[i].y - extra + pDrawable->y;
-	    regRects[i*4+1].width = 1 + 2 * extra;
-	    regRects[i*4+1].height = rects[i].height + 1 + 2 * extra;
-
-	    regRects[i*4+2].x
-		= rects[i].x + rects[i].width - extra + pDrawable->x;
-	    regRects[i*4+2].y = rects[i].y - extra + pDrawable->y;
-	    regRects[i*4+2].width = 1 + 2 * extra;
-	    regRects[i*4+2].height = rects[i].height + 1 + 2 * extra;
-
-	    regRects[i*4+3].x = rects[i].x - extra + pDrawable->x;
-	    regRects[i*4+3].y
-		= rects[i].y + rects[i].height - extra + pDrawable->y;
-	    regRects[i*4+3].width = rects[i].width + 1 + 2 * extra;
-	    regRects[i*4+3].height = 1 + 2 * extra;
-	}
-
-	tmpRegion = RECTS_TO_REGION(pDrawable->pScreen, nrects*4,
-				    regRects, CT_NONE);
-	REGION_INTERSECT(pDrawable->pScreen, tmpRegion, tmpRegion,
-			 WINDOW_CLIP_REGION((WindowPtr)pDrawable,pGC));
-
-	ADD_TO_MODIFIED_REGION(pDrawable->pScreen, tmpRegion);
-
-	REGION_DESTROY(pDrawable->pScreen, tmpRegion);
-	xfree((char *)regRects);
-    }
-
-    (*pGC->ops->PolyRectangle) (pDrawable, pGC, nrects, rects);
-
-    if (nrects) {
-	SEND_FB_UPDATE(pDrawable->pScreen, prfb);
-    }
-
-    GC_OP_EPILOGUE(pGC);
-}
-
-/*
- * PolyArc - take the union of bounding boxes around each arc (and clip).
- * Bounding boxes assume each is a full circle / ellipse.
- */
-
-static void
-rfbPolyArc(pDrawable, pGC, narcs, arcs)
-    DrawablePtr	pDrawable;
-    register GCPtr	pGC;
-    int		narcs;
-    xArc	*arcs;
-{
-    int i, extra, lw;
-    RegionPtr tmpRegion;
-    xRectangle *rects;
-    GC_OP_PROLOGUE(pDrawable, pGC);
-
-    TRC((stderr,"rfbPolyArc called\n"));
-
-    if (narcs) {
-	rects = (xRectangle *)xalloc(narcs*sizeof(xRectangle));
-	if (!rects) {
-	    FatalError("rfbPolyArc: xalloc failed\n");
-	}
-
-	lw = pGC->lineWidth;
-	if (lw == 0)
-	    lw = 1;
-
-	extra = lw / 2;
-
-	for (i = 0; i < narcs; i++)
-	{
-	    rects[i].x = arcs[i].x - extra + pDrawable->x;
-	    rects[i].y = arcs[i].y - extra + pDrawable->y;
-	    rects[i].width = arcs[i].width + 2 * extra;
-	    rects[i].height = arcs[i].height + 2 * extra;
-	}
-
-	tmpRegion = RECTS_TO_REGION(pDrawable->pScreen, narcs, rects, CT_NONE);
-	REGION_INTERSECT(pDrawable->pScreen, tmpRegion, tmpRegion,
-			 WINDOW_CLIP_REGION((WindowPtr)pDrawable,pGC));
-
-	ADD_TO_MODIFIED_REGION(pDrawable->pScreen, tmpRegion);
-
-	REGION_DESTROY(pDrawable->pScreen, tmpRegion);
-	xfree((char *)rects);
-    }
-
-    (*pGC->ops->PolyArc) (pDrawable, pGC, narcs, arcs);
-
-    if (narcs) {
-	SEND_FB_UPDATE(pDrawable->pScreen, prfb);
-    }
-
-    GC_OP_EPILOGUE(pGC);
-}
-
-/*
- * FillPolygon - take bounding box around polygon (and clip).
- */
-
-static void
-rfbFillPolygon(pDrawable, pGC, shape, mode, count, pts)
-    register DrawablePtr pDrawable;
-    register GCPtr	pGC;
-    int			shape, mode;
-    int			count;
-    DDXPointPtr		pts;
-{
-    int i;
-    RegionRec tmpRegion;
-    BoxRec box;
-    GC_OP_PROLOGUE(pDrawable, pGC);
-
-    TRC((stderr,"rfbFillPolygon called\n"));
-
-    if (count) {
-	int minX = pts[0].x, maxX = pts[0].x;
-	int minY = pts[0].y, maxY = pts[0].y;
-
-	if (mode == CoordModePrevious)
-	{
-	    int x = pts[0].x, y = pts[0].y;
-
-	    for (i = 1; i < count; i++) {
-		x += pts[i].x;
-		y += pts[i].y;
-		if (x < minX) minX = x;
-		if (x > maxX) maxX = x;
-		if (y < minY) minY = y;
-		if (y > maxY) maxY = y;
-	    }
-	}
-	else
-	{
-	    for (i = 1; i < count; i++) {
-		if (pts[i].x < minX) minX = pts[i].x;
-		if (pts[i].x > maxX) maxX = pts[i].x;
-		if (pts[i].y < minY) minY = pts[i].y;
-		if (pts[i].y > maxY) maxY = pts[i].y;
-	    }
-	}
-
-	box.x1 = minX + pDrawable->x;
-	box.y1 = minY + pDrawable->y;
-	box.x2 = maxX + 1 + pDrawable->x;
-	box.y2 = maxY + 1 + pDrawable->y;
-
-	SAFE_REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
-
-	REGION_INTERSECT(pDrawable->pScreen, &tmpRegion, &tmpRegion,
-			 WINDOW_CLIP_REGION(((WindowPtr)pDrawable),pGC));
-
-	ADD_TO_MODIFIED_REGION(pDrawable->pScreen, &tmpRegion);
-
-	REGION_UNINIT(pDrawable->pScreen, &tmpRegion);
-    }
-
-    (*pGC->ops->FillPolygon) (pDrawable, pGC, shape, mode, count, pts);
-
-    if (count) {
-	SEND_FB_UPDATE(pDrawable->pScreen, prfb);
-    }
-
-    GC_OP_EPILOGUE(pGC);
-}
-
-/*
- * PolyFillRect - take the union of the given rectangles (and clip).
- */
-
-static void
-rfbPolyFillRect(pDrawable, pGC, nrects, rects)
-    DrawablePtr pDrawable;
-    GCPtr	pGC;
-    int		nrects;
-    xRectangle	*rects;
-{
-    RegionPtr tmpRegion;
-    xRectangle *regRects;
-    int i;
-    GC_OP_PROLOGUE(pDrawable, pGC);
-
-    TRC((stderr,"rfbPolyFillRect called\n"));
-
-    if (nrects) {
-	regRects = (xRectangle *)xalloc(nrects*sizeof(xRectangle));
-	if (!regRects) {
-	    FatalError("rfbPolyFillRect: xalloc failed\n");
-	}
-
-	for (i = 0; i < nrects; i++) {
-	    regRects[i].x = rects[i].x + pDrawable->x;
-	    regRects[i].y = rects[i].y + pDrawable->y;
-	    regRects[i].width = rects[i].width;
-	    regRects[i].height = rects[i].height;
-	}
-
-	tmpRegion = RECTS_TO_REGION(pDrawable->pScreen, nrects, regRects,
-				    CT_NONE);
-	REGION_INTERSECT(pDrawable->pScreen, tmpRegion, tmpRegion,
-			 WINDOW_CLIP_REGION((WindowPtr)pDrawable,pGC));
-
-	ADD_TO_MODIFIED_REGION(pDrawable->pScreen, tmpRegion);
-
-	REGION_DESTROY(pDrawable->pScreen, tmpRegion);
-	xfree((char *)regRects);
-    }
-
-    (*pGC->ops->PolyFillRect) (pDrawable, pGC, nrects, rects);
-
-    if (nrects) {
-	SEND_FB_UPDATE(pDrawable->pScreen, prfb);
-    }
-
-    GC_OP_EPILOGUE(pGC);
-}
-
-/*
- * PolyFillArc - take the union of bounding boxes around each arc (and clip).
- * Bounding boxes assume each is a full circle / ellipse.
- */
-
-static void
-rfbPolyFillArc(pDrawable, pGC, narcs, arcs)
-    DrawablePtr	pDrawable;
-    GCPtr	pGC;
-    int		narcs;
-    xArc	*arcs;
-{
-    int i, extra, lw;
-    RegionPtr tmpRegion;
-    xRectangle *rects;
-    GC_OP_PROLOGUE(pDrawable, pGC);
-
-    TRC((stderr,"rfbPolyFillArc called\n"));
-
-    if (narcs) {
-	rects = (xRectangle *)xalloc(narcs*sizeof(xRectangle));
-	if (!rects) {
-	    FatalError("rfbPolyFillArc: xalloc failed\n");
-	}
-
-	lw = pGC->lineWidth;
-	if (lw == 0)
-	    lw = 1;
-
-	extra = lw / 2;
-
-	for (i = 0; i < narcs; i++)
-	{
-	    rects[i].x = arcs[i].x - extra + pDrawable->x;
-	    rects[i].y = arcs[i].y - extra + pDrawable->y;
-	    rects[i].width = arcs[i].width + 2 * extra;
-	    rects[i].height = arcs[i].height + 2 * extra;
-	}
-
-	tmpRegion = RECTS_TO_REGION(pDrawable->pScreen, narcs, rects, CT_NONE);
-	REGION_INTERSECT(pDrawable->pScreen, tmpRegion, tmpRegion,
-			 WINDOW_CLIP_REGION((WindowPtr)pDrawable,pGC));
-
-	ADD_TO_MODIFIED_REGION(pDrawable->pScreen, tmpRegion);
-
-	REGION_DESTROY(pDrawable->pScreen, tmpRegion);
-	xfree((char *)rects);
-    }
-
-    (*pGC->ops->PolyFillArc) (pDrawable, pGC, narcs, arcs);
-
-    if (narcs) {
-	SEND_FB_UPDATE(pDrawable->pScreen, prfb);
-    }
-
-    GC_OP_EPILOGUE(pGC);
-}
-
-/*
- * Get a rough bounding box around n characters of the given font.
- */
-
-static void GetTextBoundingBox(pDrawable, font, x, y, n, pbox)
-    DrawablePtr pDrawable;
-    FontPtr font;
-    int x, y, n;
-    BoxPtr pbox;
-{
-    int maxAscent, maxDescent, maxCharWidth;
-
-    if (FONTASCENT(font) > FONTMAXBOUNDS(font,ascent))
-	maxAscent = FONTASCENT(font);
-    else
-	maxAscent = FONTMAXBOUNDS(font,ascent);
-
-    if (FONTDESCENT(font) > FONTMAXBOUNDS(font,descent))
-	maxDescent = FONTDESCENT(font);
-    else
-	maxDescent = FONTMAXBOUNDS(font,descent);
-
-    if (FONTMAXBOUNDS(font,rightSideBearing) > FONTMAXBOUNDS(font,characterWidth))
-	maxCharWidth = FONTMAXBOUNDS(font,rightSideBearing);
-    else
-	maxCharWidth = FONTMAXBOUNDS(font,characterWidth);
-
-    pbox->x1 = pDrawable->x + x;
-    pbox->y1 = pDrawable->y + y - maxAscent;
-    pbox->x2 = pbox->x1 + maxCharWidth * n;
-    pbox->y2 = pbox->y1 + maxAscent + maxDescent;
-
-    if (FONTMINBOUNDS(font,leftSideBearing) < 0) {
-	pbox->x1 += FONTMINBOUNDS(font,leftSideBearing);
+    if (rfbDeferUpdateTime != 0) {
+	cl->deferredUpdateTimer = TimerSet(cl->deferredUpdateTimer, 0,
+					   rfbDeferUpdateTime,
+					   rfbDeferredUpdateCallback, cl);
+	cl->deferredUpdateScheduled = TRUE;
+    } else {
+	rfbSendFramebufferUpdate(cl);
     }
 }
 
 
 /*
- * PolyText8 - use rough bounding box.
+ * PrintRegion is useful for debugging.
  */
-
-static int
-rfbPolyText8(pDrawable, pGC, x, y, count, chars)
-    DrawablePtr pDrawable;
-    GCPtr	pGC;
-    int		x, y;
-    int 	count;
-    char	*chars;
-{
-    int	ret;
-    RegionRec tmpRegion;
-    BoxRec box;
-    GC_OP_PROLOGUE(pDrawable, pGC);
-
-    TRC((stderr,"rfbPolyText8 called '%.*s'\n",count,chars));
-
-    if (count) {
-	GetTextBoundingBox(pDrawable, pGC->font, x, y, count, &box);
-
-	SAFE_REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
-
-	REGION_INTERSECT(pDrawable->pScreen, &tmpRegion, &tmpRegion,
-			 WINDOW_CLIP_REGION(((WindowPtr)pDrawable),pGC));
-
-	ADD_TO_MODIFIED_REGION(pDrawable->pScreen, &tmpRegion);
-
-	REGION_UNINIT(pDrawable->pScreen, &tmpRegion);
-    }
-
-    ret = (*pGC->ops->PolyText8) (pDrawable, pGC, x, y, count, chars);
-
-    if (count) {
-	SEND_FB_UPDATE(pDrawable->pScreen, prfb);
-    }
-
-    GC_OP_EPILOGUE(pGC);
-    return ret;
-}
-
-/*
- * PolyText16 - use rough bounding box.
- */
-
-static int
-rfbPolyText16(pDrawable, pGC, x, y, count, chars)
-    DrawablePtr pDrawable;
-    GCPtr	pGC;
-    int		x, y;
-    int		count;
-    unsigned short *chars;
-{
-    int	ret;
-    RegionRec tmpRegion;
-    BoxRec box;
-    GC_OP_PROLOGUE(pDrawable, pGC);
-
-    TRC((stderr,"rfbPolyText16 called\n"));
-
-    if (count) {
-	GetTextBoundingBox(pDrawable, pGC->font, x, y, count, &box);
-
-	SAFE_REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
-
-	REGION_INTERSECT(pDrawable->pScreen, &tmpRegion, &tmpRegion,
-			 WINDOW_CLIP_REGION(((WindowPtr)pDrawable),pGC));
-
-	ADD_TO_MODIFIED_REGION(pDrawable->pScreen, &tmpRegion);
-
-	REGION_UNINIT(pDrawable->pScreen, &tmpRegion);
-    }
-
-    ret = (*pGC->ops->PolyText16) (pDrawable, pGC, x, y, count, chars);
-
-    if (count) {
-	SEND_FB_UPDATE(pDrawable->pScreen, prfb);
-    }
-
-    GC_OP_EPILOGUE(pGC);
-    return ret;
-}
-
-/*
- * ImageText8 - use rough bounding box.
- */
-
-static void
-rfbImageText8(pDrawable, pGC, x, y, count, chars)
-    DrawablePtr pDrawable;
-    GCPtr	pGC;
-    int		x, y;
-    int		count;
-    char	*chars;
-{
-    RegionRec tmpRegion;
-    BoxRec box;
-    GC_OP_PROLOGUE(pDrawable, pGC);
-
-    TRC((stderr,"rfbImageText8 called '%.*s'\n",count,chars));
-
-    if (count) {
-	GetTextBoundingBox(pDrawable, pGC->font, x, y, count, &box);
-
-	SAFE_REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
-
-	REGION_INTERSECT(pDrawable->pScreen, &tmpRegion, &tmpRegion,
-			 WINDOW_CLIP_REGION(((WindowPtr)pDrawable),pGC));
-
-	ADD_TO_MODIFIED_REGION(pDrawable->pScreen, &tmpRegion);
-
-	REGION_UNINIT(pDrawable->pScreen, &tmpRegion);
-    }
-
-    (*pGC->ops->ImageText8) (pDrawable, pGC, x, y, count, chars);
-
-    if (count) {
-	SEND_FB_UPDATE(pDrawable->pScreen, prfb);
-    }
-
-    GC_OP_EPILOGUE(pGC);
-}
-
-/*
- * ImageText16 - use rough bounding box.
- */
-
-static void
-rfbImageText16(pDrawable, pGC, x, y, count, chars)
-    DrawablePtr pDrawable;
-    GCPtr	pGC;
-    int		x, y;
-    int		count;
-    unsigned short *chars;
-{
-    RegionRec tmpRegion;
-    BoxRec box;
-    GC_OP_PROLOGUE(pDrawable, pGC);
-
-    TRC((stderr,"rfbImageText16 called\n"));
-
-    if (count) {
-	GetTextBoundingBox(pDrawable, pGC->font, x, y, count, &box);
-
-	SAFE_REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
-
-	REGION_INTERSECT(pDrawable->pScreen, &tmpRegion, &tmpRegion,
-			 WINDOW_CLIP_REGION(((WindowPtr)pDrawable),pGC));
-
-	ADD_TO_MODIFIED_REGION(pDrawable->pScreen, &tmpRegion);
-
-	REGION_UNINIT(pDrawable->pScreen, &tmpRegion);
-    }
-
-    (*pGC->ops->ImageText16) (pDrawable, pGC, x, y, count, chars);
-
-    if (count) {
-	SEND_FB_UPDATE(pDrawable->pScreen, prfb);
-    }
-
-    GC_OP_EPILOGUE(pGC);
-}
-
-/*
- * ImageGlyphBlt - use rough bounding box.
- */
-
-static void
-rfbImageGlyphBlt(pDrawable, pGC, x, y, nglyph, ppci, pglyphBase)
-    DrawablePtr pDrawable;
-    GCPtr 	pGC;
-    int 	x, y;
-    unsigned int nglyph;
-    CharInfoPtr *ppci;		/* array of character info */
-    pointer 	pglyphBase;	/* start of array of glyphs */
-{
-    RegionRec tmpRegion;
-    BoxRec box;
-    GC_OP_PROLOGUE(pDrawable, pGC);
-
-    TRC((stderr,"rfbImageGlyphBlt called\n"));
-
-    if (nglyph) {
-	GetTextBoundingBox(pDrawable, pGC->font, x, y, nglyph, &box);
-
-	SAFE_REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
-
-	REGION_INTERSECT(pDrawable->pScreen, &tmpRegion, &tmpRegion,
-			 WINDOW_CLIP_REGION(((WindowPtr)pDrawable),pGC));
-
-	ADD_TO_MODIFIED_REGION(pDrawable->pScreen, &tmpRegion);
-
-	REGION_UNINIT(pDrawable->pScreen, &tmpRegion);
-    }
-
-    (*pGC->ops->ImageGlyphBlt) (pDrawable, pGC, x, y, nglyph, ppci,pglyphBase);
-
-    if (nglyph) {
-	SEND_FB_UPDATE(pDrawable->pScreen, prfb);
-    }
-
-    GC_OP_EPILOGUE(pGC);
-}
-
-/*
- * PolyGlyphBlt - use rough bounding box.
- */
-
-static void
-rfbPolyGlyphBlt(pDrawable, pGC, x, y, nglyph, ppci, pglyphBase)
-    DrawablePtr pDrawable;
-    GCPtr	pGC;
-    int 	x, y;
-    unsigned int nglyph;
-    CharInfoPtr *ppci;		/* array of character info */
-    pointer	pglyphBase;	/* start of array of glyphs */
-{
-    RegionRec tmpRegion;
-    BoxRec box;
-    GC_OP_PROLOGUE(pDrawable, pGC);
-
-    TRC((stderr,"rfbPolyGlyphBlt called\n"));
-
-    if (nglyph) {
-	GetTextBoundingBox(pDrawable, pGC->font, x, y, nglyph, &box);
-
-	SAFE_REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
-
-	REGION_INTERSECT(pDrawable->pScreen, &tmpRegion, &tmpRegion,
-			 WINDOW_CLIP_REGION(((WindowPtr)pDrawable),pGC));
-
-	ADD_TO_MODIFIED_REGION(pDrawable->pScreen, &tmpRegion);
-
-	REGION_UNINIT(pDrawable->pScreen, &tmpRegion);
-    }
-
-    (*pGC->ops->PolyGlyphBlt) (pDrawable, pGC, x, y, nglyph, ppci, pglyphBase);
-
-    if (nglyph) {
-	SEND_FB_UPDATE(pDrawable->pScreen, prfb);
-    }
-
-    GC_OP_EPILOGUE(pGC);
-}
-
-/*
- * PushPixels - be fairly safe - region modified is intersection of the given
- * rectangle with the window clip region.
- */
-
-static void
-rfbPushPixels(pGC, pBitMap, pDrawable, w, h, x, y)
-    GCPtr	pGC;
-    PixmapPtr	pBitMap;
-    DrawablePtr pDrawable;
-    int		w, h, x, y;
-{
-    RegionRec tmpRegion;
-    BoxRec box;
-    GC_OP_PROLOGUE(pDrawable, pGC);
-
-    TRC((stderr,"rfbPushPixels called\n"));
-
-    box.x1 = x + pDrawable->x;
-    box.y1 = y + pDrawable->y;
-    box.x2 = box.x1 + w;
-    box.y2 = box.y1 + h;
-
-    SAFE_REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
-
-    REGION_INTERSECT(pDrawable->pScreen, &tmpRegion, &tmpRegion,
-		     WINDOW_CLIP_REGION(((WindowPtr)pDrawable),pGC));
-
-    ADD_TO_MODIFIED_REGION(pDrawable->pScreen, &tmpRegion);
-
-    REGION_UNINIT(pDrawable->pScreen, &tmpRegion);
-
-    (*pGC->ops->PushPixels) (pGC, pBitMap, pDrawable, w, h, x, y);
-
-    SEND_FB_UPDATE(pDrawable->pScreen, prfb);
-
-    GC_OP_EPILOGUE(pGC);
-}
-
 
 static void
 PrintRegion(pScreen,reg)

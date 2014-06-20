@@ -156,6 +156,9 @@ rfbNewClient(sock)
 
     REGION_INIT(pScreen,&cl->requestedRegion,NullBox,0);
 
+    cl->deferredUpdateScheduled = FALSE;
+    cl->deferredUpdateTimer = NULL;
+
     cl->format = rfbServerFormat;
     cl->translateFn = rfbTranslateNone;
     cl->translateLookupTable = NULL;
@@ -216,6 +219,7 @@ rfbClientConnectionGone(sock)
 
     REGION_UNINIT(pScreen,&cl->copyRegion);
     REGION_UNINIT(pScreen,&cl->modifiedRegion);
+    TimerFree(cl->deferredUpdateTimer);
 
     rfbPrintStats(cl);
 
@@ -692,7 +696,7 @@ rfbProcessClientNormalMessage(cl)
 	    return;
 	}
 
-	rfbSetCutText(str, msg.cct.length);
+	rfbSetXCutText(str, msg.cct.length);
 
 	xfree(str);
 	return;

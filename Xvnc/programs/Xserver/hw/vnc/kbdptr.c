@@ -29,6 +29,7 @@
 #define NEED_EVENTS
 #include "X11/Xproto.h"
 #include "inputstr.h"
+#define XK_CYRILLIC
 #include <X11/keysym.h>
 #include <Xatom.h>
 #include "rfb.h"
@@ -39,6 +40,7 @@ extern WindowPtr *WindowTable; /* Why isn't this in a header file? */
     (kbdDevice->key->down[(keycode) >> 3] & (1 << ((keycode) & 7)))
 
 
+static void XConvertCase(KeySym sym, KeySym *lower, KeySym *upper);
 
 static DeviceIntPtr kbdDevice;
 
@@ -268,13 +270,14 @@ KbdAddEvent(down, keySym, cl)
     xEvent ev, fake;
     KeySymsPtr keySyms = &kbdDevice->key->curKeySyms;
     int i;
-    Bool foundKey = FALSE;
-    int freeKey = -1;
+    int keyCode = 0;
+    int freeIndex = -1;
     unsigned long time;
     Bool fakeShiftPress = FALSE;
     Bool fakeShiftLRelease = FALSE;
     Bool fakeShiftRRelease = FALSE;
-    Bool shiftedKey;
+    Bool shiftMustBeReleased = FALSE;
+    Bool shiftMustBePressed = FALSE;
 
 #ifdef CORBA
     if (cl) {
@@ -290,57 +293,114 @@ KbdAddEvent(down, keySym, cl)
 	ev.u.u.type = KeyRelease;
     }
 
+    /* First check if it's one of our predefined keys.  If so then we can make
+       some attempt at allowing an xmodmap inside a VNC desktop behave
+       something like you'd expect - e.g. if keys A & B are swapped over and
+       the VNC client sends an A, then map it to a B when generating the X
+       event.  We don't attempt to do this for keycodes which we make up on the
+       fly because it's too hard... */
+
     for (i = 0; i < N_PREDEFINED_KEYS * GLYPHS_PER_KEY; i++) {
 	if (keySym == kbdMap[i]) {
-	    foundKey = TRUE;
+	    keyCode = MIN_KEY_CODE + i / GLYPHS_PER_KEY;
+
+	    if (kbdMap[(i/GLYPHS_PER_KEY) * GLYPHS_PER_KEY + 1] != NoSymbol) {
+
+		/* this keycode has more than one symbol associated with it,
+		   so shift state is important */
+
+		if ((i % GLYPHS_PER_KEY) == 0)
+		    shiftMustBeReleased = TRUE;
+		else
+		    shiftMustBePressed = TRUE;
+	    }
 	    break;
 	}
     }
 
-    if (!foundKey) {
+    if (!keyCode) {
+
+	/* not one of our predefined keys - see if it's in the current keyboard
+           mapping (i.e. we've already allocated an extra keycode for it) */
+
+	if (keySyms->mapWidth < 2) {
+	    rfbLog("KbdAddEvent: Sanity check failed - Keyboard mapping has "
+		   "less than 2 keysyms per keycode (KeySym 0x%x)\n", keySym);
+	    return;
+	}
+
 	for (i = 0; i < NO_OF_KEYS * keySyms->mapWidth; i++) {
 	    if (keySym == keySyms->map[i]) {
-		foundKey = TRUE;
+		keyCode = MIN_KEY_CODE + i / keySyms->mapWidth;
+
+		if (keySyms->map[(i / keySyms->mapWidth)
+					* keySyms->mapWidth + 1] != NoSymbol) {
+
+		    /* this keycode has more than one symbol associated with
+		       it, so shift state is important */
+
+		    if ((i % keySyms->mapWidth) == 0)
+			shiftMustBeReleased = TRUE;
+		    else
+			shiftMustBePressed = TRUE;
+		}
 		break;
 	    }
-	    if ((freeKey == -1) && (keySyms->map[i] == NoSymbol)
+	    if ((freeIndex == -1) && (keySyms->map[i] == NoSymbol)
 		&& (i % keySyms->mapWidth) == 0)
 	    {
-		freeKey = i;
+		freeIndex = i;
 	    }
 	}
     }
 
-    if (!foundKey) {
-	if (freeKey == -1) {
+    if (!keyCode) {
+	KeySym lower, upper;
+
+	/* we don't have an existing keycode - make one up on the fly and add
+	   it to the keyboard mapping.  Thanks to Vlad Harchev for pointing
+	   out problems with non-ascii capitalisation. */
+
+	if (freeIndex == -1) {
 	    rfbLog("KbdAddEvent: ignoring KeySym 0x%x - no free KeyCodes\n",
 		   keySym);
 	    return;
 	}
 
-	i = freeKey;
-	keySyms->map[i] = keySym;
-	SendMappingNotify(MappingKeyboard,
-			  MIN_KEY_CODE + (i / keySyms->mapWidth), 1,
-			  serverClient);
+	keyCode = MIN_KEY_CODE + freeIndex / keySyms->mapWidth;
+
+	XConvertCase(keySym, &lower, &upper);
+
+	if (lower == upper) {
+	    keySyms->map[freeIndex] = keySym;
+
+	} else {
+	    keySyms->map[freeIndex] = lower;
+	    keySyms->map[freeIndex+1] = upper;
+
+	    if (keySym == lower)
+		shiftMustBeReleased = TRUE;
+	    else
+		shiftMustBePressed = TRUE;
+	}
+
+	SendMappingNotify(MappingKeyboard, keyCode, 1, serverClient);
 
 	rfbLog("KbdAddEvent: unknown KeySym 0x%x - allocating KeyCode %d\n",
-	       keySym, MIN_KEY_CODE + (i / keySyms->mapWidth));
+	       keySym, keyCode);
     }
 
     time = GetTimeInMillis();
 
-    shiftedKey = ((i % keySyms->mapWidth) == 1);
-
-    if (down && (keySym > 32) && (keySym < 127)) {
-	if (shiftedKey && !(kbdDevice->key->state & ShiftMask)) {
+    if (down) {
+	if (shiftMustBePressed && !(kbdDevice->key->state & ShiftMask)) {
 	    fakeShiftPress = TRUE;
 	    fake.u.u.type = KeyPress;
 	    fake.u.u.detail = SHIFT_L_KEY_CODE;
 	    fake.u.keyButtonPointer.time = time;
 	    mieqEnqueue(&fake);
 	}
-	if (!shiftedKey && (kbdDevice->key->state & ShiftMask)) {
+	if (shiftMustBeReleased && (kbdDevice->key->state & ShiftMask)) {
 	    if (KEY_IS_PRESSED(SHIFT_L_KEY_CODE)) {
 		fakeShiftLRelease = TRUE;
 		fake.u.u.type = KeyRelease;
@@ -358,7 +418,7 @@ KbdAddEvent(down, keySym, cl)
 	}
     }
 
-    ev.u.u.detail = MIN_KEY_CODE + (i / keySyms->mapWidth);
+    ev.u.u.detail = keyCode;
     ev.u.keyButtonPointer.time = time;
     mieqEnqueue(&ev);
 
@@ -443,5 +503,108 @@ KbdReleaseAllKeys()
 		}
 	    }
 	}
+    }
+}
+
+
+/* copied from Xlib source */
+
+static void XConvertCase(KeySym sym, KeySym *lower, KeySym *upper)
+{
+    *lower = sym;
+    *upper = sym;
+    switch(sym >> 8) {
+    case 0: /* Latin 1 */
+	if ((sym >= XK_A) && (sym <= XK_Z))
+	    *lower += (XK_a - XK_A);
+	else if ((sym >= XK_a) && (sym <= XK_z))
+	    *upper -= (XK_a - XK_A);
+	else if ((sym >= XK_Agrave) && (sym <= XK_Odiaeresis))
+	    *lower += (XK_agrave - XK_Agrave);
+	else if ((sym >= XK_agrave) && (sym <= XK_odiaeresis))
+	    *upper -= (XK_agrave - XK_Agrave);
+	else if ((sym >= XK_Ooblique) && (sym <= XK_Thorn))
+	    *lower += (XK_oslash - XK_Ooblique);
+	else if ((sym >= XK_oslash) && (sym <= XK_thorn))
+	    *upper -= (XK_oslash - XK_Ooblique);
+	break;
+    case 1: /* Latin 2 */
+	/* Assume the KeySym is a legal value (ignore discontinuities) */
+	if (sym == XK_Aogonek)
+	    *lower = XK_aogonek;
+	else if (sym >= XK_Lstroke && sym <= XK_Sacute)
+	    *lower += (XK_lstroke - XK_Lstroke);
+	else if (sym >= XK_Scaron && sym <= XK_Zacute)
+	    *lower += (XK_scaron - XK_Scaron);
+	else if (sym >= XK_Zcaron && sym <= XK_Zabovedot)
+	    *lower += (XK_zcaron - XK_Zcaron);
+	else if (sym == XK_aogonek)
+	    *upper = XK_Aogonek;
+	else if (sym >= XK_lstroke && sym <= XK_sacute)
+	    *upper -= (XK_lstroke - XK_Lstroke);
+	else if (sym >= XK_scaron && sym <= XK_zacute)
+	    *upper -= (XK_scaron - XK_Scaron);
+	else if (sym >= XK_zcaron && sym <= XK_zabovedot)
+	    *upper -= (XK_zcaron - XK_Zcaron);
+	else if (sym >= XK_Racute && sym <= XK_Tcedilla)
+	    *lower += (XK_racute - XK_Racute);
+	else if (sym >= XK_racute && sym <= XK_tcedilla)
+	    *upper -= (XK_racute - XK_Racute);
+	break;
+    case 2: /* Latin 3 */
+	/* Assume the KeySym is a legal value (ignore discontinuities) */
+	if (sym >= XK_Hstroke && sym <= XK_Hcircumflex)
+	    *lower += (XK_hstroke - XK_Hstroke);
+	else if (sym >= XK_Gbreve && sym <= XK_Jcircumflex)
+	    *lower += (XK_gbreve - XK_Gbreve);
+	else if (sym >= XK_hstroke && sym <= XK_hcircumflex)
+	    *upper -= (XK_hstroke - XK_Hstroke);
+	else if (sym >= XK_gbreve && sym <= XK_jcircumflex)
+	    *upper -= (XK_gbreve - XK_Gbreve);
+	else if (sym >= XK_Cabovedot && sym <= XK_Scircumflex)
+	    *lower += (XK_cabovedot - XK_Cabovedot);
+	else if (sym >= XK_cabovedot && sym <= XK_scircumflex)
+	    *upper -= (XK_cabovedot - XK_Cabovedot);
+	break;
+    case 3: /* Latin 4 */
+	/* Assume the KeySym is a legal value (ignore discontinuities) */
+	if (sym >= XK_Rcedilla && sym <= XK_Tslash)
+	    *lower += (XK_rcedilla - XK_Rcedilla);
+	else if (sym >= XK_rcedilla && sym <= XK_tslash)
+	    *upper -= (XK_rcedilla - XK_Rcedilla);
+	else if (sym == XK_ENG)
+	    *lower = XK_eng;
+	else if (sym == XK_eng)
+	    *upper = XK_ENG;
+	else if (sym >= XK_Amacron && sym <= XK_Umacron)
+	    *lower += (XK_amacron - XK_Amacron);
+	else if (sym >= XK_amacron && sym <= XK_umacron)
+	    *upper -= (XK_amacron - XK_Amacron);
+	break;
+    case 6: /* Cyrillic */
+	/* Assume the KeySym is a legal value (ignore discontinuities) */
+	if (sym >= XK_Serbian_DJE && sym <= XK_Serbian_DZE)
+	    *lower -= (XK_Serbian_DJE - XK_Serbian_dje);
+	else if (sym >= XK_Serbian_dje && sym <= XK_Serbian_dze)
+	    *upper += (XK_Serbian_DJE - XK_Serbian_dje);
+	else if (sym >= XK_Cyrillic_YU && sym <= XK_Cyrillic_HARDSIGN)
+	    *lower -= (XK_Cyrillic_YU - XK_Cyrillic_yu);
+	else if (sym >= XK_Cyrillic_yu && sym <= XK_Cyrillic_hardsign)
+	    *upper += (XK_Cyrillic_YU - XK_Cyrillic_yu);
+        break;
+    case 7: /* Greek */
+	/* Assume the KeySym is a legal value (ignore discontinuities) */
+	if (sym >= XK_Greek_ALPHAaccent && sym <= XK_Greek_OMEGAaccent)
+	    *lower += (XK_Greek_alphaaccent - XK_Greek_ALPHAaccent);
+	else if (sym >= XK_Greek_alphaaccent && sym <= XK_Greek_omegaaccent &&
+		 sym != XK_Greek_iotaaccentdieresis &&
+		 sym != XK_Greek_upsilonaccentdieresis)
+	    *upper -= (XK_Greek_alphaaccent - XK_Greek_ALPHAaccent);
+	else if (sym >= XK_Greek_ALPHA && sym <= XK_Greek_OMEGA)
+	    *lower += (XK_Greek_alpha - XK_Greek_ALPHA);
+	else if (sym >= XK_Greek_alpha && sym <= XK_Greek_omega &&
+		 sym != XK_Greek_finalsmallsigma)
+	    *upper -= (XK_Greek_alpha - XK_Greek_ALPHA);
+        break;
     }
 }

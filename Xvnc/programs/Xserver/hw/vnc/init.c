@@ -73,6 +73,8 @@ from the X Consortium.
 #include "input.h"
 #include "mipointer.h"
 #include "dixstruct.h"
+#include "propertyst.h"
+#include <Xatom.h>
 #include <errno.h>
 #include <sys/param.h>
 #include "dix.h"
@@ -98,6 +100,7 @@ char *desktopName = "x11";
 char rfbThisHost[256];
 
 Atom VNC_LAST_CLIENT_ID;
+Atom VNC_CONNECT;
 
 static HWEventQueueType alwaysCheckForInput[2] = { 0, 1 };
 static HWEventQueueType *mieqCheckForInput[2];
@@ -110,6 +113,7 @@ static Bool rfbScreenInit(int index, ScreenPtr pScreen, int argc,
 			  char **argv);
 static int rfbKeybdProc(DeviceIntPtr pDevice, int onoff);
 static int rfbMouseProc(DeviceIntPtr pDevice, int onoff);
+static Bool CheckDisplayNumber(int n);
 
 static Bool rfbAlwaysTrue();
 static char *rfbAllocateFramebufferMemory(rfbScreenInfoPtr prfb);
@@ -123,6 +127,10 @@ static miPointerScreenFuncRec rfbPointerCursorFuncs = {
     rfbCrossScreen,
     miPointerWarpCursor
 };
+
+
+int inetdSock = -1;
+static char inetdDisplayNumStr[10];
 
 
 /*
@@ -248,6 +256,12 @@ ddxProcessArgument (argc, argv, i)
 	return 2;
     }
 
+    if (strcmp(argv[i], "-deferupdate") == 0) {	/* -deferupdate ms */
+	if (i + 1 >= argc) UseMsg();
+	rfbDeferUpdateTime = atoi(argv[i+1]);
+	return 2;
+    }
+
     if (strcmp(argv[i], "-economictranslate") == 0) {
 	rfbEconomicTranslate = TRUE;
 	return 1;
@@ -279,6 +293,36 @@ ddxProcessArgument (argc, argv, i)
 	return 1;
     }
 
+    if (strcmp(argv[i], "-inetd") == 0) {	/* -inetd */ 
+	int n;
+	for (n = 1; n < 100; n++) {
+	    if (CheckDisplayNumber(n))
+		break;
+	}
+
+	if (n >= 100)
+	    FatalError("-inetd: couldn't find free display number");
+
+	sprintf(inetdDisplayNumStr, "%d", n);
+	display = inetdDisplayNumStr;
+
+	/* fds 0, 1 and 2 (stdin, out and err) are all the same socket to the
+           RFB client.  OsInit() closes stdout and stdin, and we don't want
+           stderr to go to the RFB client, so make the client socket 3 and
+           close stderr.  OsInit() will redirect stderr logging to an
+           appropriate log file or /dev/null if that doesn't work. */
+
+	dup2(0,3);
+	inetdSock = 3;
+	close(2);
+
+	return 1;
+    }
+
+    if (inetdSock != -1 && argv[i][0] == ':') {
+	FatalError("can't specify both -inetd and :displaynumber");
+    }
+
     return 0;
 }
 
@@ -299,7 +343,7 @@ InitOutput(screenInfo, argc, argv)
 
     rfbLog("Xvnc version %d.%d.%s\n", rfbProtocolMajorVersion,
 	   rfbProtocolMinorVersion,XVNCRELEASE);
-    rfbLog("Copyright (C) 1999 AT&T Laboratories Cambridge.\n");
+    rfbLog("Copyright (C) AT&T Laboratories Cambridge.\n");
     rfbLog("All Rights Reserved.\n");
     rfbLog("See http://www.uk.research.att.com/vnc for information on VNC\n");
     rfbLog("Desktop name '%s' (%s:%s)\n",desktopName,rfbThisHost,display);
@@ -308,8 +352,11 @@ InitOutput(screenInfo, argc, argv)
 
     VNC_LAST_CLIENT_ID = MakeAtom("VNC_LAST_CLIENT_ID",
 				  strlen("VNC_LAST_CLIENT_ID"), TRUE);
+    VNC_CONNECT = MakeAtom("VNC_CONNECT", strlen("VNC_CONNECT"), TRUE);
     rfbInitSockets();
-    httpInitSockets();
+    if (inetdSock == -1)
+	httpInitSockets();
+   
 
 #ifdef CORBA
     initialiseCORBA(argc, argv, desktopName);
@@ -625,6 +672,70 @@ ProcessInputEvents()
 }
 
 
+static Bool CheckDisplayNumber(int n)
+{
+    char fname[32];
+    int sock;
+    struct sockaddr_in addr;
+
+    sock = socket(AF_INET, SOCK_STREAM, 0);
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    addr.sin_port = htons(6000+n);
+    if (bind(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+	close(sock);
+	return FALSE;
+    }
+    close(sock);
+
+    sprintf(fname, "/tmp/.X%d-lock", n);
+    if (access(fname, F_OK) == 0)
+	return FALSE;
+
+    sprintf(fname, "/tmp/.X11-unix/X%d", n);
+    if (access(fname, F_OK) == 0)
+	return FALSE;
+
+    return TRUE;
+}
+
+
+void
+rfbRootPropertyChange(PropertyPtr pProp)
+{
+    if ((pProp->propertyName == XA_CUT_BUFFER0) && (pProp->type == XA_STRING)
+	&& (pProp->format == 8))
+    {
+	rfbGotXCutText(pProp->data, pProp->size);
+	return;
+    }
+    if ((pProp->propertyName == VNC_CONNECT) && (pProp->type == XA_STRING)
+	&& (pProp->format == 8))
+    {
+	int i;
+	rfbClientPtr cl;
+	int port = 5500;
+	char *host = (char *)Xalloc(pProp->size+1);
+	memcpy(host, pProp->data, pProp->size);
+	host[pProp->size] = 0;
+	for (i = 0; i < pProp->size; i++) {
+	    if (host[i] == ':') {
+		port = atoi(&host[i+1]);
+		host[i] = 0;
+	    }
+	}
+
+	cl = rfbReverseConnection(host, port);
+
+#ifdef CORBA
+	if (cl != NULL)
+	    newConnection(cl, (KEYBOARD_DEVICE|POINTER_DEVICE), 1, 1, 1);
+#endif
+	free(host);
+    }
+}
+
+
 int
 rfbBitsPerPixel(depth)
     int depth;
@@ -735,6 +846,8 @@ ddxUseMsg()
     ErrorF("-rfbauth passwd-file   use authentication on RFB protocol\n");
     ErrorF("-httpd dir             serve files via HTTP from here\n");
     ErrorF("-httpport port         port for HTTP\n");
+    ErrorF("-deferupdate time      time in ms to defer updates "
+							     "(default 40)\n");
     ErrorF("-economictranslate     less memory-hungry translation\n");
     ErrorF("-desktop name          VNC desktop name (default x11)\n");
     ErrorF("-alwaysshared          always treat new clients as shared\n");
@@ -744,6 +857,7 @@ ddxUseMsg()
 	   "                       connection comes in (refuse new connection "
 								 "instead)\n");
     ErrorF("-localhost             only allow connections from localhost\n");
+    ErrorF("-inetd                 Xvnc is launched by inetd\n");
     exit(1);
 }
 

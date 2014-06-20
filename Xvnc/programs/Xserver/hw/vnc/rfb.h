@@ -180,6 +180,15 @@ typedef struct rfbClientRec {
 
     RegionRec requestedRegion;
 
+    /* The following members represent the state of the "deferred update" timer
+       - when the framebuffer is modified and the client is ready, in most
+       cases it is more efficient to defer sending the update by a few
+       milliseconds so that several changes to the framebuffer can be combined
+       into a single update. */
+
+    Bool deferredUpdateScheduled;
+    OsTimerPtr deferredUpdateTimer;
+
     /* translateFn points to the translation function which is used to copy
        and translate a rectangle from the framebuffer to an output buffer. */
 
@@ -270,6 +279,8 @@ extern Atom VNC_LAST_CLIENT_ID;
 extern rfbScreenInfo rfbScreen;
 extern int rfbGCIndex;
 
+extern int inetdSock;
+
 extern int rfbBitsPerPixel(int depth);
 extern void rfbLog(char *format, ...);
 extern void rfbLogPerror(char *str);
@@ -313,6 +324,8 @@ extern void rfbStoreColors(ColormapPtr pmap, int ndef, xColorItem *pdefs);
 
 /* draw.c */
 
+extern int rfbDeferUpdateTime;
+
 extern Bool rfbCloseScreen(int,ScreenPtr);
 extern Bool rfbCreateGC(GCPtr);
 extern void rfbPaintWindowBackground(WindowPtr, RegionPtr, int what);
@@ -325,7 +338,8 @@ extern RegionPtr rfbRestoreAreas(WindowPtr, RegionPtr);
 
 /* cutpaste.c */
 
-extern void rfbSetCutText(char *str, int len);
+extern void rfbSetXCutText(char *str, int len);
+extern void rfbGotXCutText(char *str, int len);
 
 
 /* kbdptr.c */

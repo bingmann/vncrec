@@ -80,14 +80,14 @@ main(int argc, char **argv)
 
   if (!InitialiseRFBConnection()) exit(1);
 
-  /* Find the best pixel format and X visual/colormap to use */
-
-  SetVisualAndCmap();
-
   /* Create the "popup" widget - this won't actually appear on the screen until
      some user-defined event causes the "ShowPopup" action to be invoked */
 
   CreatePopup();
+
+  /* Find the best pixel format and X visual/colormap to use */
+
+  SetVisualAndCmap();
 
   /* Create the "desktop" widget, and perform initialisation which needs doing
      before the widgets are realized */

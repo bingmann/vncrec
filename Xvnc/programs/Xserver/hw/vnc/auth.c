@@ -30,7 +30,16 @@
 #include "rfb.h"
 
 
+#define MAX_AUTH_TRIES 5
+#define AUTH_TOO_MANY_BASE_DELAY 10 * 1000 /* in ms, doubles for each failure
+					      over MAX_AUTH_TRIES */
+
+static CARD32 rfbAuthReenable(OsTimerPtr timer, CARD32 now, pointer arg);
+
 char *rfbAuthPasswdFile = NULL;
+int rfbAuthTries = 0;
+Bool rfbAuthTooManyTries = FALSE;
+static OsTimerPtr timer = NULL;
 
 
 /*
@@ -49,6 +58,11 @@ rfbAuthNewClient(cl)
     cl->state = RFB_AUTHENTICATION;
 
     if (rfbAuthPasswdFile && !cl->reverseConnection) {
+
+	if (rfbAuthTooManyTries) {
+	    rfbClientConnFailed(cl, "Too many authentication failures");
+	    return;
+	}
 
 	*(CARD32 *)buf = Swap32IfLE(rfbVncAuth);
 	vncRandomBytes(cl->authChallenge);
@@ -120,7 +134,21 @@ rfbAuthProcessClientMessage(cl)
 	rfbLog("rfbAuthProcessClientMessage: authentication failed from %s\n",
 	       cl->host);
 
-	authResult = Swap32IfLE(rfbVncAuthFailed);
+	rfbAuthTries++;
+
+	if (rfbAuthTries >= MAX_AUTH_TRIES) {
+
+	    CARD32 delay = AUTH_TOO_MANY_BASE_DELAY;
+	    for (i = MAX_AUTH_TRIES; i < rfbAuthTries; i++)
+		delay *= 2;
+	    timer = TimerSet(timer, 0, delay, rfbAuthReenable, NULL);
+
+	    rfbAuthTooManyTries = TRUE;
+	    authResult = Swap32IfLE(rfbVncAuthTooMany);
+
+	} else {
+	    authResult = Swap32IfLE(rfbVncAuthFailed);
+	}
 
 	if (WriteExact(cl->sock, (char *)&authResult, 4) < 0) {
 	    rfbLogPerror("rfbAuthProcessClientMessage: write");
@@ -128,6 +156,8 @@ rfbAuthProcessClientMessage(cl)
 	rfbCloseSock(cl->sock);
 	return;
     }
+
+    rfbAuthTries = 0;
 
     authResult = Swap32IfLE(rfbVncAuthOK);
 
@@ -138,4 +168,11 @@ rfbAuthProcessClientMessage(cl)
     }
 
     cl->state = RFB_INITIALISATION;
+}
+
+static CARD32
+rfbAuthReenable(OsTimerPtr timer, CARD32 now, pointer arg)
+{
+    rfbAuthTooManyTries = FALSE;
+    return 0;
 }

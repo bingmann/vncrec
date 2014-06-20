@@ -120,7 +120,7 @@ sendHextiles##bpp(cl, rx, ry, rw, rh)					      \
 	    if (ry+rh - y < 16)						      \
 		h = ry+rh - y;						      \
 									      \
-	    if ((ublen + 1 + 16*16*(bpp/8)) > UPDATE_BUF_SIZE) {	      \
+	    if ((ublen + 1 + (2 + 16 * 16) * (bpp/8)) > UPDATE_BUF_SIZE) {    \
 		if (!rfbSendUpdateBuf(cl))				      \
 		    return FALSE;					      \
 	    }								      \

@@ -65,8 +65,6 @@ static struct sockaddr_in udpRemoteAddr;
 static fd_set allFds;
 static int maxFd = 0;
 
-static Bool SameMachine(int sock);
-
 
 /*
  * rfbInitSockets sets up the TCP and UDP sockets to listen for RFB
@@ -82,6 +80,27 @@ rfbInitSockets()
 	return;
 
     done = TRUE;
+
+    if (inetdSock != -1) {
+	const int one = 1;
+
+	if (fcntl(inetdSock, F_SETFL, O_NONBLOCK) < 0) {
+	    rfbLogPerror("fcntl");
+	    exit(1);
+	}
+
+	if (setsockopt(inetdSock, IPPROTO_TCP, TCP_NODELAY,
+		       (char *)&one, sizeof(one)) < 0) {
+	    rfbLogPerror("setsockopt");
+	    exit(1);
+	}
+
+    	AddEnabledDevice(inetdSock);
+    	FD_ZERO(&allFds);
+    	FD_SET(inetdSock, &allFds);
+    	maxFd = inetdSock;
+	return;
+    }
 
     if (rfbPort == 0) {
 	rfbPort = 5900 + atoi(display);
@@ -132,6 +151,12 @@ rfbCheckFds()
     char buf[6];
     const int one = 1;
     int sock;
+    static Bool inetdInitDone = FALSE;
+
+    if (!inetdInitDone && inetdSock != -1) {
+	rfbNewClientConnection(inetdSock); 
+	inetdInitDone = TRUE;
+    }
 
     memcpy((char *)&fds, (char *)&allFds, sizeof(fd_set));
     tv.tv_sec = 0;
@@ -145,7 +170,7 @@ rfbCheckFds()
 	return;
     }
 
-    if (FD_ISSET(rfbListenSock, &fds)) {
+    if (rfbListenSock != -1 && FD_ISSET(rfbListenSock, &fds)) {
 
 	if ((sock = accept(rfbListenSock,
 			   (struct sockaddr *)&addr, &addrlen)) < 0) {
@@ -164,15 +189,6 @@ rfbCheckFds()
 	    rfbLogPerror("rfbCheckFds: setsockopt");
 	    close(sock);
 	    return;
-	}
-
-	if (rfbLocalhostOnly) {
-	    if (!SameMachine(sock)) {
-		rfbLog("WARNING: -localhost: refusing connection from %s\n",
-		       inet_ntoa(addr.sin_addr));
-		close(sock);
-		return;
-	    }
 	}
 
 	fprintf(stderr,"\n");
@@ -249,6 +265,8 @@ rfbCloseSock(sock)
     RemoveEnabledDevice(sock);
     FD_CLR(sock, &allFds);
     rfbClientConnectionGone(sock);
+    if (sock == inetdSock)
+	GiveUp(0);
 }
 
 
@@ -300,16 +318,20 @@ rfbConnect(host, port)
     rfbLog("Making connection to client on host %s port %d\n",
 	   host,port);
 
-    if ((sock = ConnectToTcpAddr(host, port)) < 0)
+    if ((sock = ConnectToTcpAddr(host, port)) < 0) {
+	rfbLogPerror("connection failed");
 	return -1;
+    }
 
     if (fcntl(sock, F_SETFL, O_NONBLOCK) < 0) {
+	rfbLogPerror("fcntl failed");
 	close(sock);
 	return -1;
     }
 
     if (setsockopt(sock, IPPROTO_TCP, TCP_NODELAY,
 		   (char *)&one, sizeof(one)) < 0) {
+	rfbLogPerror("setsockopt failed");
 	close(sock);
 	return -1;
     }
@@ -451,19 +473,25 @@ ListenOnTCPPort(port)
 
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
-    addr.sin_addr.s_addr = INADDR_ANY;
+    if (rfbLocalhostOnly)
+        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    else
+        addr.sin_addr.s_addr = htonl(INADDR_ANY);
 
     if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
 	return -1;
     }
     if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR,
 		   (char *)&one, sizeof(one)) < 0) {
+	close(sock);
 	return -1;
     }
     if (bind(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+	close(sock);
 	return -1;
     }
     if (listen(sock, 5) < 0) {
+	close(sock);
 	return -1;
     }
 
@@ -497,6 +525,7 @@ ConnectToTcpAddr(host, port)
     }
 
     if (connect(sock, (struct sockaddr *)&addr, (sizeof(addr))) < 0) {
+	close(sock);
 	return -1;
     }
 
@@ -528,21 +557,4 @@ ListenOnUDPPort(port)
     }
 
     return sock;
-}
-
-
-/*
- * Test if the other end of a socket is on the same machine.
- */
-
-static Bool
-SameMachine(int sock)
-{
-  struct sockaddr_in peeraddr, myaddr;
-  int addrlen = sizeof(struct sockaddr_in);
-
-  getpeername(sock, (struct sockaddr *)&peeraddr, &addrlen);
-  getsockname(sock, (struct sockaddr *)&myaddr, &addrlen);
-
-  return (peeraddr.sin_addr.s_addr == myaddr.sin_addr.s_addr);
 }

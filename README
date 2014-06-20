@@ -1,8 +1,8 @@
 
-VNC 3.3.3 Source Distribution for Unix platforms
-================================================
+VNC 3.3.3r2 Source Distribution for Unix platforms
+==================================================
 
-VNC is Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
+VNC is Copyright (C) AT&T Laboratories Cambridge.  All Rights Reserved.
 This software is distributed under the GNU General Public Licence as published
 by the Free Software Foundation.  See the file LICENCE.TXT for the conditions
 under which this software is made available.  VNC also contains code from other
@@ -10,7 +10,7 @@ sources.  See the Acknowledgements section below, and the individual files for
 details of the conditions under which they are made available.
 
 
-There are four programs here:
+There are five programs here:
 
 	vncviewer - this is the VNC viewer, or client, program for X.
 
@@ -21,6 +21,10 @@ There are four programs here:
 	vncpasswd - this program allows you to change the password used to
 		    access your X VNC desktops.  The vncserver script uses
 		    this program when you first start a VNC server.
+
+	vncconnect - this program tells a running instance of Xvnc to connect
+		     to a listening VNC viewer (normally the connection is made
+		     the other way round i.e. the viewer connects to Xvnc).
 
 	Xvnc - this is the X VNC server - it is both an X server and a VNC
 	       server.  You normally use the vncserver script to start Xvnc.
@@ -33,7 +37,7 @@ First you must have a reasonably recent version of X installed (this includes
 	% make World
 
 This should build first the vncauth library which is used by each of the
-programs, then vncviewer and vncpasswd.
+programs, then vncviewer, vncpasswd and vncconnect.
 
 Xvnc differs from the other programs in that it is built inside a cut-down
 version of the X build tree.  This is based around the XFree86 3.3.2 "server

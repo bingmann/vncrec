@@ -23,6 +23,7 @@
 
 #include <vncviewer.h>
 #include <X11/Xaw/Viewport.h>
+#include <X11/Xmu/Converters.h>
 #ifdef MITSHM
 #include <X11/extensions/XShm.h>
 #endif
@@ -40,6 +41,13 @@ static Cursor CreateDotCursor();
 static void CopyBGR233ToScreen(CARD8 *buf, int x, int y, int width,int height);
 static void HandleBasicDesktopEvent(Widget w, XtPointer ptr, XEvent *ev,
 				    Boolean *cont);
+
+static XtResource desktopBackingStoreResources[] = {
+  {
+    XtNbackingStore, XtCBackingStore, XtRBackingStore, sizeof(int), 0,
+    XtRImmediate, (XtPointer) Always,
+  },
+};
 
 
 /*
@@ -97,7 +105,6 @@ DesktopInitBeforeRealization()
 }
 
 
-
 /*
  * DesktopInitAfterRealization does things which require the X windows to
  * exist.  It creates some GCs and sets the dot cursor.
@@ -119,7 +126,12 @@ DesktopInitAfterRealization()
   gcv.foreground = 0xf0f0f0f0;
   dstGC = XCreateGC(dpy,desktopWin,GCFunction|GCForeground,&gcv);
 
-  attr.backing_store = Always;
+  XtAddConverter(XtRString, XtRBackingStore, XmuCvtStringToBackingStore,
+		 NULL, 0);
+
+  XtVaGetApplicationResources(desktop, (XtPointer)&attr.backing_store,
+			      desktopBackingStoreResources, 1, NULL);
+
   attr.cursor = CreateDotCursor();
 
   XChangeWindowAttributes(dpy, desktopWin, CWBackingStore|CWCursor, &attr);
