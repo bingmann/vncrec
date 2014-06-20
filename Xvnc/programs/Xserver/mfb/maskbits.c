@@ -1,4 +1,4 @@
-/* $XConsortium: maskbits.c,v 1.15 94/04/17 20:28:09 dpw Exp $ */
+/* $XConsortium: maskbits.c,v 1.16 95/04/07 18:59:14 kaleb Exp $ */
 /* Combined Purdue/PurduePlus patches, level 2.0, 1/17/89 */
 /*
 
@@ -108,7 +108,7 @@ PixelType starttab[PPW+1] =
 	LONG2CHARS( 0x00000007FFFFFFFF ),
 	LONG2CHARS( 0x00000003FFFFFFFF ),
 	LONG2CHARS( 0x00000001FFFFFFFF ),
-	LONG2CHARS( 0x00000000FFFFFFFF )
+	LONG2CHARS( 0x00000000FFFFFFFF ),
 #endif /* PPW == 64 */
 	LONG2CHARS( 0x7FFFFFFF ),
 	LONG2CHARS( 0x3FFFFFFF ),

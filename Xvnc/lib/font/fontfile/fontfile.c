@@ -1,4 +1,4 @@
-/* $XConsortium: fontfile.c,v 1.27 94/04/17 20:17:06 gildea Exp $ */
+/* $TOG: fontfile.c /main/29 1997/05/23 16:36:56 barstow $ */
 
 /*
 
@@ -26,6 +26,7 @@ used in advertising or otherwise to promote the sale, use or other dealings
 in this Software without prior written authorization from the X Consortium.
 
 */
+/* $XFree86: xc/lib/font/fontfile/fontfile.c,v 3.3.4.2 1997/07/05 15:55:36 dawes Exp $ */
 
 /*
  * Author:  Keith Packard, MIT X Consortium
@@ -43,6 +44,13 @@ FontFileNameCheck (name)
     char    *name;
 {
 #ifndef NCD
+#ifdef __EMX__
+    /* OS/2 uses D:/... as a path name for fonts, so accept this as a valid
+     * path if it starts with a letter and a colon
+     */
+    if (isalpha(*name) && name[1]==':')
+        return TRUE;
+#endif
     return *name == '/';
 #else
     return ((strcmp(name, "built-ins") == 0) || (*name == '/'));
@@ -78,12 +86,24 @@ FontFileResetFPE (fpe)
     FontDirectoryPtr	dir;
 
     dir = (FontDirectoryPtr) fpe->private;
+    /*
+     * The reset must fail for bitmap fonts because they get cleared when
+     * the path is set.
+     */
     if (FontFileDirectoryChanged (dir))
     {
 	/* can't do it, so tell the caller to close and re-open */
 	return FPEResetFailed;	
     }
-    return Successful;
+    else 
+    {
+	if (dir->nonScalable.used > 0)
+	    if (!FontFileRegisterBitmapSource (fpe))
+	    {
+	        return FPEResetFailed;	
+	    }
+        return Successful;
+    }
 }
 
 int
@@ -289,6 +309,7 @@ FontFileOpenFont (client, fpe, flags, name, namelen, format, fmask,
 				     entry->u.alias.resolved, aliasName, &vals);
 	    ret = FontNameAlias;
 	    break;
+#ifdef NOTYET
 	case FONT_ENTRY_BC:
 	    bc = &entry->u.bc;
 	    entry = bc->entry;
@@ -298,6 +319,7 @@ FontFileOpenFont (client, fpe, flags, name, namelen, format, fmask,
 	    if (ret == Successful && *pFont)
 		(*pFont)->fpe = fpe;
 	    break;
+#endif
 	default:
 	    ret = BadFontName;
 	}
@@ -676,7 +698,7 @@ _FontFileListFonts (client, fpe, pat, len, max, names, mark_aliases)
     int			i;
     fsRange		*ranges;
     int			nranges;
-    int			result;
+    int			result = BadFontName;
 
     if (len >= MAXFONTNAMELEN)
 	return AllocError;
@@ -686,8 +708,6 @@ _FontFileListFonts (client, fpe, pat, len, max, names, mark_aliases)
     lowerName.name = lowerChars;
     lowerName.length = len;
     lowerName.ndashes = FontFileCountDashes (lowerChars, len);
-
-    if (max <= 0) return result;
 
     /* Match XLFD patterns */
 
@@ -947,8 +967,8 @@ FontFileListOneFontWithInfo (client, fpe, namep, namelenp, pFontInfo)
 	    *namelenp = strlen (*namep = alias->resolved);
 	    ret = FontNameAlias;
 	    break;
-	case FONT_ENTRY_BC:
 #ifdef NOTYET
+	case FONT_ENTRY_BC:
 	    /* no LFWI for this yet */
 	    bc = &entry->u.bc;
 	    entry = bc->entry;
@@ -957,8 +977,8 @@ FontFileListOneFontWithInfo (client, fpe, namep, namelenp, pFontInfo)
     	    strcat (fileName, scalable->fileName);
 	    ret = (*scalable->renderer->GetInfoScalable)
 		    (fpe, *pFontInfo, entry, tmpName, fileName, &bc->vals);
-#endif
 	    break;
+#endif
 	default:
 	    ret = BadFontName;
 	}

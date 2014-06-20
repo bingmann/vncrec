@@ -82,7 +82,12 @@ Author:  Adobe Systems Incorporated
 
 */
 
-/* $XConsortium: dixutils.c,v 1.50 94/04/17 20:26:31 dpw Exp $ */
+/* $TOG: dixutils.c /main/33 1997/05/22 10:02:20 kaleb $ */
+
+
+
+
+/* $XFree86: xc/programs/Xserver/dix/dixutils.c,v 3.1.2.1 1997/05/23 12:19:35 dawes Exp $ */
 
 #include "X.h"
 #include "Xmd.h"
@@ -93,6 +98,10 @@ Author:  Adobe Systems Incorporated
 #include "scrnintstr.h"
 #define  XK_LATIN1
 #include "keysymdef.h"
+#ifdef XCSECURITY
+#define _SECURITY_SERVER
+#include "extensions/security.h"
+#endif
 
 /*
  * CompareTimeStamps returns -1, 0, or +1 depending on if the first
@@ -169,6 +178,90 @@ CopyISOLatin1Lowered(dest, source, length)
     *dest = '\0';
 }
 
+#ifdef XCSECURITY
+
+/* SecurityLookupWindow and SecurityLookupDrawable:
+ * Look up the window/drawable taking into account the client doing
+ * the lookup and the type of access desired.  Return the window/drawable
+ * if it exists and the client is allowed access, else return NULL.
+ * Most Proc* functions should be calling these instead of
+ * LookupWindow and LookupDrawable, which do no access checks.
+ */
+
+WindowPtr
+SecurityLookupWindow(rid, client, access_mode)
+    XID rid;
+    ClientPtr client;
+    Mask access_mode;
+{
+    WindowPtr	pWin;
+
+    client->errorValue = rid;
+    if(rid == INVALID)
+	return NULL;
+    if (client->trustLevel != XSecurityClientTrusted)
+	return (WindowPtr)SecurityLookupIDByType(client, rid, RT_WINDOW, access_mode);
+    if (client->lastDrawableID == rid)
+    {
+        if (client->lastDrawable->type == DRAWABLE_WINDOW)
+            return ((WindowPtr) client->lastDrawable);
+        return (WindowPtr) NULL;
+    }
+    pWin = (WindowPtr)SecurityLookupIDByType(client, rid, RT_WINDOW, access_mode);
+    if (pWin && pWin->drawable.type == DRAWABLE_WINDOW) {
+	client->lastDrawable = (DrawablePtr) pWin;
+	client->lastDrawableID = rid;
+	client->lastGCID = INVALID;
+	client->lastGC = (GCPtr)NULL;
+    }
+    return pWin;
+}
+
+
+pointer
+SecurityLookupDrawable(rid, client, access_mode)
+    XID rid;
+    ClientPtr client;
+    Mask access_mode;
+{
+    register DrawablePtr pDraw;
+
+    if(rid == INVALID)
+	return (pointer) NULL;
+    if (client->trustLevel != XSecurityClientTrusted)
+	return (DrawablePtr)SecurityLookupIDByClass(client, rid, RC_DRAWABLE,
+						    access_mode);
+    if (client->lastDrawableID == rid)
+	return ((pointer) client->lastDrawable);
+    pDraw = (DrawablePtr)SecurityLookupIDByClass(client, rid, RC_DRAWABLE,
+						 access_mode);
+    if (pDraw && (pDraw->type != UNDRAWABLE_WINDOW))
+        return (pointer)pDraw;		
+    return (pointer)NULL;
+}
+
+/* We can't replace the LookupWindow and LookupDrawable functions with
+ * macros because of compatibility with loadable servers.
+ */
+
+WindowPtr
+LookupWindow(rid, client)
+    XID rid;
+    ClientPtr client;
+{
+    return SecurityLookupWindow(rid, client, SecurityUnknownAccess);
+}
+
+pointer
+LookupDrawable(rid, client)
+    XID rid;
+    ClientPtr client;
+{
+    return SecurityLookupDrawable(rid, client, SecurityUnknownAccess);
+}
+
+#else /* not XCSECURITY */
+
 WindowPtr
 LookupWindow(rid, client)
     XID rid;
@@ -213,12 +306,15 @@ LookupDrawable(rid, client)
     return (pointer)NULL;
 }
 
+#endif /* XCSECURITY */
 
 ClientPtr
-LookupClient(rid)
+LookupClient(rid, client)
     XID rid;
+    ClientPtr client;
 {
-    pointer pRes = (pointer)LookupIDByClass(rid, RC_ANY);
+    pointer pRes = (pointer)SecurityLookupIDByClass(client, rid, RC_ANY,
+						    SecurityReadAccess);
     int clientIndex = CLIENT_ID(rid);
 
     if (clientIndex && pRes && clients[clientIndex] && !(rid & SERVER_BIT))
@@ -465,50 +561,74 @@ InitBlockAndWakeupHandlers ()
 WorkQueuePtr		workQueue;
 static WorkQueuePtr	*workQueueLast = &workQueue;
 
-/* ARGSUSED */
 void
 ProcessWorkQueue()
 {
-    WorkQueuePtr    q, n, p;
+    WorkQueuePtr    q, *p;
 
-    p = NULL;
+    p = &workQueue;
     /*
      * Scan the work queue once, calling each function.  Those
      * which return TRUE are removed from the queue, otherwise
      * they will be called again.  This must be reentrant with
-     * QueueWorkProc, hence the crufty usage of variables.
+     * QueueWorkProc.
      */
-    for (q = workQueue; q; q = n)
+    while (q = *p)
     {
 	if ((*q->function) (q->client, q->closure))
 	{
 	    /* remove q from the list */
-	    n = q->next;    /* don't fetch until after func called */
-	    if (p)
-		p->next = n;
-	    else
-		workQueue = n;
+	    *p = q->next;    /* don't fetch until after func called */
 	    xfree (q);
 	}
 	else
 	{
-	    n = q->next;    /* don't fetch until after func called */
-	    p = q;
+	    p = &q->next;    /* don't fetch until after func called */
 	}
     }
-    if (p)
-	workQueueLast = &p->next;
-    else
+    workQueueLast = p;
+}
+
+void
+ProcessWorkQueueZombies()
+{
+    WorkQueuePtr    q, *p;
+
+    p = &workQueue;
+    while (q = *p)
     {
-	workQueueLast = &workQueue;
+	if (q->client && q->client->clientGone)
+	{
+	    (void) (*q->function) (q->client, q->closure);
+	    /* remove q from the list */
+	    *p = q->next;    /* don't fetch until after func called */
+	    xfree (q);
+	}
+	else
+	{
+	    p = &q->next;    /* don't fetch until after func called */
+	}
     }
+    workQueueLast = p;
 }
 
 Bool
+#if NeedFunctionPrototypes
+QueueWorkProc (
+    Bool	(*function)(
+#if NeedNestedPrototypes
+		ClientPtr	/* pClient */,
+		pointer		/* closure */
+#endif
+		),
+    ClientPtr	client,
+    pointer	closure)
+#else
 QueueWorkProc (function, client, closure)
     Bool	(*function)();
     ClientPtr	client;
     pointer	closure;
+#endif
 {
     WorkQueuePtr    q;
 
@@ -535,7 +655,7 @@ QueueWorkProc (function, client, closure)
 typedef struct _SleepQueue {
     struct _SleepQueue	*next;
     ClientPtr		client;
-    Bool		(*function)();
+    ClientSleepProcPtr  function;
     pointer		closure;
 } SleepQueueRec, *SleepQueuePtr;
 
@@ -544,7 +664,7 @@ static SleepQueuePtr	sleepQueue = NULL;
 Bool
 ClientSleep (client, function, closure)
     ClientPtr	client;
-    Bool	(*function)();
+    ClientSleepProcPtr function;
     pointer	closure;
 {
     SleepQueuePtr   q;
@@ -621,10 +741,17 @@ static int numCallbackListsToCleanup = 0;
 static CallbackListPtr **listsToCleanup = NULL;
 
 static Bool 
+#if NeedFunctionPrototypes
+_AddCallback(
+    CallbackListPtr *pcbl,
+    CallbackProcPtr callback,
+    pointer         data)
+#else
 _AddCallback(pcbl, callback, data)
     CallbackListPtr *pcbl;
     CallbackProcPtr callback;
     pointer         data;
+#endif
 {
     CallbackPtr     cbr;
 
@@ -640,14 +767,20 @@ _AddCallback(pcbl, callback, data)
 }
 
 static Bool 
+#if NeedFunctionPrototypes
+_DeleteCallback(
+    CallbackListPtr *pcbl,
+    CallbackProcPtr callback,
+    pointer         data)
+#else
 _DeleteCallback(pcbl, callback, data)
     CallbackListPtr *pcbl;
     CallbackProcPtr callback;
     pointer         data;
+#endif
 {
     CallbackListPtr cbl = *pcbl;
     CallbackPtr     cbr, pcbr;
-    int i;
 
     for (pcbr = NULL, cbr = cbl->list;
 	 cbr != NULL;
@@ -677,9 +810,15 @@ _DeleteCallback(pcbl, callback, data)
 }
 
 static void 
+#if NeedFunctionPrototypes
+_CallCallbacks(
+    CallbackListPtr    *pcbl,
+    pointer	    call_data)
+#else
 _CallCallbacks(pcbl, call_data)
     CallbackListPtr    *pcbl;
     pointer	    call_data;
+#endif
 {
     CallbackListPtr cbl = *pcbl;
     CallbackPtr     cbr, pcbr;
@@ -734,8 +873,13 @@ _CallCallbacks(pcbl, call_data)
 }
 
 static void
+#if NeedFunctionPrototypes
+_DeleteCallbackList(
+    CallbackListPtr    *pcbl)
+#else
 _DeleteCallbackList(pcbl)
     CallbackListPtr    *pcbl;
+#endif
 {
     CallbackListPtr cbl = *pcbl;
     CallbackPtr     cbr, nextcbr;
@@ -749,7 +893,7 @@ _DeleteCallbackList(pcbl)
 
     for (i = 0; i < numCallbackListsToCleanup; i++)
     {
-	if (listsToCleanup[i] = pcbl)
+	if ((listsToCleanup[i] = pcbl) != 0)
 	{
 	    listsToCleanup[i] = NULL;
 	    break;
@@ -803,7 +947,7 @@ CreateCallbackList(pcbl, cbfuncs)
     }
 
     listsToCleanup = (CallbackListPtr **)xnfrealloc(listsToCleanup,
-		sizeof(CallbackListPtr *) * numCallbackListsToCleanup+1);
+		sizeof(CallbackListPtr *) * (numCallbackListsToCleanup+1));
     listsToCleanup[numCallbackListsToCleanup] = pcbl;
     numCallbackListsToCleanup++;
     return TRUE;

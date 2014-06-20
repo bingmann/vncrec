@@ -46,7 +46,8 @@ SOFTWARE.
 
 ********************************************************/
 
-/* $XConsortium: swaprep.c,v 1.42 94/04/17 20:26:44 dpw Exp $ */
+/* $XConsortium: swaprep.c /main/25 1995/12/08 13:39:45 dpw $ */
+/* $XFree86: xc/programs/Xserver/dix/swaprep.c,v 3.2 1996/04/15 11:19:58 dawes Exp $ */
 
 #include "X.h"
 #define NEED_REPLIES
@@ -56,8 +57,28 @@ SOFTWARE.
 #include "dixstruct.h"
 #include "fontstruct.h"
 #include "scrnintstr.h"
+#include "swaprep.h"
 
-void SwapVisual(), SwapConnSetup(), SwapWinRoot();
+static void SwapFontInfo(
+#if NeedFunctionPrototypes
+    xQueryFontReply * /* pr */
+#endif
+);
+
+#ifndef LBX
+static void SwapCharInfo(
+#if NeedFunctionPrototypes
+    xCharInfo * /* pInfo */
+#endif
+    );
+
+static void SwapFont(
+#if NeedFunctionPrototypes
+    xQueryFontReply * /* pr */,
+    Bool /* hasGlyphs */
+#endif
+    );
+#endif
 
 /* Thanks to Jack Palevich for testing and subsequently rewriting all this */
 void
@@ -420,7 +441,10 @@ SQueryKeymapReply(pClient, size, pRep)
     (void)WriteToClient(pClient, size, (char *) pRep);
 }
 
-static void
+#ifndef LBX
+static
+#endif
+void
 SwapCharInfo(pInfo)
     xCharInfo	*pInfo;
 {
@@ -1292,23 +1316,17 @@ SKeymapNotifyEvent(from, to)
 }
 
 void
-WriteSConnectionInfo(pClient, size, pInfo)
-    ClientPtr		pClient;
-    unsigned long	size;
+SwapConnSetupInfo(pInfo, pInfoTBase)
     char 		*pInfo;
+    char 		*pInfoTBase;
 {
     int		i, j, k;
     ScreenPtr	pScreen;
     DepthPtr	pDepth;
-    char	*pInfoT, *pInfoTBase;
+    char	*pInfoT;
     xConnSetup	*pConnSetup = (xConnSetup *)pInfo;
 
-    pInfoT = pInfoTBase = (char *) ALLOCATE_LOCAL(size);
-    if (!pInfoTBase)
-    {
-	pClient->noClientException = -1;
-	return;
-    }
+    pInfoT = pInfoTBase;
     SwapConnSetup(pConnSetup, (xConnSetup *)pInfoT);
     pInfo += sizeof(xConnSetup);
     pInfoT += sizeof(xConnSetup);
@@ -1346,6 +1364,24 @@ WriteSConnectionInfo(pClient, size, pInfo)
 	    }
 	}
     }
+}
+
+
+void
+WriteSConnectionInfo(pClient, size, pInfo)
+    ClientPtr		pClient;
+    unsigned long	size;
+    char 		*pInfo;
+{
+    char	*pInfoTBase;
+
+    pInfoTBase = (char *) ALLOCATE_LOCAL(size);
+    if (!pInfoTBase)
+    {
+	pClient->noClientException = -1;
+	return;
+    }
+    SwapConnSetupInfo(pInfo, pInfoTBase);
     (void)WriteToClient(pClient, (int)size, (char *) pInfoTBase);
     DEALLOCATE_LOCAL(pInfoTBase);
 }
@@ -1406,17 +1442,24 @@ SwapVisual(pVis, pVisT)
 }
 
 void
+SwapConnSetupPrefix(pcspFrom, pcspTo)
+    xConnSetupPrefix	*pcspFrom;
+    xConnSetupPrefix	*pcspTo;
+{
+    pcspTo->success = pcspFrom->success;
+    pcspTo->lengthReason = pcspFrom->lengthReason;
+    cpswaps(pcspFrom->majorVersion, pcspTo->majorVersion);
+    cpswaps(pcspFrom->minorVersion, pcspTo->minorVersion);
+    cpswaps(pcspFrom->length, pcspTo->length);
+}
+
+void
 WriteSConnSetupPrefix(pClient, pcsp)
     ClientPtr		pClient;
     xConnSetupPrefix	*pcsp;
 {
     xConnSetupPrefix	cspT;
 
-    cspT.success = pcsp->success;
-    cspT.lengthReason = pcsp->lengthReason;
-    cpswaps(pcsp->majorVersion, cspT.majorVersion);
-    cpswaps(pcsp->minorVersion, cspT.minorVersion);
-    cpswaps(pcsp->length, cspT.length);
+    SwapConnSetupPrefix(pcsp, &cspT);
     (void)WriteToClient(pClient, sizeof(cspT), (char *) &cspT);
 }
-

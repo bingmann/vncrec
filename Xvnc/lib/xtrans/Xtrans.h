@@ -1,4 +1,5 @@
-/* $XConsortium: Xtrans.h,v 1.28 94/10/18 15:57:42 mor Exp $ */
+/* $XConsortium: Xtrans.h,v 1.29 95/06/08 23:20:39 gildea Exp $ */
+/* $XFree86: xc/lib/xtrans/Xtrans.h,v 3.9 1997/01/18 06:52:39 dawes Exp $ */
 /*
 
 Copyright (c) 1993, 1994  X Consortium
@@ -64,68 +65,76 @@ from the X Consortium.
  */
 
 #ifdef X11_t
-#if (__STDC__ && !defined(UNIXCPP)) || defined(ANSICPP)
+#if (defined(__STDC__) && !defined(UNIXCPP)) || defined(ANSICPP)
 #define TRANS(func) _X11Trans##func
 #else
 #define TRANS(func) _X11Trans/**/func
 #endif
+static char* __xtransname = "_X11Trans";
 #endif /* X11_t */
 
 #ifdef XSERV_t
-#if (__STDC__ && !defined(UNIXCPP)) || defined(ANSICPP)
+#if (defined(__STDC__) && !defined(UNIXCPP)) || defined(ANSICPP)
 #define TRANS(func) _XSERVTrans##func
 #else
 #define TRANS(func) _XSERVTrans/**/func
 #endif
+static char* __xtransname = "_XSERVTrans";
 #define X11_t
 #endif /* X11_t */
 
 #ifdef XIM_t
-#if (__STDC__ && !defined(UNIXCPP)) || defined(ANSICPP)
+#if (defined(__STDC__) && !defined(UNIXCPP)) || defined(ANSICPP)
 #define TRANS(func) _XimXTrans##func
 #else
 #define TRANS(func) _XimXTrans/**/func
 #endif
+static char* __xtransname = "_XimTrans";
 #endif /* XIM_t */
 
 #ifdef FS_t
-#if (__STDC__ && !defined(UNIXCPP)) || defined(ANSICPP)
+#if (defined(__STDC__) && !defined(UNIXCPP)) || defined(ANSICPP)
 #define TRANS(func) _FSTrans##func
 #else
 #define TRANS(func) _FSTrans/**/func
 #endif
+static char* __xtransname = "_FSTrans";
 #endif /* FS_t */
 
 #ifdef FONT_t
-#if (__STDC__ && !defined(UNIXCPP)) || defined(ANSICPP)
+#if (defined(__STDC__) && !defined(UNIXCPP)) || defined(ANSICPP)
 #define TRANS(func) _FontTrans##func
 #else
 #define TRANS(func) _FontTrans/**/func
 #endif
+static char* __xtransname = "_FontTrans";
 #endif /* FONT_t */
 
 #ifdef ICE_t
-#if (__STDC__ && !defined(UNIXCPP)) || defined(ANSICPP)
+#if (defined(__STDC__) && !defined(UNIXCPP)) || defined(ANSICPP)
 #define TRANS(func) _IceTrans##func
 #else
 #define TRANS(func) _IceTrans/**/func
 #endif
+static char* __xtransname = "_IceTrans";
 #endif /* ICE_t */
 
 #ifdef TEST_t
-#if (__STDC__ && !defined(UNIXCPP)) || defined(ANSICPP)
+#if (defined(__STDC__) && !defined(UNIXCPP)) || defined(ANSICPP)
 #define TRANS(func) _TESTTrans##func
 #else
 #define TRANS(func) _TESTTrans/**/func
 #endif
+static char* __xtransname = "_TESTTrans";
 #endif /* TEST_t */
 
 #if !defined(TRANS)
-#if (__STDC__ && !defined(UNIXCPP)) || defined(ANSICPP)
+#if (defined(__STDC__) && !defined(UNIXCPP)) || defined(ANSICPP)
 #define TRANS(func) _XTrans##func
 #else
 #define TRANS(func) _XTrans/**/func
 #endif
+static char* __xtransname = "_XTrans";
 #endif /* !TRANS */
 
 
@@ -152,7 +161,7 @@ typedef long BytesReadable_t;
 #endif
 
 
-#if defined(WIN32) || (defined(USG) && !defined(CRAY) && !defined(umips) && !defined(MOTOROLA) && !defined(uniosu) && !defined(__sxg__))
+#if defined(WIN32) || (defined(USG) && !defined(CRAY) && !defined(umips) && !defined(MOTOROLA) && !defined(uniosu) && !defined(__sxg__)) || defined(MINIX)
 
 /*
  *      TRANS(Readv) and TRANS(Writev) use struct iovec, normally found
@@ -166,7 +175,11 @@ struct iovec {
 };
 
 #else
+#ifndef Lynx
 #include <sys/uio.h>
+#else
+#include <uio.h>
+#endif
 #endif
 
 typedef struct _XtransConnInfo *XtransConnInfo;
@@ -302,6 +315,12 @@ int TRANS(CreateListener)(
 #if NeedFunctionPrototypes
     XtransConnInfo,	/* ciptr */
     char *		/* port */
+#endif
+);
+
+int TRANS(NoListen) (
+#if NeedFunctionPrototypes
+    char*               /* protocol*/
 #endif
 );
 

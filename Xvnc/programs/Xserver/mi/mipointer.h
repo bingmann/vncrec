@@ -4,6 +4,7 @@
  */
 
 /* $XConsortium: mipointer.h,v 5.7 94/04/17 20:27:40 dpw Exp $ */
+/* $XFree86: xc/programs/Xserver/mi/mipointer.h,v 3.2 1996/03/10 12:12:45 dawes Exp $ */
 
 /*
 
@@ -31,19 +32,71 @@ used in advertising or otherwise to promote the sale, use or other dealings
 in this Software without prior written authorization from the X Consortium.
 */
 
+#ifndef MIPOINTER_H
+#define MIPOINTER_H
+
 typedef struct _miPointerSpriteFuncRec {
-    Bool	(*RealizeCursor)();	/* pScreen, pCursor */
-    Bool	(*UnrealizeCursor)();	/* pScreen, pCursor */
-    void	(*SetCursor)();		/* pScreen, pCursor, x, y */
-    void	(*MoveCursor)();	/* pScreen, x, y */
+    Bool	(*RealizeCursor)(
+#if NeedFunctionPrototypes
+                    ScreenPtr /* pScr */,
+                    CursorPtr /* pCurs */
+#endif
+                    );
+    Bool	(*UnrealizeCursor)(
+#if NeedFunctionPrototypes
+                    ScreenPtr /* pScr */,
+                    CursorPtr /* pCurs */
+#endif
+                    );
+    void	(*SetCursor)(
+#if NeedFunctionPrototypes
+                    ScreenPtr /* pScr */,
+                    CursorPtr /* pCurs */,
+                    int  /* x */,
+                    int  /* y */
+#endif
+                    );
+    void	(*MoveCursor)(
+#if NeedFunctionPrototypes
+                    ScreenPtr /* pScr */,
+                    int  /* x */,
+                    int  /* y */
+#endif
+                    );
 } miPointerSpriteFuncRec, *miPointerSpriteFuncPtr;
 
 typedef struct _miPointerScreenFuncRec {
-    Bool	(*CursorOffScreen)();	/* ppScreen, px, py */
-    void	(*CrossScreen)();	/* pScreen, entering */
-    void	(*WarpCursor)();	/* pScreen, x, y */
-    void	(*EnqueueEvent)();	/* xEvent */
-    void	(*NewEventScreen)();	/* pScreen */
+    Bool	(*CursorOffScreen)(
+#if NeedFunctionPrototypes
+                    ScreenPtr* /* ppScr */,
+                    int*  /* px */,
+                    int*  /* py */
+#endif
+                    );
+    void	(*CrossScreen)(
+#if NeedFunctionPrototypes
+                    ScreenPtr /* pScr */,
+                    int  /* entering */
+#endif
+                    );
+    void	(*WarpCursor)(
+#if NeedFunctionPrototypes
+                    ScreenPtr /* pScr */,
+                    int  /* x */,
+                    int  /* y */
+#endif
+                    );
+    void	(*EnqueueEvent)(
+#if NeedFunctionPrototypes
+                    xEventPtr /* event */
+#endif
+                    );
+    void	(*NewEventScreen)(
+#if NeedFunctionPrototypes
+                    ScreenPtr /* pScr */,
+		    Bool /* fromDIX */
+#endif
+                    );
 } miPointerScreenFuncRec, *miPointerScreenFuncPtr;
 
 extern Bool miDCInitialize(
@@ -115,9 +168,22 @@ extern void miPointerPosition(
 #endif
 );
 
+#undef miRegisterPointerDevice
 extern void miRegisterPointerDevice(
 #if NeedFunctionPrototypes
     ScreenPtr /*pScreen*/,
     DevicePtr /*pDevice*/
 #endif
 );
+
+#define miRegisterPointerDevice(pScreen,pDevice) \
+       _miRegisterPointerDevice(pScreen,pDevice)
+
+extern void _miRegisterPointerDevice(
+#if NeedFunctionPrototypes
+    ScreenPtr /*pScreen*/,
+    DeviceIntPtr /*pDevice*/
+#endif
+);
+
+#endif /* MIPOINTER_H */

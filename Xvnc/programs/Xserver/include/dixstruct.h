@@ -20,7 +20,8 @@ ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
 SOFTWARE.
 
 ******************************************************************/
-/* $XConsortium: dixstruct.h,v 1.33 94/04/17 20:25:40 dpw Exp $ */
+/* $XConsortium: dixstruct.h /main/43 1996/12/15 21:25:06 rws $ */
+/* $XFree86: xc/programs/Xserver/include/dixstruct.h,v 3.8 1996/12/24 02:27:28 dawes Exp $ */
 
 #ifndef DIXSTRUCT_H
 #define DIXSTRUCT_H
@@ -37,22 +38,41 @@ SOFTWARE.
  *      translation from client ids to server addresses.
  */
 
-typedef struct _TimeStamp {
-    CARD32 months;	/* really ~49.7 days */
-    CARD32 milliseconds;
-}           TimeStamp;
-
 #ifdef DEBUG
 #define MAX_REQUEST_LOG 100
 #endif
 
 extern CallbackListPtr ClientStateCallback;
 
+typedef struct {
+    ClientPtr 		client;
+    xConnSetupPrefix 	*prefix; 
+    xConnSetup  	*setup;
+} NewClientInfoRec;
+
+typedef void (*ReplySwapPtr) (
+#if NeedNestedPrototypes
+		ClientPtr	/* pClient */,
+		int		/* size */,
+		void *		/* pbuf */
+#endif
+);
+
+extern void ReplyNotSwappd (
+#if NeedNestedPrototypes
+		ClientPtr	/* pClient */,
+		int		/* size */,
+		void *		/* pbuf */
+#endif
+);
+
 typedef enum {ClientStateInitial,
 	      ClientStateAuthenticating,
 	      ClientStateRunning,
 	      ClientStateRetained,
-	      ClientStateGone} ClientState;
+	      ClientStateGone,
+	      ClientStateCheckingSecurity,
+	      ClientStateCheckedSecurity} ClientState;
 
 typedef struct _Client {
     int         index;
@@ -60,13 +80,7 @@ typedef struct _Client {
     pointer     requestBuffer;
     pointer     osPrivate;	/* for OS layer, including scheduler */
     Bool        swapped;
-    void        (*pSwapReplyFunc) (
-#if NeedNestedPrototypes
-		ClientPtr	/* pClient */,
-		int		/* size */,
-		void *		/* pbuf */
-#endif
-);
+    ReplySwapPtr pSwapReplyFunc;
     XID         errorValue;
     int         sequence;
     int         closeDownMode;
@@ -91,8 +105,11 @@ typedef struct _Client {
     ClientState clientState;
     DevUnion	*devPrivates;
 #ifdef XKB
-    unsigned short xkbClientFlags;
-    unsigned short mapNotifyMask;
+    unsigned short	xkbClientFlags;
+    unsigned short	mapNotifyMask;
+    unsigned short	newKeyboardNotifyMask;
+    unsigned short	vMajor,vMinor;
+    KeyCode		minKC,maxKC;
 #endif
 
 #ifdef DEBUG
@@ -100,10 +117,43 @@ typedef struct _Client {
     int         requestLogIndex;
 #endif
 #ifdef LBX
-    ClientPublicRec public;
-    int         lbxIndex;
+    int		(*readRequest)(
+#if NeedNestedPrototypes
+	ClientPtr /*client*/
 #endif
+);
+#endif
+    unsigned long replyBytesRemaining;
+#ifdef XCSECURITY
+    XID		authId;
+    unsigned int trustLevel;
+    pointer (* CheckAccess)(
+#if NeedNestedPrototypes
+	    ClientPtr /*pClient*/,
+	    XID /*id*/,
+	    RESTYPE /*classes*/,
+	    Mask /*access_mode*/,
+	    pointer /*resourceval*/
+#endif
+);
+#endif
+#ifdef XAPPGROUP
+    struct _AppGroupRec*	appgroup;
+#endif
+    struct _FontResolution * (*fontResFunc) (    /* no need for font.h */
+#if NeedNestedPrototypes
+		ClientPtr	/* pClient */,
+		int *		/* num */
+#endif
+);
 }           ClientRec;
+
+/* This prototype is used pervasively in Xext, dix */
+#if NeedFunctionPrototypes
+#define DISPATCH_PROC(func) int func(ClientPtr /* client */)
+#else
+#define DISPATCH_PROC(func) int func(/* ClientPtr client */)
+#endif
 
 typedef struct _WorkQueue {
     struct _WorkQueue *next;
@@ -147,5 +197,41 @@ typedef struct _CallbackList {
   int numDeleted;
   CallbackPtr list;
 } CallbackListRec;
+
+/* proc vectors */
+
+extern int (* InitialVector[3]) (
+#if NeedNestedPrototypes
+    ClientPtr /*client*/
+#endif
+);
+
+extern int (* ProcVector[256]) (
+#if NeedNestedPrototypes
+    ClientPtr /*client*/
+#endif
+);
+
+extern int (* SwappedProcVector[256]) (
+#if NeedNestedPrototypes
+    ClientPtr /*client*/
+#endif
+);
+
+#ifdef K5AUTH
+extern int (*k5_Vector[256])() =
+#if NeedNestedPrototypes
+    ClientPtr /*client*/
+#endif
+);
+#endif
+
+extern void (* ReplySwapVector[256]) ();
+
+extern int ProcBadRequest(
+#if NeedFunctionPrototypes
+    ClientPtr /*client*/
+#endif
+);
 
 #endif				/* DIXSTRUCT_H */

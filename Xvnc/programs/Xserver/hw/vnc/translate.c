@@ -24,9 +24,10 @@
 #include <stdio.h>
 #include "rfb.h"
 
-static void PrintPixelFormat _((rfbPixelFormat *pf));
+static void PrintPixelFormat(rfbPixelFormat *pf);
 static Bool rfbSetClientColourMapBGR233();
 
+Bool rfbEconomicTranslate = FALSE;
 
 /*
  * Structure representing pixel format for RFB server (i.e. us).
@@ -41,21 +42,6 @@ rfbPixelFormat rfbServerFormat;
 
 static const rfbPixelFormat BGR233Format = {
     8, 8, 0, 1, 7, 7, 3, 0, 3, 6
-};
-static const rfbPixelFormat BGR888LittleEndianFormat = {
-    32, 24, 0, 1, 255, 255, 255, 0, 8, 16
-};
-static const rfbPixelFormat BGR888BigEndianFormat = {
-    32, 24, 1, 1, 255, 255, 255, 0, 8, 16
-};
-static const rfbPixelFormat BGR556LittleEndianFormat = {
-    16, 16, 0, 1, 63, 31, 31, 0, 6, 11
-};
-static const rfbPixelFormat BGR556BigEndianFormat = {
-    16, 16, 1, 1, 63, 31, 31, 0, 6, 11
-};
-static const rfbPixelFormat ColourMap8BitFormat = {
-    8, 8, 0, 0, 0, 0, 0, 0, 0, 0
 };
 
 
@@ -75,6 +61,98 @@ static const rfbPixelFormat ColourMap8BitFormat = {
 			    (x.greenShift == y.greenShift) &&		\
 			    (x.blueShift == y.blueShift))))
 
+#define CONCAT2(a,b) a##b
+#define CONCAT2E(a,b) CONCAT2(a,b)
+#define CONCAT4(a,b,c,d) a##b##c##d
+#define CONCAT4E(a,b,c,d) CONCAT4(a,b,c,d)
+
+#define OUT 8
+#include "tableinittctemplate.c"
+#include "tableinitcmtemplate.c"
+#define IN 8
+#include "tabletranstemplate.c"
+#undef IN
+#define IN 16
+#include "tabletranstemplate.c"
+#undef IN
+#define IN 32
+#include "tabletranstemplate.c"
+#undef IN
+#undef OUT
+
+#define OUT 16
+#include "tableinittctemplate.c"
+#include "tableinitcmtemplate.c"
+#define IN 8
+#include "tabletranstemplate.c"
+#undef IN
+#define IN 16
+#include "tabletranstemplate.c"
+#undef IN
+#define IN 32
+#include "tabletranstemplate.c"
+#undef IN
+#undef OUT
+
+#define OUT 32
+#include "tableinittctemplate.c"
+#include "tableinitcmtemplate.c"
+#define IN 8
+#include "tabletranstemplate.c"
+#undef IN
+#define IN 16
+#include "tabletranstemplate.c"
+#undef IN
+#define IN 32
+#include "tabletranstemplate.c"
+#undef IN
+#undef OUT
+
+typedef void (*rfbInitTableFnType)(char **table, rfbPixelFormat *in,
+				   rfbPixelFormat *out);
+
+rfbInitTableFnType rfbInitTrueColourSingleTableFns[3] = {
+    rfbInitTrueColourSingleTable8,
+    rfbInitTrueColourSingleTable16,
+    rfbInitTrueColourSingleTable32
+};
+
+rfbInitTableFnType rfbInitColourMapSingleTableFns[3] = {
+    rfbInitColourMapSingleTable8,
+    rfbInitColourMapSingleTable16,
+    rfbInitColourMapSingleTable32
+};
+
+rfbInitTableFnType rfbInitTrueColourRGBTablesFns[3] = {
+    rfbInitTrueColourRGBTables8,
+    rfbInitTrueColourRGBTables16,
+    rfbInitTrueColourRGBTables32
+};
+
+rfbTranslateFnType rfbTranslateWithSingleTableFns[3][3] = {
+    { rfbTranslateWithSingleTable8to8,
+      rfbTranslateWithSingleTable8to16,
+      rfbTranslateWithSingleTable8to32 },
+    { rfbTranslateWithSingleTable16to8,
+      rfbTranslateWithSingleTable16to16,
+      rfbTranslateWithSingleTable16to32 },
+    { rfbTranslateWithSingleTable32to8,
+      rfbTranslateWithSingleTable32to16,
+      rfbTranslateWithSingleTable32to32 }
+};
+
+rfbTranslateFnType rfbTranslateWithRGBTablesFns[3][3] = {
+    { rfbTranslateWithRGBTables8to8,
+      rfbTranslateWithRGBTables8to16,
+      rfbTranslateWithRGBTables8to32 },
+    { rfbTranslateWithRGBTables16to8,
+      rfbTranslateWithRGBTables16to16,
+      rfbTranslateWithRGBTables16to32 },
+    { rfbTranslateWithRGBTables32to8,
+      rfbTranslateWithRGBTables32to16,
+      rfbTranslateWithRGBTables32to32 }
+};
+
 
 
 /*
@@ -82,266 +160,19 @@ static const rfbPixelFormat ColourMap8BitFormat = {
  */
 
 void
-rfbTranslateNone(cl, iptr, optr, iptradd, optradd, nlines)
-    rfbClientPtr cl;
-    char *iptr;
-    char *optr;
-    int iptradd;
-    int optradd;
-    int nlines;
+rfbTranslateNone(char *table, rfbPixelFormat *in, rfbPixelFormat *out,
+		 char *iptr, char *optr, int bytesBetweenInputLines,
+		 int width, int height)
 {
-    while (nlines > 0) {
-	memcpy(optr, iptr, optradd);
-	iptr += iptradd;
-	optr += optradd;
-	nlines--;
+    int bytesPerOutputLine = width * (out->bitsPerPixel / 8);
+
+    while (height > 0) {
+	memcpy(optr, iptr, bytesPerOutputLine);
+	iptr += bytesBetweenInputLines;
+	optr += bytesPerOutputLine;
+	height--;
     }
 }
-
-
-
-/*
- * The macro TRUECOLOUR_TRANS is used to translate a pixel between any two
- * given true colour formats.
- *
- * p is the input pixel value.
- * irShf, igShf, ibShf are the shifts needed to get each of the red, green and
- *       blue values to the least significant bit in the input pixel (e.g.
- *       if the red value is the top three bits of a byte, irShf is 5).
- * irMax, igMax, ibMax are the maximum values for each of red, green and blue.
- *       This value is (2^n - 1) where n is the number of bits used to
- *       represent the colour (e.g. for the above example with three bits to
- *       represent red, irMax is 7).
- * o?Shf and o?Max are the same but for the output pixel value.
- */
-
-#define TRUECOLOUR_TRANS(p,irShf,igShf,ibShf,irMax,igMax,ibMax,orShf,ogShf,obShf,orMax,ogMax,obMax) \
-(((((((p) >> (irShf)) & (irMax)) * (orMax) + (irMax)/2) / (irMax)) << orShf) |\
- ((((((p) >> (igShf)) & (igMax)) * (ogMax) + (igMax)/2) / (igMax)) << ogShf) |\
- ((((((p) >> (ibShf)) & (ibMax)) * (obMax) + (ibMax)/2) / (ibMax)) << obShf))
-
-
-
-/* For the macro below, Swap8 needs to exist even though it does nothing */
-
-#define Swap8(c) (c)
-
-
-/*
- * The macro DEFINE_TRANSLATE_TRUECOLOUR is used to define several translation
- * functions.  For a given input and output pixel size, each function copies &
- * translates a rectangle from the framebuffer into an output buffer.  In
- * addition, the output pixels can be endian-swapped if necessary.
- */
-
-#define DEFINE_TRANSLATE_TRUECOLOUR(IN,OUT,SWAP)			  \
-static void								  \
-rfbTranslateTrueColour##IN##to##OUT##swap##SWAP (cl, iptr, optr, iptradd, \
-						optradd, nlines)	  \
-    rfbClientPtr cl;							  \
-    char *iptr;								  \
-    char *optr;								  \
-    int iptradd;							  \
-    int optradd;							  \
-    int nlines;								  \
-{									  \
-    register CARD##IN *ip = (CARD##IN *)iptr;				  \
-    register CARD##OUT *op = (CARD##OUT *)optr;				  \
-    int opadd = optradd * 8 / OUT;					  \
-    int ipadd = (iptradd * 8 / IN) - (optradd * 8 / OUT);		  \
-    register CARD##IN i;						  \
-    register CARD##OUT o;						  \
-    register CARD##OUT *opLineEnd;					  \
-									  \
-    while (nlines > 0) {						  \
-	opLineEnd = op + opadd;						  \
-	while (op < opLineEnd) {					  \
-	    i = *(ip++);						  \
-	    o = TRUECOLOUR_TRANS(i,					  \
-				 rfbServerFormat.redShift,		  \
-				 rfbServerFormat.greenShift,		  \
-				 rfbServerFormat.blueShift,		  \
-				 rfbServerFormat.redMax,		  \
-				 rfbServerFormat.greenMax,		  \
-				 rfbServerFormat.blueMax,		  \
-				 cl->format.redShift,			  \
-				 cl->format.greenShift,			  \
-				 cl->format.blueShift,			  \
-				 cl->format.redMax,			  \
-				 cl->format.greenMax,			  \
-				 cl->format.blueMax);			  \
-	    if (SWAP) {							  \
-		o = Swap##OUT (o);					  \
-	    }								  \
-	    *(op++) = o;						  \
-	}								  \
-									  \
-	ip += ipadd;							  \
-	nlines--;							  \
-    }									  \
-}
-
-DEFINE_TRANSLATE_TRUECOLOUR(8,8,0)
-DEFINE_TRANSLATE_TRUECOLOUR(8,16,0)
-DEFINE_TRANSLATE_TRUECOLOUR(8,16,1)
-DEFINE_TRANSLATE_TRUECOLOUR(8,32,0)
-DEFINE_TRANSLATE_TRUECOLOUR(8,32,1)
-DEFINE_TRANSLATE_TRUECOLOUR(16,8,0)
-DEFINE_TRANSLATE_TRUECOLOUR(16,16,0)
-DEFINE_TRANSLATE_TRUECOLOUR(16,16,1)
-DEFINE_TRANSLATE_TRUECOLOUR(16,32,0)
-DEFINE_TRANSLATE_TRUECOLOUR(16,32,1)
-DEFINE_TRANSLATE_TRUECOLOUR(32,8,0)
-DEFINE_TRANSLATE_TRUECOLOUR(32,16,0)
-DEFINE_TRANSLATE_TRUECOLOUR(32,16,1)
-DEFINE_TRANSLATE_TRUECOLOUR(32,32,0)
-DEFINE_TRANSLATE_TRUECOLOUR(32,32,1)
-
-
-/*
- * This is an array of the true colour translation functions which are
- * generated using the DEFINE_TRANSLATE_TRUECOLOUR macro.
- */
-
-rfbTranslateFnType rfbTranslateTrueColourFns[3][3][2] = {
-    { { rfbTranslateTrueColour8to8swap0,  rfbTranslateTrueColour8to8swap0 },
-      { rfbTranslateTrueColour8to16swap0, rfbTranslateTrueColour8to16swap1 },
-      { rfbTranslateTrueColour8to32swap0, rfbTranslateTrueColour8to32swap1 } },
-    { { rfbTranslateTrueColour16to8swap0, rfbTranslateTrueColour16to8swap0 },
-      { rfbTranslateTrueColour16to16swap0,rfbTranslateTrueColour16to16swap1 },
-      { rfbTranslateTrueColour16to32swap0,rfbTranslateTrueColour16to32swap1 }},
-    { { rfbTranslateTrueColour32to8swap0, rfbTranslateTrueColour32to8swap0 },
-      { rfbTranslateTrueColour32to16swap0,rfbTranslateTrueColour32to16swap1 },
-      { rfbTranslateTrueColour32to32swap0,rfbTranslateTrueColour32to32swap1 } }
-};
-
-
-/*
- * This is an optimisation of the general 32->8 converter for the
- * BGR888 to BGR233 case.
- */
-
-static void
-rfbTranslateBGR888toBGR233(cl, iptr, optr, iptradd, optradd, nlines)
-    rfbClientPtr cl;
-    char *iptr;
-    char *optr;
-    int iptradd;
-    int optradd;
-    int nlines;
-{
-    register CARD32 *ip = (CARD32 *)iptr;
-    register CARD8 *op = (CARD8 *)optr;
-    register CARD32 i;
-    register CARD8 *opLineEnd;
-    int ipadd = (iptradd / 4) - optradd;
-
-    while (nlines > 0) {
-	opLineEnd = op + optradd;
-	while (op < opLineEnd) {
-	    i = *(ip++);
-	    *(op++) = (((i & 0xc00000) >> 16) |
-		       ((i & 0x00e000) >> 10) |
-		       ((i & 0x0000e0) >> 5));
-	}
-
-	ip += ipadd;
-	nlines--;
-    }
-}
-
-
-/*
- * This is an optimisation of the general 16->8 converter for the
- * BGR556 to BGR233 case.
- */
-
-static void
-rfbTranslateBGR556toBGR233(cl, iptr, optr, iptradd, optradd, nlines)
-    rfbClientPtr cl;
-    char *iptr;
-    char *optr;
-    int iptradd;
-    int optradd;
-    int nlines;
-{
-    register CARD16 *ip = (CARD16 *)iptr;
-    register CARD8 *op = (CARD8 *)optr;
-    register CARD16 i;
-    register CARD8 *opLineEnd;
-    int ipadd = (iptradd / 2) - optradd;
-
-    while (nlines > 0) {
-	opLineEnd = op + optradd;
-	while (op < opLineEnd) {
-	    i = *(ip++);
-	    *(op++) = (((i & 0xc000) >> 8) |
-		       ((i & 0x0700) >> 5) |
-		       ((i & 0x0038) >> 3));
-	}
-
-	ip += ipadd;
-	nlines--;
-    }
-}
-
-
-/*
- * Functions for translating from using a colour map to true colour.
- */
-
-static CARD32 rfbColourMapToTrueColour[256];
-
-#define DEFINE_TRANSLATE_COLOURMAP_TO_TRUECOLOUR(OUT,SWAP)		     \
-static void								     \
-rfbTranslateColourMapToTrueColour##OUT##swap##SWAP (cl, iptr, optr, iptradd, \
-						  optradd, nlines)	     \
-    rfbClientPtr cl;							     \
-    char *iptr;								     \
-    char *optr;								     \
-    int iptradd;							     \
-    int optradd;							     \
-    int nlines;								     \
-{									     \
-    register CARD8 *ip = (CARD8 *)iptr;					     \
-    register CARD##OUT *op = (CARD##OUT *)optr;				     \
-    int opadd = optradd * 8 / OUT;					     \
-    int ipadd = iptradd - (optradd * 8 / OUT);				     \
-    register CARD8 i;							     \
-    register CARD##OUT o;						     \
-    register CARD##OUT *opLineEnd;					     \
-									     \
-    while (nlines > 0) {						     \
-	opLineEnd = op + opadd;						     \
-	while (op < opLineEnd) {					     \
-	    i = *(ip++);						     \
-	    o = rfbColourMapToTrueColour[i];				     \
-	    if (SWAP) {							     \
-		o = Swap##OUT (o);					     \
-	    }								     \
-	    *(op++) = o;						     \
-	}								     \
-									     \
-	ip += ipadd;							     \
-	nlines--;							     \
-    }									     \
-}
-
-DEFINE_TRANSLATE_COLOURMAP_TO_TRUECOLOUR(8,0)
-DEFINE_TRANSLATE_COLOURMAP_TO_TRUECOLOUR(16,0)
-DEFINE_TRANSLATE_COLOURMAP_TO_TRUECOLOUR(16,1)
-DEFINE_TRANSLATE_COLOURMAP_TO_TRUECOLOUR(32,0)
-DEFINE_TRANSLATE_COLOURMAP_TO_TRUECOLOUR(32,1)
-
-rfbTranslateFnType rfbTranslateColourMapToTrueColourFns[3][2] = {
-    { rfbTranslateColourMapToTrueColour8swap0,
-      rfbTranslateColourMapToTrueColour8swap0 },
-    { rfbTranslateColourMapToTrueColour16swap0,
-      rfbTranslateColourMapToTrueColour16swap1 },
-    { rfbTranslateColourMapToTrueColour32swap0,
-      rfbTranslateColourMapToTrueColour32swap1 }
-};
-
 
 
 /*
@@ -352,16 +183,18 @@ Bool
 rfbSetTranslateFunction(cl)
     rfbClientPtr cl;
 {
-    fprintf(stderr,"Client Pixel Format:\n");
+    rfbLog("Pixel format for client %s:\n",cl->host);
     PrintPixelFormat(&cl->format);
 
-    /* first check that bits per pixel values are valid */
+    /*
+     * Check that bits per pixel values are valid
+     */
 
     if ((rfbServerFormat.bitsPerPixel != 8) &&
 	(rfbServerFormat.bitsPerPixel != 16) &&
 	(rfbServerFormat.bitsPerPixel != 32))
     {
-	fprintf(stderr,"%s: server bits per pixel not 8, 16 or 32\n",
+	rfbLog("%s: server bits per pixel not 8, 16 or 32\n",
 		"rfbSetTranslateFunction");
 	rfbCloseSock(cl->sock);
 	return FALSE;
@@ -371,127 +204,113 @@ rfbSetTranslateFunction(cl)
 	(cl->format.bitsPerPixel != 16) &&
 	(cl->format.bitsPerPixel != 32))
     {
-	fprintf(stderr,"%s: client bits per pixel not 8, 16 or 32\n",
+	rfbLog("%s: client bits per pixel not 8, 16 or 32\n",
 		"rfbSetTranslateFunction");
 	rfbCloseSock(cl->sock);
 	return FALSE;
     }
 
-
-    if (rfbServerFormat.trueColour) {
-
-	/* server is true colour */
-
-	if (PF_EQ(cl->format,ColourMap8BitFormat)) {
-
-	    /* client has 8-bit colour map, just treat it as BGR233 */
-
-	    if (!rfbSetClientColourMapBGR233(cl))
-		return FALSE;
-
-	    /* now cl->format IS true colour so drop through */
-	}
-
-	if (!cl->format.trueColour) {
-
-	    /* client has colour map but not 8-bit, can't cope yet */
-
-	    fprintf(stderr,"%s: client has colour map but %d-bit\n",
-		    "rfbSetTranslateFunction", cl->format.bitsPerPixel);
-	    rfbCloseSock(cl->sock);
-	    return FALSE;
-	}
-
-	/* true colour -> true colour translation */
-
-	if (PF_EQ(cl->format,rfbServerFormat)) {
-
-	    /* client & server the same */
-
-	    fprintf(stderr,"no translation needed\n");
-	    cl->translateFn = rfbTranslateNone;
-	    return TRUE;
-	}
-
-	if (PF_EQ(cl->format,BGR233Format) &&
-	    (PF_EQ(rfbServerFormat,BGR888LittleEndianFormat) ||
-	     PF_EQ(rfbServerFormat,BGR888BigEndianFormat)))
-	{
-	    /* BGR888 -> BGR233 is optimised */
-
-	    fprintf(stderr,"BGR888 to BGR233\n");
-	    cl->translateFn = rfbTranslateBGR888toBGR233;
-	    return TRUE;
-	}
-
-	if (PF_EQ(cl->format,BGR233Format) &&
-	    (PF_EQ(rfbServerFormat,BGR556LittleEndianFormat) ||
-	     PF_EQ(rfbServerFormat,BGR556BigEndianFormat)))
-	{
-	    /* BGR556 -> BGR233 is optimised */
-
-	    fprintf(stderr,"BGR556 to BGR233\n");
-	    cl->translateFn = rfbTranslateBGR556toBGR233;
-	    return TRUE;
-	}
-
-	/* else look up standard true colour translation function in array */
-
-	cl->translateFn
-	  = rfbTranslateTrueColourFns
-	    [rfbServerFormat.bitsPerPixel / 16]
-	    [cl->format.bitsPerPixel / 16]
-	    [(rfbServerFormat.bigEndian != cl->format.bigEndian)?1:0];
-
-	return TRUE;
-    }
-
-
-    /* server has colour map */
-
-    if (!PF_EQ(rfbServerFormat,ColourMap8BitFormat)) {
-
-	/* server has colour map but not 8-bit, can't cope yet */
-
-	fprintf(stderr,"%s: server has colour map but %d-bit\n",
-		"rfbSetTranslateFunction", rfbServerFormat.bitsPerPixel);
+    if (!rfbServerFormat.trueColour && (rfbServerFormat.bitsPerPixel != 8)) {
+	rfbLog("rfbSetTranslateFunction: server has colour map "
+		"but %d-bit - can only cope with 8-bit colour maps\n",
+		rfbServerFormat.bitsPerPixel);
 	rfbCloseSock(cl->sock);
 	return FALSE;
     }
 
-    if (cl->format.trueColour) {
+    if (!cl->format.trueColour && (cl->format.bitsPerPixel != 8)) {
+	rfbLog("rfbSetTranslateFunction: client has colour map "
+		"but %d-bit - can only cope with 8-bit colour maps\n",
+		cl->format.bitsPerPixel);
+	rfbCloseSock(cl->sock);
+	return FALSE;
+    }
 
-	/* 8-bit colour map -> true colour translation */
+    /*
+     * bpp is valid, now work out how to translate
+     */
 
-	fprintf(stderr,
-		"%s: client is %d-bit trueColour, server has colour map\n",
-		"rfbSetTranslateFunction",cl->format.bitsPerPixel);
+    if (!cl->format.trueColour) {
 
-	cl->translateFn
-	  = rfbTranslateColourMapToTrueColourFns
-	    [cl->format.bitsPerPixel / 16]
-	    [(rfbServerFormat.bigEndian != cl->format.bigEndian)?1:0];
+	/* ? -> colour map */
+
+	if (!rfbServerFormat.trueColour) {
+
+	    /* colour map -> colour map */
+
+	    rfbLog("rfbSetTranslateFunction: both 8-bit colour map: "
+		    "no translation needed\n");
+	    cl->translateFn = rfbTranslateNone;
+	    return rfbSetClientColourMap(cl, 0, 0);
+	}
+
+	/*
+	 * truecolour -> colour map
+	 *
+	 * Set client's colour map to BGR233, then effectively it's
+	 * truecolour as well
+	 */
+
+	if (!rfbSetClientColourMapBGR233(cl))
+	    return FALSE;
+
+	cl->format = BGR233Format;
+    }
+
+    /* ? -> truecolour */
+
+    if (!rfbServerFormat.trueColour) {
+
+	/* colour map -> truecolour */
+
+	rfbLog("rfbSetTranslateFunction: client is %d-bit trueColour,"
+		" server has colour map\n",cl->format.bitsPerPixel);
+
+	cl->translateFn = rfbTranslateWithSingleTableFns
+			      [rfbServerFormat.bitsPerPixel / 16]
+				  [cl->format.bitsPerPixel / 16];
 
 	return rfbSetClientColourMap(cl, 0, 0);
     }
 
-    if (!PF_EQ(cl->format,ColourMap8BitFormat)) {
+    /* truecolour -> truecolour */
 
-	/* client has colour map but not 8-bit, can't cope yet */
+    if (PF_EQ(cl->format,rfbServerFormat)) {
 
-	fprintf(stderr,"%s: client has colour map but %d-bit\n",
-		"rfbSetTranslateFunction", cl->format.bitsPerPixel);
-	rfbCloseSock(cl->sock);
-	return FALSE;
+	/* client & server the same */
+
+	rfbLog("no translation needed\n");
+	cl->translateFn = rfbTranslateNone;
+	return TRUE;
     }
 
-    /* 8-bit colour map -> 8-bit colour map */
+    if ((rfbServerFormat.bitsPerPixel < 16) ||
+	(!rfbEconomicTranslate && (rfbServerFormat.bitsPerPixel == 16))) {
 
-    fprintf(stderr,"%s: both 8-bit colour map: no translation needed\n",
-	    "rfbSetTranslateFunction");
+	/* we can use a single lookup table for <= 16 bpp */
 
-    cl->translateFn = rfbTranslateNone;
-    return rfbSetClientColourMap(cl, 0, 0);
+	cl->translateFn = rfbTranslateWithSingleTableFns
+			      [rfbServerFormat.bitsPerPixel / 16]
+				  [cl->format.bitsPerPixel / 16];
+
+	(*rfbInitTrueColourSingleTableFns
+	    [cl->format.bitsPerPixel / 16]) (&cl->translateLookupTable,
+					     &rfbServerFormat, &cl->format);
+
+    } else {
+
+	/* otherwise we use three separate tables for red, green and blue */
+
+	cl->translateFn = rfbTranslateWithRGBTablesFns
+			      [rfbServerFormat.bitsPerPixel / 16]
+				  [cl->format.bitsPerPixel / 16];
+
+	(*rfbInitTrueColourRGBTablesFns
+	    [cl->format.bitsPerPixel / 16]) (&cl->translateLookupTable,
+					     &rfbServerFormat, &cl->format);
+    }
+
+    return TRUE;
 }
 
 
@@ -512,13 +331,11 @@ rfbSetClientColourMapBGR233(cl)
     int r, g, b;
 
     if (cl->format.bitsPerPixel != 8) {
-	fprintf(stderr,"%s: client not 8 bits per pixel\n",
+	rfbLog("%s: client not 8 bits per pixel\n",
 		"rfbSetClientColourMapBGR233");
 	rfbCloseSock(cl->sock);
 	return FALSE;
     }
-
-    cl->format = BGR233Format;
 
     scme->type = rfbSetColourMapEntries;
 
@@ -542,7 +359,7 @@ rfbSetClientColourMapBGR233(cl)
     len += 256 * 3 * 2;
 
     if (WriteExact(cl->sock, buf, len) < 0) {
-	perror("rfbSetClientColourMapBGR233: write");
+	rfbLogPerror("rfbSetClientColourMapBGR233: write");
 	rfbCloseSock(cl->sock);
 	return FALSE;
     }
@@ -575,27 +392,9 @@ rfbSetClientColourMap(cl, firstColour, nColours)
     }
 
     if (cl->format.trueColour) {
-	pent = (EntryPtr)&rfbInstalledColormap->red[firstColour];
-	for (i = 0; i < nColours; i++) {
-	    if (pent->fShared) {
-		r = pent->co.shco.red->color;
-		g = pent->co.shco.green->color;
-		b = pent->co.shco.blue->color;
-	    } else {
-		r = pent->co.local.red;
-		g = pent->co.local.green;
-		b = pent->co.local.blue;
-	    }
-	    rfbColourMapToTrueColour[firstColour+i]
-		= ((((r * cl->format.redMax + 32767) / 65535)
-		    << cl->format.redShift) |
-		   (((g * cl->format.greenMax + 32767) / 65535)
-		    << cl->format.greenShift) |
-		   (((b * cl->format.blueMax + 32767) / 65535)
-		    << cl->format.blueShift));
-
-	    pent++;
-	}
+	(*rfbInitColourMapSingleTableFns
+	    [cl->format.bitsPerPixel / 16]) (&cl->translateLookupTable,
+					     &rfbServerFormat, &cl->format);
 
 	REGION_UNINIT(pScreen,&cl->modifiedRegion);
 	box.x1 = box.y1 = 0;
@@ -632,23 +431,18 @@ PrintPixelFormat(pf)
     rfbPixelFormat *pf;
 {
     if (pf->bitsPerPixel == 1) {
-	fprintf(stderr,"Single bit per pixel.\n");
-	fprintf(stderr,
-		"%s significant bit in each byte is leftmost on the screen.\n",
-		(pf->bigEndian ? "Most" : "Least"));
+	rfbLog("  1 bpp, %s sig bit in each byte is leftmost on the screen.\n",
+	       (pf->bigEndian ? "most" : "least"));
     } else {
-	fprintf(stderr,"%d bits per pixel.\n",pf->bitsPerPixel);
-	if (pf->bitsPerPixel != 8) {
-	    fprintf(stderr,"%s significant byte first in each pixel.\n",
-		    (pf->bigEndian ? "Most" : "Least"));
-	}
+	rfbLog("  %d bpp, depth %d%s\n",pf->bitsPerPixel,pf->depth,
+	       ((pf->bitsPerPixel == 8) ? ""
+		: (pf->bigEndian ? ", big endian" : ", little endian")));
 	if (pf->trueColour) {
-	    fprintf(stderr,"True colour: max red %d green %d blue %d\n",
-		    pf->redMax, pf->greenMax, pf->blueMax);
-	    fprintf(stderr,"            shift red %d green %d blue %d\n",
-		    pf->redShift, pf->greenShift, pf->blueShift);
+	    rfbLog("  true colour: max r %d g %d b %d, shift r %d g %d b %d\n",
+		   pf->redMax, pf->greenMax, pf->blueMax,
+		   pf->redShift, pf->greenShift, pf->blueShift);
 	} else {
-	    fprintf(stderr,"Uses a colour map (not true colour).\n");
+	    rfbLog("  uses a colour map (not true colour).\n");
 	}
     }
 }

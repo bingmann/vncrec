@@ -1,0 +1,20 @@
+
+#ifdef SunArchitecture
+CC = gcc
+CCOPTIONS =
+CDEBUGFLAGS = -O2
+#endif
+
+CCOPTIONS = -Wall
+
+SRCS = args.c rfbproto.c sockets.c svncviewer.c svga.c kbd.c
+OBJS = args.o rfbproto.o sockets.o svncviewer.o svga.o kbd.o
+INCLUDES = -I../include -I.
+VNCAUTH_LIB = ../libvncauth/libvncauth.a
+SVGALIB = -lvgagl -lvga
+
+all:: svncviewer
+
+NormalProgramTarget(svncviewer,$(OBJS),$(DEPXLIB) $(VNCAUTH_LIB),$(SVGALIB) $(VNCAUTH_LIB) $(LIBS),)
+
+DependTarget()

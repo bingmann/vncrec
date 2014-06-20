@@ -28,12 +28,7 @@
 #include <rfbproto.h>
 #include <vncauth.h>
 
-#if NeedFunctionPrototypes
-#define _(x) x
-#else
-#define _(x) ()
-#endif
-
+#define MAX_ENCODINGS 10
 
 extern char *display;
 
@@ -114,9 +109,11 @@ typedef struct
  */
 
 struct rfbClientRec;
-typedef void (*rfbTranslateFnType)(struct rfbClientRec *cl, char *iptr,
-				   char *optr, int iptradd, int optradd,
-				   int nlines);
+typedef void (*rfbTranslateFnType)(char *table, rfbPixelFormat *in,
+				   rfbPixelFormat *out,
+				   char *iptr, char *optr,
+				   int bytesBetweenInputLines,
+				   int width, int height);
 
 
 /*
@@ -126,7 +123,7 @@ typedef void (*rfbTranslateFnType)(struct rfbClientRec *cl, char *iptr,
 typedef struct rfbClientRec {
 
     int sock;
-
+    char *host;
 				/* Possible client states: */
     enum {
 	RFB_PROTOCOL_VERSION,	/* establishing protocol version */
@@ -136,7 +133,7 @@ typedef struct rfbClientRec {
     } state;
 
     Bool reverseConnection;
-    Bool ready;
+
     Bool readyForSetColourMapEntries;
 
     Bool useCopyRect;
@@ -152,15 +149,23 @@ typedef struct rfbClientRec {
        framebuffer.
 
        If the client does not accept CopyRect encoding then the update is
-       simply specified as the region of the screen which has been modified.
+       simply represented as the region of the screen which has been modified
+       (modifiedRegion).
+
        If the client does accept CopyRect encoding, then the update consists of
-       two parts.  First we have a (single) copy from one region of the screen
-       to another, and second (as before) the region of the screen which has
-       been modified in some other way.  Note that although the copy is of a
-       single region, this region may have many rectangles.  Note also that the
-       rectangles updated using CopyRect are always done before sending the
-       "other" modified region, since the modified region may include parts of
-       the screen which are in the source of the copy. */
+       two parts.  First we have a single copy from one region of the screen to
+       another (the destination of the copy is copyRegion), and second we have
+       the region of the screen which has been modified in some other way
+       (modifiedRegion).
+
+       Although the copy is of a single region, this region may have many
+       rectangles.  When sending an update, the copyRegion is always sent
+       before the modifiedRegion.  This is because the modifiedRegion may
+       overlap parts of the screen which are in the source of the copy.
+
+       In fact during normal processing, the modifiedRegion may even overlap
+       the destination copyRegion.  Just before an update is sent we remove
+       from the copyRegion anything in the modifiedRegion. */
 
     RegionRec copyRegion;	/* the destination region of the copy */
     int copyDX, copyDY;		/* the translation by which the copy happens */
@@ -168,12 +173,30 @@ typedef struct rfbClientRec {
     RegionRec modifiedRegion;	/* the region of the screen modified in any
 				   other way */
 
+    /* As part of the FramebufferUpdateRequest, a client can express interest
+       in a subrectangle of the whole framebuffer.  This is stored in the
+       requestedRegion member.  In the normal case this is the whole
+       framebuffer if the client is ready, empty if it's not. */
 
-    /* This member points to the translation function which is used to copy
+    RegionRec requestedRegion;
+
+    /* translateFn points to the translation function which is used to copy
        and translate a rectangle from the framebuffer to an output buffer. */
 
     rfbTranslateFnType translateFn;
+
+    char *translateLookupTable;
+
     rfbPixelFormat format;
+
+    /* statistics */
+
+    int rfbBytesSent[MAX_ENCODINGS];
+    int rfbRectanglesSent[MAX_ENCODINGS];
+    int rfbFramebufferUpdateMessagesSent;
+    int rfbRawBytesEquivalent;
+    int rfbKeyEventsRcvd;
+    int rfbPointerEventsRcvd;
 
     struct rfbClientRec *next;
 
@@ -224,11 +247,15 @@ static const int rfbEndianTest = 1;
 #define Swap32IfLE(l) (*(const char *)&rfbEndianTest ? Swap32(l) : (l))
 
 extern char *desktopName;
+extern char rfbThisHost[];
+extern Atom VNC_LAST_CLIENT_ID;
 
 extern rfbScreenInfo rfbScreen;
 extern int rfbGCIndex;
 
 extern int rfbBitsPerPixel(int depth);
+extern void rfbLog(char *format, ...);
+extern void rfbLogPerror(char *str);
 
 
 /* sockets.c */
@@ -291,12 +318,12 @@ extern void PtrDeviceInit();
 extern void PtrDeviceOn();
 extern void PtrDeviceOff();
 extern void PtrDeviceControl();
-extern void PtrAddEvent(int buttonMask, int x, int y);
+extern void PtrAddEvent(int buttonMask, int x, int y, rfbClientPtr cl);
 
 extern void KbdDeviceInit();
 extern void KbdDeviceOn();
 extern void KbdDeviceOff();
-extern void KbdAddEvent(Bool down, KeySym keySym);
+extern void KbdAddEvent(Bool down, KeySym keySym, rfbClientPtr cl);
 extern void KbdReleaseAllKeys();
 
 
@@ -333,10 +360,14 @@ extern void rfbSendServerCutText(char *str, int len);
 
 /* translate.c */
 
+extern Bool rfbEconomicTranslate;
 extern rfbPixelFormat rfbServerFormat;
 
-extern void rfbTranslateNone(rfbClientPtr cl, char *iptr, char *optr,
-			     int iptradd, int optradd, int nlines);
+extern void rfbTranslateNone(char *table, rfbPixelFormat *in,
+			     rfbPixelFormat *out,
+			     char *iptr, char *optr,
+			     int bytesBetweenInputLines,
+			     int width, int height);
 extern Bool rfbSetTranslateFunction(rfbClientPtr cl);
 extern void rfbSetClientColourMaps(int firstColour, int nColours);
 extern Bool rfbSetClientColourMap(rfbClientPtr cl, int firstColour,
@@ -380,12 +411,5 @@ extern Bool rfbSendRectEncodingHextile(rfbClientPtr cl, int x, int y, int w,
 
 /* stats.c */
 
-extern int rfbBytesSent[];
-extern int rfbRectanglesSent[];
-extern int rfbFramebufferUpdateMessagesSent;
-extern int rfbRawBytesEquivalent;
-extern int rfbKeyEventsRcvd;
-extern int rfbPointerEventsRcvd;
-
-extern void rfbResetStats();
-extern void rfbPrintStats();
+extern void rfbResetStats(rfbClientPtr cl);
+extern void rfbPrintStats(rfbClientPtr cl);

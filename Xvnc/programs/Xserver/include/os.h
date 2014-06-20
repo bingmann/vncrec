@@ -46,15 +46,15 @@ SOFTWARE.
 
 ******************************************************************/
 
-/* $XConsortium: os.h,v 1.64 95/01/05 19:50:01 kaleb Exp $ */
+/* $XConsortium: os.h /main/60 1996/12/15 21:25:13 rws $ */
+/* $XFree86: xc/programs/Xserver/include/os.h,v 3.16.2.1 1998/01/22 10:47:13 dawes Exp $ */
 
 #ifndef OS_H
 #define OS_H
 #include "misc.h"
-
-#ifdef INCLUDE_ALLOCA_H
-#include <alloca.h>
-#endif
+#define ALLOCATE_LOCAL_FALLBACK(_size) Xalloc((unsigned long)(_size))
+#define DEALLOCATE_LOCAL_FALLBACK(_ptr) Xfree((pointer)(_ptr))
+#include "Xalloca.h"
 
 #define NullFID ((FID) 0)
 
@@ -74,71 +74,19 @@ typedef pointer	FID;
 typedef struct _FontPathRec *FontPathPtr;
 typedef struct _NewClientRec *NewClientPtr;
 
-#ifndef NO_ALLOCA
-/*
- * os-dependent definition of local allocation and deallocation
- * If you want something other than Xalloc/Xfree for ALLOCATE/DEALLOCATE
- * LOCAL then you add that in here.
- */
-#ifdef __HIGHC__
-
-#ifndef NCR
-extern char *alloca();
-
-#if HCVERSION < 21003
-#define ALLOCATE_LOCAL(size)	alloca((int)(size))
-pragma on(alloca);
-#else /* HCVERSION >= 21003 */
-#define	ALLOCATE_LOCAL(size)	_Alloca((int)(size))
-#endif /* HCVERSION < 21003 */
-#else /* NCR */
-#define ALLOCATE_LOCAL(size)	alloca(size)
-#endif
-
-#define DEALLOCATE_LOCAL(ptr)  /* as nothing */
-
-#endif /* defined(__HIGHC__) */
-
-
-#if defined(__GNUC__) && !defined(alloca)
-#define alloca __builtin_alloca
-#else
-
-/*
- * warning: old mips alloca (pre 2.10) is unusable, new one is builtin
- * Test is easy, the new one is named __builtin_alloca and comes
- * from alloca.h which #defines alloca.
- */
-#ifndef NCR
-#if defined(vax) || defined(sun) || defined(apollo) || defined(stellar) || defined(alloca)
-/*
- * Some System V boxes extract alloca.o from /lib/libPW.a; if you
- * decide that you don't want to use alloca, you might want to fix 
- * ../os/4.2bsd/Imakefile
- */
-#ifndef alloca
-char *alloca();
-#endif
-#define ALLOCATE_LOCAL(size) alloca((int)(size))
-#define DEALLOCATE_LOCAL(ptr)  /* as nothing */
-#endif /* who does alloca */
-#endif /* NCR */
-#endif /* ! __GNUC__ */
-
-#endif /* NO_ALLOCA */
-
-#ifndef ALLOCATE_LOCAL
-#define ALLOCATE_LOCAL(size) Xalloc((unsigned long)(size))
-#define DEALLOCATE_LOCAL(ptr) Xfree((pointer)(ptr))
-#endif /* ALLOCATE_LOCAL */
-
 #define xnfalloc(size) XNFalloc((unsigned long)(size))
 #define xnfrealloc(ptr, size) XNFrealloc((pointer)(ptr), (unsigned long)(size))
 
 #define xalloc(size) Xalloc((unsigned long)(size))
+#define xnfalloc(size) XNFalloc((unsigned long)(size))
+#define xcalloc(_num, _size) Xcalloc((unsigned long)(_num)*(unsigned long)(_size))
 #define xrealloc(ptr, size) Xrealloc((pointer)(ptr), (unsigned long)(size))
+#define xnfrealloc(ptr, size) XNFrealloc((pointer)(ptr), (unsigned long)(size))
 #define xfree(ptr) Xfree((pointer)(ptr))
 
+#ifdef SCO
+#include <stdio.h>
+#endif
 #ifndef X_NOT_STDC_ENV
 #include <string.h>
 #else
@@ -156,17 +104,28 @@ char *alloca();
 #define SIGVAL void
 #endif
 
+extern Bool OsDelayInitColors;
+
 extern int WaitForSomething(
 #if NeedFunctionPrototypes
     int* /*pClientsReady*/
 #endif
 );
 
+#ifdef LBX
+#define ReadRequestFromClient(client)   ((client)->readRequest(client))
+extern int StandardReadRequestFromClient(
+#if NeedFunctionPrototypes
+    ClientPtr /*client*/
+#endif
+);
+#else
 extern int ReadRequestFromClient(
 #if NeedFunctionPrototypes
     ClientPtr /*client*/
 #endif
 );
+#endif /* LBX */
 
 extern Bool InsertFakeRequest(
 #if NeedFunctionPrototypes
@@ -223,6 +182,13 @@ extern void CreateWellKnownSockets(
 extern void ResetWellKnownSockets(
 #if NeedFunctionPrototypes
     void
+#endif
+);
+
+extern XID
+AuthorizationIDOfClient(
+#if NeedFunctionPrototypes
+    ClientPtr /*client*/
 #endif
 );
 
@@ -363,6 +329,12 @@ extern void TimerCheck(
 #endif
 );
 
+extern void TimerCancel(
+#if NeedFunctionPrototypes
+    OsTimerPtr /* pTimer */
+#endif
+);
+
 extern void TimerFree(
 #if NeedFunctionPrototypes
     OsTimerPtr /* pTimer */
@@ -432,7 +404,7 @@ extern void Xfree(
 #endif
 );
 
-extern int OsInitAllocator(
+extern void OsInitAllocator(
 #if NeedFunctionPrototypes
     void
 #endif
@@ -451,6 +423,8 @@ extern OsSigHandlerPtr OsSignal(
 #endif
 );
 
+extern int auditTrailLevel;
+
 extern void AuditF(
 #if NeedVarargsPrototypes
     char* /*f*/,
@@ -463,7 +437,11 @@ extern void FatalError(
     char* /*f*/,
     ...
 #endif
-);
+)
+#if __GNUC__ == 2 && __GNUC_MINOR__ > 4 
+__attribute((noreturn))
+#endif
+;
 
 extern void ErrorF(
 #if NeedVarargsPrototypes
@@ -471,6 +449,20 @@ extern void ErrorF(
     ...
 #endif
 );
+
+#ifdef SERVER_LOCK
+extern void LockServer(
+#if NeedFunctionPrototypes
+    void
+#endif
+);
+
+extern void UnlockServer(
+#if NeedFunctionPrototypes
+    void
+#endif
+);
+#endif
 
 extern int OsLookupColor(
 #if NeedFunctionPrototypes
@@ -489,6 +481,18 @@ extern void OsInit(
 #endif
 );
 
+extern void OsCleanup(
+#if NeedFunctionPrototypes
+    void
+#endif
+);
+
+extern void OsVendorFatalError(
+#if NeedFunctionPrototypes
+    void
+#endif
+);
+
 extern void OsVendorInit(
 #if NeedFunctionPrototypes
     void
@@ -500,6 +504,31 @@ extern int OsInitColors(
     void
 #endif
 );
+
+#if !defined(WIN32) && !defined(__EMX__)
+extern int System(
+#if NeedFunctionPrototypes
+    char *
+#endif
+);
+
+extern pointer Popen(
+#if NeedFunctionPrototypes
+    char *,
+    char *
+#endif
+);
+
+extern int Pclose(
+#if NeedFunctionPrototypes
+    pointer
+#endif
+);
+#else
+#define System(a) system(a)
+#define Popen(a,b) popen(a,b)
+#define Pclose(a) pclose(a)
+#endif
 
 extern int AddHost(
 #if NeedFunctionPrototypes
@@ -513,7 +542,13 @@ extern int AddHost(
 extern Bool ForEachHostInFamily (
 #if NeedFunctionPrototypes
     int	    /*family*/,
-    Bool    (* /*func*/ )(),
+    Bool    (* /*func*/ )(
+#if NeedNestedPrototypes
+            unsigned char * /* addr */,
+            short           /* len */,
+            pointer         /* closure */
+#endif
+            ),
     pointer /*closure*/
 #endif
 );
@@ -545,12 +580,25 @@ extern int InvalidHost(
 #endif
 );
 
+extern int LocalClient(
+#if NeedFunctionPrototypes
+    ClientPtr /* client */
+#endif
+);
+
 extern int ChangeAccessControl(
 #if NeedFunctionPrototypes
     ClientPtr /*client*/,
     int /*fEnabled*/
 #endif
 );
+
+extern int GetAccessControl(
+#if NeedFunctionPrototypes
+    void
+#endif
+);
+
 
 extern void AddLocalHosts(
 #if NeedFunctionPrototypes
@@ -639,6 +687,17 @@ extern int AddAuthorization(
 #endif
 );
 
+extern XID GenerateAuthorization(
+#if NeedFunctionPrototypes
+    unsigned int   /* name_length */,
+    char	*  /* name */,
+    unsigned int   /* data_length */,
+    char	*  /* data */,
+    unsigned int * /* data_length_return */,
+    char	** /* data_return */
+#endif
+);
+
 extern void ExpandCommandLine(
 #if NeedFunctionPrototypes
     int * /*pargc*/,
@@ -653,5 +712,65 @@ extern int ddxProcessArgument(
     int /*i*/
 #endif
 );
+
+/*
+ *  idiom processing stuff
+ */
+
+xReqPtr PeekNextRequest(
+#if NeedFunctionPrototypes
+    xReqPtr req, ClientPtr client, Bool readmore
+#endif
+);
+
+void SkipRequests(
+#if NeedFunctionPrototypes
+    xReqPtr req, ClientPtr client, int numskipped
+#endif
+);
+
+/* int ReqLen(xReq *req, ClientPtr client)
+ * Given a pointer to a *complete* request, return its length in bytes.
+ * Note that if the request is a big request (as defined in the Big
+ * Requests extension), the macro lies by returning 4 less than the
+ * length that it actually occupies in the request buffer.  This is so you
+ * can blindly compare the length with the various sz_<request> constants
+ * in Xproto.h without having to know/care about big requests.
+ */
+#define ReqLen(_pxReq, _client) \
+ ((_pxReq->length ? \
+     (_client->swapped ? lswaps(_pxReq->length) : _pxReq->length) \
+  : ((_client->swapped ? \
+	lswapl(((CARD32*)_pxReq)[1]) : ((CARD32*)_pxReq)[1])-1) \
+  ) << 2)
+
+/* otherReqTypePtr CastxReq(xReq *req, otherReqTypePtr)
+ * Cast the given request to one of type otherReqTypePtr to access
+ * fields beyond the length field.
+ */
+#define CastxReq(_pxReq, otherReqTypePtr) \
+    (_pxReq->length ? (otherReqTypePtr)_pxReq \
+		    : (otherReqTypePtr)(((CARD32*)_pxReq)+1))
+
+/* stuff for SkippedRequestsCallback */
+extern CallbackListPtr SkippedRequestsCallback;
+typedef struct {
+    xReqPtr req;
+    ClientPtr client;
+    int numskipped;
+} SkippedRequestInfoRec;
+
+/* stuff for ReplyCallback */
+extern CallbackListPtr ReplyCallback;
+typedef struct {
+    ClientPtr client;
+    pointer replyData;
+    unsigned long dataLenBytes;
+    unsigned long bytesRemaining;
+    Bool startOfReply;
+} ReplyInfoRec;
+
+/* stuff for FlushCallback */
+extern CallbackListPtr FlushCallback;
 
 #endif /* OS_H */

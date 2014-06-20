@@ -29,6 +29,7 @@ in this Software without prior written authorization from the X Consortium.
 */
 
 /* $XConsortium: cfbfillrct.c,v 5.18 94/04/17 20:28:47 dpw Exp $ */
+/* $XFree86: xc/programs/Xserver/cfb/cfbfillrct.c,v 3.1.4.1 1997/05/10 07:02:48 hohndel Exp $ */
 
 #include "X.h"
 #include "Xmd.h"
@@ -52,7 +53,11 @@ cfbFillBoxTileOdd (pDrawable, n, rects, tile, xrot, yrot)
     PixmapPtr	tile;
     int		xrot, yrot;
 {
+#if PSZ == 24
+    if (tile->drawable.width & 3)
+#else
     if (tile->drawable.width & PIM)
+#endif
 	cfbFillBoxTileOddCopy (pDrawable, n, rects, tile, xrot, yrot, GXcopy, ~0L);
     else
 	cfbFillBoxTile32sCopy (pDrawable, n, rects, tile, xrot, yrot, GXcopy, ~0L);
@@ -70,7 +75,11 @@ cfbFillRectTileOdd (pDrawable, pGC, nBox, pBox)
 
     xrot = pDrawable->x + pGC->patOrg.x;
     yrot = pDrawable->y + pGC->patOrg.y;
+#if PSZ == 24
+    if (pGC->tile.pixmap->drawable.width & 3)
+#else
     if (pGC->tile.pixmap->drawable.width & PIM)
+#endif
     {
     	fill = cfbFillBoxTileOddGeneral;
     	if ((pGC->planemask & PMSK) == PMSK)
@@ -112,6 +121,14 @@ cfbPolyFillRect(pDrawable, pGC, nrectFill, prectInit)
     void	    (*BoxFill)();
     int		    n;
     int		    xorg, yorg;
+
+#if PSZ != 8
+    if ((pGC->fillStyle == FillStippled) ||
+	(pGC->fillStyle == FillOpaqueStippled)) {
+       miPolyFillRect(pDrawable, pGC, nrectFill, prectInit);
+       return;
+    }
+#endif
 
     priv = cfbGetGCPrivate(pGC);
     prgnClip = priv->pCompositeClip;

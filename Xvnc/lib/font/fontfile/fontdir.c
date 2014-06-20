@@ -1,4 +1,5 @@
-/* $XConsortium: fontdir.c,v 1.22 94/04/17 20:17:05 gildea Exp $ */
+/* $XConsortium: fontdir.c /main/24 1996/09/28 16:49:04 rws $ */
+/* $XFree86: xc/lib/font/fontfile/fontdir.c,v 3.7 1996/12/23 06:02:21 dawes Exp $ */
 
 /*
 
@@ -69,7 +70,7 @@ FontFileFreeEntry (entry)
 	extra = entry->u.scalable.extra;
 	for (i = 0; i < extra->numScaled; i++)
 	    if (extra->scaled[i].vals.ranges)
-		free (extra->scaled[i].vals.ranges);
+		xfree (extra->scaled[i].vals.ranges);
 	xfree (extra->scaled);
 	xfree (extra);
 	break;
@@ -79,8 +80,10 @@ FontFileFreeEntry (entry)
     case FONT_ENTRY_ALIAS:
 	xfree (entry->u.alias.resolved);
 	break;
+#ifdef NOTYET
     case FONT_ENTRY_BC:
 	break;
+#endif
     }
 }
 
@@ -102,14 +105,39 @@ FontFileMakeDir(dirName, size)
     FontDirectoryPtr	dir;
     int			dirlen;
     int			needslash = 0;
+#ifdef FONTDIRATTRIB
+    char		*attrib;
+    int			attriblen;
+#endif
 
+#ifdef FONTDIRATTRIB
+#ifndef __EMX__
+    attrib = strchr(dirName, ':');
+#else
+    /* OS/2 uses the colon in the drive letter descriptor, skip this */
+    attrib = strchr(dirName+2, ':');
+#endif
+    if (attrib) {
+	dirlen = attrib - dirName;
+	attriblen = strlen(attrib);
+    } else {
+	dirlen = strlen(dirName);
+	attriblen = 0;
+    }
+#else
     dirlen = strlen(dirName);
+#endif
     if (dirName[dirlen - 1] != '/')
 #ifdef NCD
     if (dirlen)     /* leave out slash for builtins */
 #endif
 	needslash = 1;
+#ifdef FONTDIRATTRIB
+    dir = (FontDirectoryPtr) xalloc(sizeof *dir + dirlen + needslash + 1 +
+				    (attriblen ? attriblen + 1 : 0));
+#else
     dir = (FontDirectoryPtr) xalloc(sizeof *dir + dirlen + needslash + 1);
+#endif
     if (!dir)
 	return (FontDirectoryPtr)0;
     if (!FontFileInitTable (&dir->scalable, 0))
@@ -126,7 +154,18 @@ FontFileMakeDir(dirName, size)
     dir->directory = (char *) (dir + 1);
     dir->dir_mtime = 0;
     dir->alias_mtime = 0;
+#ifdef FONTDIRATTRIB
+    if (attriblen)
+	dir->attributes = dir->directory + dirlen + needslash + 1;
+    else
+	dir->attributes = NULL;
+    strncpy(dir->directory, dirName, dirlen);
+    dir->directory[dirlen] = '\0';
+    if (dir->attributes)
+	strcpy(dir->attributes, attrib);
+#else
     strcpy(dir->directory, dirName);
+#endif
     if (needslash)
 	strcat(dir->directory, "/");
     return dir;
@@ -599,6 +638,28 @@ FontFileAddFontFile (dir, fontName, fileName)
 	      (vals.values_supplied & PIXELSIZE_MASK) != PIXELSIZE_ARRAY &&
 	      (vals.values_supplied & POINTSIZE_MASK) != POINTSIZE_ARRAY &&
 	      !(vals.values_supplied & ENHANCEMENT_SPECIFY_MASK);
+#ifdef FONTDIRATTRIB
+#define UNSCALED_ATTRIB "unscaled"
+    /* For scalable fonts, check if the "unscaled" attribute is present */
+    if (isscale && dir->attributes && dir->attributes[0] == ':') {
+	char *ptr1 = dir->attributes + 1;
+	char *ptr2;
+	int length;
+	int uslength = strlen(UNSCALED_ATTRIB);
+
+	do {
+	    ptr2 = strchr(ptr1, ':');
+	    if (ptr2)
+		length = ptr2 - ptr1;
+	    else
+		length = dir->attributes + strlen(dir->attributes) - ptr1;
+	    if (length == uslength && !strncmp(ptr1, UNSCALED_ATTRIB, uslength))
+		isscale = FALSE;
+	    if (ptr2)
+		ptr1 = ptr2 + 1;
+	} while (ptr2);
+    }
+#endif
     if (!isscale || (vals.values_supplied & SIZE_SPECIFY_MASK))
     {
       /* If the fontname says it is nonScalable, make sure that the
@@ -671,12 +732,7 @@ FontFileAddFontFile (dir, fontName, fileName)
 	    extra->defaults = vals;
 	else
 	{
-	    /* XXX fix interfaces */
-	    struct resolution {
-		CARD16	x B16;
-		CARD16	y B16;
-		CARD16	point_size B16;
-	    } *resolution, *GetClientResolutions();
+	    FontResolutionPtr resolution;
 	    int num;
 
 	    extra->defaults.point_matrix[0] =
@@ -692,8 +748,8 @@ FontFileAddFontFile (dir, fontName, fileName)
 	        resolution = GetClientResolutions (&num);
 	        if (resolution && num > 0)
 	        {
-	    	    extra->defaults.x = resolution->x;
-	    	    extra->defaults.y = resolution->y;
+	    	    extra->defaults.x = resolution->x_resolution;
+	    	    extra->defaults.y = resolution->y_resolution;
 	        }
 	        else
 	        {

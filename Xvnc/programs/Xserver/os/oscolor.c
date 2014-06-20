@@ -46,6 +46,7 @@ SOFTWARE.
 
 ******************************************************************/
 /* $XConsortium: oscolor.c,v 1.23 94/04/17 20:27:04 dpw Exp $ */
+/* $XFree86: xc/programs/Xserver/os/oscolor.c,v 3.2.4.1 1998/01/22 10:47:14 dawes Exp $ */
 
 #ifndef USE_RGB_TXT
 
@@ -108,11 +109,11 @@ OsLookupColor(screen, name, len, pred, pgreen, pblue)
     if(!rgb_dbm)
 	return(0);
 
-    /* we use Xalloc here so that we can compile with cc without alloca
+    /* we use xalloc here so that we can compile with cc without alloca
      * when otherwise using gcc */
     if (len < sizeof(buf))
 	lowername = buf;
-    else if (!(lowername = (char *)Xalloc(len + 1)))
+    else if (!(lowername = (char *)xalloc(len + 1)))
 	return(0);
     CopyISOLatin1Lowered ((unsigned char *) lowername, (unsigned char *) name,
 			  (int)len);
@@ -126,7 +127,7 @@ OsLookupColor(screen, name, len, pred, pgreen, pblue)
 #endif
 
     if (len >= sizeof(buf))
-	Xfree(lowername);
+	xfree(lowername);
 
     if(dbent.dptr)
     {
@@ -198,7 +199,7 @@ lookup(name, len, create)
   else
     prev = &(hashTab[h]);
 
-  if (!entry && create && (entry = (dbEntryPtr)Xalloc(sizeof(dbEntry) +len)))
+  if (!entry && create && (entry = (dbEntryPtr)xalloc(sizeof(dbEntry) +len)))
     {
       *prev = entry;
       entry->link = NULL;
@@ -225,10 +226,16 @@ OsInitColors()
 
   if (!was_here)
     {
+#ifndef __EMX__
       path = (char*)ALLOCATE_LOCAL(strlen(rgbPath) +5);
       strcpy(path, rgbPath);
       strcat(path, ".txt");
-
+#else
+      char *tmp = (char*)__XOS2RedirRoot(rgbPath);
+      path = (char*)ALLOCATE_LOCAL(strlen(tmp) +5);
+      strcpy(path, tmp);
+      strcat(path, ".txt");
+#endif
       if (!(rgb = fopen(path, "r")))
         {
 	   ErrorF( "Couldn't open RGB_DB '%s'\n", rgbPath );
@@ -239,7 +246,11 @@ OsInitColors()
       while(fgets(line, sizeof(line), rgb))
 	{
 	  lineno++;
+#ifndef __EMX__
 	  if (sscanf(line,"%d %d %d %[^\n]\n", &red, &green, &blue, name) == 4)
+#else
+	  if (sscanf(line,"%d %d %d %[^\n\r]\n", &red, &green, &blue, name) == 4)
+#endif
 	    {
 	      if (red >= 0   && red <= 0xff &&
 		  green >= 0 && green <= 0xff &&
@@ -253,8 +264,7 @@ OsInitColors()
 		    }
 		}
 	      else
-		ErrorF("Value for \"%s\" out of range: %s:%d\n",
-		       name, path, lineno);
+		ErrorF("Value out of range: %s:%d\n", path, lineno);
 	    }
 	  else if (*line && *line != '#' && *line != '!')
 	    ErrorF("Syntax Error: %s:%d\n", path, lineno);

@@ -1,4 +1,8 @@
-/* $XConsortium: dirfile.c,v 1.11 94/04/17 20:17:01 gildea Exp $ */
+/* $XFree86: xc/lib/font/fontfile/dirfile.c,v 3.3 1997/01/27 06:56:28 dawes Exp $ */
+#ifndef lint
+static char *rid=
+    "$XConsortium: dirfile.c /main/12 1995/12/08 19:02:23 gildea $";
+#endif /* lint */
 
 /*
 
@@ -56,6 +60,10 @@ FontFileReadDirectory (directory, pdir)
     char        file_name[MAXFONTNAMELEN];
     char        font_name[MAXFONTNAMELEN];
     char        dir_file[MAXFONTNAMELEN];
+#ifdef FONTDIRATTRIB
+    char	dir_path[MAXFONTNAMELEN];
+    char	*ptr;
+#endif
     FILE       *file;
     int         count,
                 i,
@@ -64,8 +72,24 @@ FontFileReadDirectory (directory, pdir)
 
     FontDirectoryPtr	dir = NullFontDirectory;
 
+#ifdef FONTDIRATTRIB
+    /* Check for font directory attributes */
+#ifndef __EMX__
+    if (ptr = strchr(directory, ':')) {
+#else
+    /* OS/2 path might start with a drive letter, don't clip this */
+    if (ptr = strchr(directory+2, ':')) {
+#endif
+	strncpy(dir_path, directory, ptr - directory);
+	dir_path[ptr - directory] = '\0';
+    } else {
+	strcpy(dir_path, directory);
+    }
+    strcpy(dir_file, dir_path);
+#else
     strcpy(dir_file, directory);
-    if (directory[strlen(directory) - 1] != '/')
+#endif
+    if (dir_file[strlen(dir_file) - 1] != '/')
 	strcat(dir_file, "/");
     strcat(dir_file, FontDirFile);
     file = fopen(dir_file, "r");
@@ -84,6 +108,12 @@ FontFileReadDirectory (directory, pdir)
 	}
 	dir->dir_mtime = statb.st_mtime;
 	while ((count = fscanf(file, "%s %[^\n]\n", file_name, font_name)) != EOF) {
+#ifdef __EMX__
+	    /* strip any existing trailing CR */
+	    for (i=0; i<strlen(font_name); i++) {
+		if (font_name[i]=='\r') font_name[i] = '\0';
+	    }
+#endif
 	    if (count != 2) {
 		FontFileFreeDir (dir);
 		fclose(file);
@@ -100,7 +130,11 @@ FontFileReadDirectory (directory, pdir)
     } else if (errno != ENOENT) {
 	return BadFontPath;
     }
+#ifdef FONTDIRATTRIB
+    status = ReadFontAlias(dir_path, FALSE, &dir);
+#else
     status = ReadFontAlias(directory, FALSE, &dir);
+#endif
     if (status != Successful) {
 	if (dir)
 	    FontFileFreeDir (dir);
@@ -195,7 +229,7 @@ AddFileNameAliases(dir)
  * "font name \"With Double Quotes\" \\ and \\ back-slashes"
  * works just fine.
  *
- * A line beginning with a # denotes a newline-terminated comment.
+ * A line beginning with a ! denotes a newline-terminated comment.
  */
 
 /*
@@ -426,6 +460,7 @@ lexc(file)
     case '\t':
 	charClass = WHITE;
 	break;
+    case '\r':
     case '\n':
 	charClass = NL;
 	break;

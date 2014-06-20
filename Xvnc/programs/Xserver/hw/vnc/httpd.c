@@ -40,11 +40,8 @@
 
 #define OK_STR "HTTP/1.0 200 OK\n\n"
 
-#define GEN_HTML_STR "<HTML><TITLE>%s's VNC desktop</TITLE>\n" \
-   "<APPLET CODE=vncviewer.class ARCHIVE=vncviewer.jar WIDTH=%d HEIGHT=%d>\n" \
-   "<param name=PORT value=%d></APPLET></HTML>\n"
-
 static void httpProcessInput();
+static Bool compareAndSkip(char **ptr, const char *str);
 
 int httpPort = 0;
 char *httpDir = NULL;
@@ -79,10 +76,12 @@ httpInitSockets()
 	httpPort = 5800 + atoi(display);
     }
 
-    fprintf(stderr,"httpInitSockets: listening on TCP port %d\n", httpPort);
+    rfbLog("Listening for HTTP connections on TCP port %d\n", httpPort);
+
+    rfbLog("  URL http://%s:%d\n",rfbThisHost,httpPort);
 
     if ((httpListenSock = ListenOnTCPPort(httpPort)) < 0) {
-	perror("ListenOnTCPPort");
+	rfbLogPerror("ListenOnTCPPort");
 	exit(1);
     }
 
@@ -119,7 +118,7 @@ httpCheckFds()
 	return;
     }
     if (nfds < 0) {
-	perror("httpCheckFds: select");
+	rfbLogPerror("httpCheckFds: select");
 	return;
     }
 
@@ -133,17 +132,16 @@ httpCheckFds()
 
 	if ((httpSock = accept(httpListenSock,
 			       (struct sockaddr *)&addr, &addrlen)) < 0) {
-	    perror("httpCheckFds: accept");
+	    rfbLogPerror("httpCheckFds: accept");
 	    return;
 	}
 	if ((httpFP = fdopen(httpSock, "r+")) == NULL) {
-	    perror("httpCheckFds: fdopen");
+	    rfbLogPerror("httpCheckFds: fdopen");
 	    close(httpSock);
 	    httpSock = -1;
 	    return;
 	}
 
-	/*fprintf(stderr,"httpCheckFds: got connection\n");*/
 	AddEnabledDevice(httpSock);
     }
 }
@@ -166,14 +164,35 @@ httpCloseSock()
 static void
 httpProcessInput()
 {
-    char *fname = NULL;
+    struct sockaddr_in addr;
+    int addrlen = sizeof(addr);
+    char fullFname[256];
+    char *fname;
+    int maxFnameLen;
     int fd;
+    Bool gotGet = FALSE;
+    Bool performSubstitutions = FALSE;
+    char str[256];
+    struct passwd *user = getpwuid(getuid());;
+
+    if (strlen(httpDir) > 200) {
+	rfbLog("-httpd directory too long\n");
+	httpCloseSock();
+	return;
+    }
+    strcpy(fullFname, httpDir);
+    fname = &fullFname[strlen(fullFname)];
+    maxFnameLen = 255 - strlen(fullFname);
 
     buf[0] = '\0';
 
     while (1) {
+
+	/* Read lines from the HTTP client until a blank line.  The only
+	   line we need to parse is the line "GET <filename> ..." */
+
 	if (!fgets(buf, BUF_SIZE, httpFP)) {
-	    perror("httpProcessInput: fgets");
+	    rfbLogPerror("httpProcessInput: fgets");
 	    httpCloseSock();
 	    return;
 	}
@@ -184,87 +203,177 @@ httpProcessInput()
 	    break;
 
 	if (strncmp(buf, "GET ", 4) == 0) {
-	    char *base;
+	    gotGet = TRUE;
 
-	    fname = (char *)xalloc(strlen(httpDir) + strlen(buf) + 2);
-	    sprintf(fname, "%s", httpDir);
-	    base = &fname[strlen(fname)];
-
-	    if (sscanf(buf, "GET %s HTTP/1.0", base) != 1) {
-		fprintf(stderr,"couldn't parse GET line\n");
+	    if (strlen(buf) > maxFnameLen) {
+		rfbLog("GET line too long\n");
 		httpCloseSock();
-		free(fname);
 		return;
 	    }
 
-	    if (base[0] != '/') {
-		fprintf(stderr,"filename didn't begin with '/'\n");
+	    if (sscanf(buf, "GET %s HTTP/1.0", fname) != 1) {
+		rfbLog("couldn't parse GET line\n");
+		httpCloseSock();
+		return;
+	    }
+
+	    if (fname[0] != '/') {
+		rfbLog("filename didn't begin with '/'\n");
 		WriteExact(httpSock, NOT_FOUND_STR, strlen(NOT_FOUND_STR));
 		httpCloseSock();
-		free(fname);
 		return;
 	    }
 
-	    if (strchr(base+1, '/') != NULL) {
-		fprintf(stderr,"asking for file in other directory\n");
+	    if (strchr(fname+1, '/') != NULL) {
+		rfbLog("asking for file in other directory\n");
 		WriteExact(httpSock, NOT_FOUND_STR, strlen(NOT_FOUND_STR));
 		httpCloseSock();
-		free(fname);
 		return;
 	    }
 
-	    fprintf(stderr,"httpd: get '%s'\n", base+1);
+	    getpeername(httpSock, (struct sockaddr *)&addr, &addrlen);
+	    rfbLog("httpd: get '%s' for %s\n", fname+1,
+		   inet_ntoa(addr.sin_addr));
 	    continue;
 	}
     }
 
-    if (fname == NULL) {
-	fprintf(stderr,"no GET line\n");
+    if (!gotGet) {
+	rfbLog("no GET line\n");
 	httpCloseSock();
 	return;
     }
 
+    /* If we were asked for '/', actually read the file index.vnc */
 
-    if (fname[strlen(fname)-1] == '/') {
-	struct passwd *user = getpwuid(getuid());
-
-	WriteExact(httpSock, OK_STR, strlen(OK_STR));
-	sprintf(buf, GEN_HTML_STR, user->pw_name, rfbScreen.width,
-		rfbScreen.height + 32, rfbPort);
-	WriteExact(httpSock, buf, strlen(buf));
-	httpCloseSock();
-	free(fname);
-	return;
+    if (strcmp(fname, "/") == 0) {
+	strcpy(fname, "/index.vnc");
+	rfbLog("httpd: defaulting to '%s'\n", fname+1);
     }
 
-    if ((fd = open(fname, O_RDONLY)) < 0) {
-	perror("httpProcessInput: open");
+    /* Substitutions are performed on files ending .vnc */
+
+    if (strlen(fname) >= 4 && strcmp(&fname[strlen(fname)-4], ".vnc") == 0) {
+	performSubstitutions = TRUE;
+    }
+
+    /* Open the file */
+
+    if ((fd = open(fullFname, O_RDONLY)) < 0) {
+	rfbLogPerror("httpProcessInput: open");
 	WriteExact(httpSock, NOT_FOUND_STR, strlen(NOT_FOUND_STR));
 	httpCloseSock();
-	free(fname);
 	return;
     }
 
     WriteExact(httpSock, OK_STR, strlen(OK_STR));
 
     while (1) {
-	int n = read(fd, buf, BUFSIZE);
+	int n = read(fd, buf, BUF_SIZE-1);
 	if (n < 0) {
-	    perror("httpProcessInput: read");
+	    rfbLogPerror("httpProcessInput: read");
 	    close(fd);
 	    httpCloseSock();
-	    free(fname);
 	    return;
 	}
 
 	if (n == 0)
 	    break;
 
-	if (WriteExact(httpSock, buf, n) < 0)
-	    break;
+	if (performSubstitutions) {
+
+	    /* Substitute $WIDTH, $HEIGHT, etc with the appropriate values.
+	       This won't quite work properly if the .vnc file is longer than
+	       BUF_SIZE, but it's reasonable to assume that .vnc files will
+	       always be short. */
+
+	    char *ptr = buf;
+	    char *dollar;
+	    buf[n] = 0; /* make sure it's null-terminated */
+
+	    while (dollar = strchr(ptr, '$')) {
+		WriteExact(httpSock, ptr, (dollar - ptr));
+
+		ptr = dollar;
+
+		if (compareAndSkip(&ptr, "$WIDTH")) {
+
+		    sprintf(str, "%d", rfbScreen.width);
+		    WriteExact(httpSock, str, strlen(str));
+
+		} else if (compareAndSkip(&ptr, "$HEIGHT")) {
+
+		    sprintf(str, "%d", rfbScreen.height);
+		    WriteExact(httpSock, str, strlen(str));
+
+		} else if (compareAndSkip(&ptr, "$APPLETWIDTH")) {
+
+		    sprintf(str, "%d", rfbScreen.width);
+		    WriteExact(httpSock, str, strlen(str));
+
+		} else if (compareAndSkip(&ptr, "$APPLETHEIGHT")) {
+
+		    sprintf(str, "%d", rfbScreen.height + 32);
+		    WriteExact(httpSock, str, strlen(str));
+
+		} else if (compareAndSkip(&ptr, "$PORT")) {
+
+		    sprintf(str, "%d", rfbPort);
+		    WriteExact(httpSock, str, strlen(str));
+
+		} else if (compareAndSkip(&ptr, "$DESKTOP")) {
+
+		    WriteExact(httpSock, desktopName, strlen(desktopName));
+
+		} else if (compareAndSkip(&ptr, "$DISPLAY")) {
+
+		    sprintf(str, "%s:%s", rfbThisHost, display);
+		    WriteExact(httpSock, str, strlen(str));
+
+		} else if (compareAndSkip(&ptr, "$USER")) {
+
+		    if (user) {
+			WriteExact(httpSock, user->pw_name,
+				   strlen(user->pw_name));
+		    } else {
+			WriteExact(httpSock, "?", 1);
+		    }
+
+		} else {
+		    if (!compareAndSkip(&ptr, "$$"))
+			ptr++;
+
+		    if (WriteExact(httpSock, "$", 1) < 0) {
+			close(fd);
+			httpCloseSock();
+			return;
+		    }
+		}
+	    }
+	    if (WriteExact(httpSock, ptr, (&buf[n] - ptr)) < 0)
+		break;
+
+	} else {
+
+	    /* For files not ending .vnc, just write out the buffer */
+
+	    if (WriteExact(httpSock, buf, n) < 0)
+		break;
+	}
     }
 
     close(fd);
     httpCloseSock();
-    free(fname);
+}
+
+
+static Bool
+compareAndSkip(char **ptr, const char *str)
+{
+    if (strncmp(*ptr, str, strlen(str)) == 0) {
+	*ptr += strlen(str);
+	return TRUE;
+    }
+
+    return FALSE;
 }

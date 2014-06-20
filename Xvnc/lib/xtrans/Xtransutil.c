@@ -1,4 +1,5 @@
-/* $XConsortium: Xtransutil.c,v 1.18 94/10/18 15:57:42 mor Exp $ */
+/* $XConsortium: Xtransutil.c /main/32 1996/12/04 10:22:57 lehors $ */
+/* $XFree86: xc/lib/xtrans/Xtransutil.c,v 3.9 1996/12/23 06:04:18 dawes Exp $ */
 /*
 
 Copyright (c) 1993, 1994  X Consortium
@@ -59,6 +60,10 @@ from the X Consortium.
  * the internal implementation.
  */
 
+#ifdef XTHREADS
+#include <X11/Xthreads.h>
+#endif
+
 #ifdef X11_t
 
 /*
@@ -89,11 +94,11 @@ int	*addrlenp;
 Xtransaddr	**addrp;
 {
 
-    PRMSG(2,"TRANS(ConvertAddress)(%d,%d,%x)\n",*familyp,*addrlenp,*addrp);
+    PRMSG(2,"ConvertAddress(%d,%d,%x)\n",*familyp,*addrlenp,*addrp);
 
     switch( *familyp )
     {
-#if defined(TCPCONN) || defined(STREAMSCONN)
+#if defined(TCPCONN) || defined(STREAMSCONN) || defined(MNX_TCPCONN)
     case AF_INET:
     {
 	/*
@@ -129,7 +134,7 @@ Xtransaddr	**addrp;
 	}
 	break;
     }
-#endif /* defined(TCPCONN) || defined(STREAMSCONN) */
+#endif /* defined(TCPCONN) || defined(STREAMSCONN) || MNX_TCPCONN */
 
 #if defined(DNETCONN)
     case AF_DECnet:
@@ -146,13 +151,13 @@ Xtransaddr	**addrp;
     }
 #endif /* defined(DNETCONN) */
 
-#if defined(UNIXCONN) || defined(LOCALCONN)
+#if defined(UNIXCONN) || defined(LOCALCONN) || defined(OS2PIPECONN)
     case AF_UNIX:
     {
 	*familyp=FamilyLocal;
 	break;
     }
-#endif /* defined(UNIXCONN) || defined(LOCALCONN) */
+#endif /* defined(UNIXCONN) || defined(LOCALCONN) || defined(OS2PIPECONN)*/
 
 #if defined(AMRPCCONN)
     case AF_AMOEBA:
@@ -170,7 +175,7 @@ Xtransaddr	**addrp;
 #endif
 
     default:
-	PRMSG(1,"TRANS(ConvertFamily) Unknown family type %d\n",
+	PRMSG(1,"ConvertAddress: Unknown family type %d\n",
 	      *familyp, 0,0 );
 	return -1;
     }
@@ -189,11 +194,11 @@ Xtransaddr	**addrp;
 	if (len > 0) {
 	    if (*addrp && *addrlenp < (len + 1))
 	    {
-		free ((char *) *addrp);
+		xfree ((char *) *addrp);
 		*addrp = NULL;
 	    }
 	    if (!*addrp)
-		*addrp = (Xtransaddr *) malloc (len + 1);
+		*addrp = (Xtransaddr *) xalloc (len + 1);
 	    if (*addrp) {
 		strcpy ((char *) *addrp, hostnamebuf);
 		*addrlenp = len;
@@ -204,7 +209,7 @@ Xtransaddr	**addrp;
 	else
 	{
 	    if (*addrp)
-		free ((char *) *addrp);
+		xfree ((char *) *addrp);
 	    *addrp = NULL;
 	    *addrlenp = 0;
 	}
@@ -239,40 +244,41 @@ XtransConnInfo  ciptr;
 
     switch (family)
     {
-#if defined(UNIXCONN) || defined(STREAMSCONN) || defined(LOCALCONN)
+#if defined(UNIXCONN) || defined(STREAMSCONN) || defined(LOCALCONN) || defined(OS2PIPECONN)
     case AF_UNIX:
     {
 	struct sockaddr_un *saddr = (struct sockaddr_un *) addr;
-	networkId = (char *) malloc (3 + strlen (transName) +
+	networkId = (char *) xalloc (3 + strlen (transName) +
 	    strlen (hostnamebuf) + strlen (saddr->sun_path));
 	sprintf (networkId, "%s/%s:%s", transName,
 	    hostnamebuf, saddr->sun_path);
 	break;
     }
-#endif /* defined(UNIXCONN) || defined(STREAMSCONN) || defined(LOCALCONN) */
+#endif /* defined(UNIXCONN) || defined(STREAMSCONN) || defined(LOCALCONN) || defined(OS2PIPECONN)
+*/
 
-#if defined(TCPCONN) || defined(STREAMSCONN)
+#if defined(TCPCONN) || defined(STREAMSCONN) || defined(MNX_TCPCONN)
     case AF_INET:
     {
 	struct sockaddr_in *saddr = (struct sockaddr_in *) addr;
 	char portnumbuf[10];
 
 	sprintf (portnumbuf, "%d", ntohs (saddr->sin_port));
-	networkId = (char *) malloc (3 + strlen (transName) +
+	networkId = (char *) xalloc (3 + strlen (transName) +
 	    strlen (hostnamebuf) + strlen (portnumbuf));
 	sprintf (networkId, "%s/%s:%s", transName, hostnamebuf, portnumbuf);
 	break;
     }
-#endif /* defined(TCPCONN) || defined(STREAMSCONN) */
+#endif /* defined(TCPCONN) || defined(STREAMSCONN) || MNX_TCPCONN */
 
 #if defined(DNETCONN)
     case AF_DECnet:
     {
 	struct sockaddr_dn *saddr = (struct sockaddr_dn *) addr;
 
-	networkId = (char *) malloc (
+	networkId = (char *) xalloc (
 	    13 + strlen (hostnamebuf) + saddr->sdn_objnamel);
-	sprintf (networkId, "decnet/%s::%s",
+	sprintf (networkId, "dnet/%s::%s",
 	    hostnamebuf, saddr->sdn_objname);
 	break;
     }
@@ -326,20 +332,23 @@ XtransConnInfo  ciptr;
     switch (family)
     {
     case AF_UNSPEC:
-#if defined(UNIXCONN) || defined(STREAMSCONN) || defined(LOCALCONN)
+#if defined(UNIXCONN) || defined(STREAMSCONN) || defined(LOCALCONN) || defined(OS2PIPECONN)
     case AF_UNIX:
     {
 	if (gethostname (addrbuf, sizeof (addrbuf)) == 0)
 	    addr = addrbuf;
 	break;
     }
-#endif /* defined(UNIXCONN) || defined(STREAMSCONN) || defined(LOCALCONN) */
+#endif /* defined(UNIXCONN) || defined(STREAMSCONN) || defined(LOCALCONN) || defined(OS2PIPECONN)
+*/
 
-#if defined(TCPCONN) || defined(STREAMSCONN)
+#if defined(TCPCONN) || defined(STREAMSCONN) || defined(MNX_TCPCONN)
     case AF_INET:
     {
 	struct sockaddr_in *saddr = (struct sockaddr_in *) peer_addr;
-	struct hostent *hp = NULL;
+	_Xgethostbynameparams hparams;
+	struct hostent * hostp;
+
 #ifndef WIN32
  	char *inet_ntoa();
 #endif
@@ -358,20 +367,20 @@ XtransConnInfo  ciptr;
 	alarm (4);
 	if (setjmp(env) == 0) {
 #endif
-	    hp = gethostbyaddr ((char *) &saddr->sin_addr,
-		sizeof (saddr->sin_addr), AF_INET);
+	    hostp = _XGethostbyaddr ((char *) &saddr->sin_addr,
+		sizeof (saddr->sin_addr), AF_INET, hparams);
 #ifdef SIGALRM
 	}
 	alarm (0);
 #endif
-	if (hp)
-	  addr = hp->h_name;
+	if (hostp != NULL)
+	  addr = hostp->h_name;
 	else
 	  addr = inet_ntoa (saddr->sin_addr);
 	break;
     }
 
-#endif /* defined(TCPCONN) || defined(STREAMSCONN) */
+#endif /* defined(TCPCONN) || defined(STREAMSCONN) || MNX_TCPCONN */
 
 #if defined(DNETCONN)
     case AF_DECnet:
@@ -414,7 +423,7 @@ XtransConnInfo  ciptr;
     }
 
 
-    hostname = (char *) malloc (
+    hostname = (char *) xalloc (
 	strlen (ciptr->transptr->TransName) + strlen (addr) + 2);
     strcpy (hostname, ciptr->transptr->TransName);
     strcat (hostname, "/");
@@ -433,7 +442,7 @@ TRANS(WSAStartup) ()
 {
     static WSADATA wsadata;
 
-    PRMSG (2,"TRANS(WSAStartup)()\n", 0, 0, 0);
+    PRMSG (2,"WSAStartup()\n", 0, 0, 0);
 
     if (!wsadata.wVersion && WSAStartup(MAKEWORD(1,1), &wsadata))
         return 1;

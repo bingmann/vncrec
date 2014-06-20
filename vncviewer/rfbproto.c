@@ -231,6 +231,19 @@ InitialiseRFBConnection(int sock)
     si.format.blueMax = Swap16IfLE(si.format.blueMax);
     si.nameLength = Swap32IfLE(si.nameLength);
 
+    if (((updateRequestX + updateRequestW) > si.framebufferWidth) ||
+	((updateRequestY + updateRequestH) > si.framebufferHeight))
+    {
+	fprintf(stderr,
+		"%s: region requested is outside server's framebuffer\n",
+		programName);
+	return False;
+    }
+    if (updateRequestW == 0)
+	updateRequestW = si.framebufferWidth - updateRequestX;
+    if (updateRequestH == 0)
+	updateRequestH = si.framebufferHeight - updateRequestY;
+
     desktopName = malloc(si.nameLength + 1);
 
     if (!ReadExact(sock, desktopName, si.nameLength)) return False;
@@ -310,8 +323,8 @@ SetFormatAndEncodings()
 Bool
 SendIncrementalFramebufferUpdateRequest()
 {
-    return SendFramebufferUpdateRequest(0, 0, si.framebufferWidth,
-					si.framebufferHeight, True);
+    return SendFramebufferUpdateRequest(updateRequestX, updateRequestY,
+					updateRequestW, updateRequestH, True);
 }
 
 
@@ -505,6 +518,19 @@ HandleRFBServerMessage()
 
 		cr.srcX = Swap16IfLE(cr.srcX);
 		cr.srcY = Swap16IfLE(cr.srcY);
+
+		if (copyRectDelay != 0) {
+		    XFillRectangle(dpy, canvas, srcGC, cr.srcX, cr.srcY,
+				   rect.r.w, rect.r.h);
+		    XFillRectangle(dpy, canvas, dstGC, rect.r.x, rect.r.y,
+				   rect.r.w, rect.r.h);
+		    XSync(dpy,False);
+		    usleep(copyRectDelay * 1000);
+		    XFillRectangle(dpy, canvas, dstGC, rect.r.x, rect.r.y,
+				   rect.r.w, rect.r.h);
+		    XFillRectangle(dpy, canvas, srcGC, cr.srcX, cr.srcY,
+				   rect.r.w, rect.r.h);
+		}
 
 		XCopyArea(dpy, canvas, canvas, gc, cr.srcX, cr.srcY,
 			  rect.r.w, rect.r.h, rect.r.x, rect.r.y);

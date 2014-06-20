@@ -46,7 +46,8 @@ SOFTWARE.
 
 ******************************************************************/
 
-/* $XConsortium: WaitFor.c,v 1.68 94/04/17 20:26:52 dpw Exp $ */
+/* $XConsortium: WaitFor.c /main/55 1996/12/02 10:22:24 lehors $ */
+/* $XFree86: xc/programs/Xserver/os/WaitFor.c,v 3.11.2.3 1998/01/31 14:23:33 hohndel Exp $ */
 
 /*****************************************************************
  * OS Dependent input routines:
@@ -56,6 +57,9 @@ SOFTWARE.
  *
  *****************************************************************/
 
+#ifdef WIN32
+#include <X11/Xwinsock.h>
+#endif
 #include "Xos.h"			/* for strings, fcntl, time */
 
 #include <errno.h>
@@ -67,19 +71,31 @@ extern int errno;
 #include "X.h"
 #include "misc.h"
 
-#include <sys/param.h>
+#ifdef MINIX
+#include <sys/nbio.h>
+#define select(n,r,w,x,t) nbio_select(n,r,w,x,t)
+#endif
+#ifdef __EMX__
+#define select(n,r,w,x,t) os2PseudoSelect(n,r,w,x,t)
+#endif
+#include <X11/Xpoll.h>
 #include "osdep.h"
 #include "dixstruct.h"
 #include "opaque.h"
 
-extern FdSet AllSockets;
-extern FdSet AllClients;
-extern FdSet LastSelectMask;
-extern FdMask WellKnownConnections;
-extern FdSet EnabledDevices;
-extern FdSet ClientsWithInput;
-extern FdSet ClientsWriteBlocked;
-extern FdSet OutputPending;
+#ifdef DPMSExtension
+#include "dpms.h"
+extern void DPMSSet();
+#endif
+
+extern fd_set AllSockets;
+extern fd_set AllClients;
+extern fd_set LastSelectMask;
+extern fd_set WellKnownConnections;
+extern fd_set EnabledDevices;
+extern fd_set ClientsWithInput;
+extern fd_set ClientsWriteBlocked;
+extern fd_set OutputPending;
 
 extern int ConnectionTranslation[];
 
@@ -88,11 +104,6 @@ extern Bool AnyClientsWriteBlocked;
 
 extern WorkQueuePtr workQueue;
 
-#ifdef apollo
-extern FdSet apInputMask;
-
-static FdSet LastWriteMask;
-#endif
 
 #ifdef XTESTEXT1
 /*
@@ -130,6 +141,8 @@ static OsTimerPtr timers;
 
 static INT32 timeTilFrob = 0;		/* while screen saving */
 
+#if !defined(AMOEBA)
+
 int
 WaitForSomething(pClientsReady)
     int *pClientsReady;
@@ -137,15 +150,18 @@ WaitForSomething(pClientsReady)
     int i;
     struct timeval waittime, *wt;
     INT32 timeout;
-    FdSet clientsReadable;
-    FdSet clientsWritable;
+#ifdef DPMSExtension
+    INT32 standbyTimeout, suspendTimeout, offTimeout;
+#endif
+    fd_set clientsReadable;
+    fd_set clientsWritable;
     int curclient;
     int selecterr;
     int nready;
-    FdSet devicesReadable;
+    fd_set devicesReadable;
     CARD32 now;
 
-    CLEARBITS(clientsReadable);
+    FD_ZERO(&clientsReadable);
 
     /* We need a while loop here to handle 
        crashed connections and the screen saver timeout */
@@ -155,12 +171,16 @@ WaitForSomething(pClientsReady)
 	if (workQueue)
 	    ProcessWorkQueue();
 
-	if (ANYSET(ClientsWithInput))
+	if (XFD_ANYSET (&ClientsWithInput))
 	{
-	    COPYBITS(ClientsWithInput, clientsReadable);
+	    XFD_COPYSET (&ClientsWithInput, &clientsReadable);
 	    break;
 	}
-	if (ScreenSaverTime || timers)
+#ifdef DPMSExtension
+	if (ScreenSaverTime > 0 || DPMSEnabled || timers)
+#else
+	if (ScreenSaverTime > 0 || timers)
+#endif
 	    now = GetTimeInMillis();
 	wt = NULL;
 	if (timers)
@@ -176,20 +196,51 @@ WaitForSomething(pClientsReady)
 		wt = &waittime;
 	    }
 	}
-	if (ScreenSaverTime)
+#ifdef DPMSExtension
+	if (ScreenSaverTime > 0 ||
+	    (DPMSEnabled &&
+	     (DPMSStandbyTime > 0 || DPMSSuspendTime > 0 || DPMSOffTime > 0)))
+#else
+	if (ScreenSaverTime > 0)
+#endif
 	{
+#ifdef DPMSExtension
+
+	    if (ScreenSaverTime > 0)
+		timeout = (ScreenSaverTime -
+			   (now - lastDeviceEventTime.milliseconds));
+	    if (DPMSStandbyTime > 0)
+		standbyTimeout = (DPMSStandbyTime -
+				  (now - lastDeviceEventTime.milliseconds));
+	    if (DPMSSuspendTime > 0)
+		suspendTimeout = (DPMSSuspendTime -
+				  (now - lastDeviceEventTime.milliseconds));
+	    if (DPMSOffTime > 0)
+		offTimeout = (DPMSOffTime -
+			      (now - lastDeviceEventTime.milliseconds));
+#else
 	    timeout = (ScreenSaverTime -
 		       (now - lastDeviceEventTime.milliseconds));
+#endif /* DPMSExtension */
+#ifdef DPMSExtension
+	    if (timeout <= 0 && ScreenSaverTime > 0)
+#else
 	    if (timeout <= 0) /* may be forced by AutoResetServer() */
+#endif /* DPMSExtension */
 	    {
 		INT32 timeSinceSave;
 
 		timeSinceSave = -timeout;
-		if ((timeSinceSave >= timeTilFrob) && (timeTilFrob >= 0))
+		if (timeSinceSave >= timeTilFrob && timeTilFrob >= 0)
 		{
 		    ResetOsBuffers(); /* not ideal, but better than nothing */
 		    SaveScreens(SCREEN_SAVER_ON, ScreenSaverActive);
+#ifdef DPMSExtension
+		    if (ScreenSaverInterval > 0 &&
+			DPMSPowerLevel == DPMSModeOn)
+#else
 		    if (ScreenSaverInterval)
+#endif /* DPMSExtension */
 			/* round up to the next ScreenSaverInterval */
 			timeTilFrob = ScreenSaverInterval *
 				((timeSinceSave + ScreenSaverInterval) /
@@ -201,23 +252,69 @@ WaitForSomething(pClientsReady)
 	    }
 	    else
 	    {
-		if (timeout > ScreenSaverTime)
+		if (ScreenSaverTime > 0 && timeout > ScreenSaverTime)
 		    timeout = ScreenSaverTime;
 		timeTilFrob = 0;
 	    }
-	    if (timeTilFrob >= 0 && (!wt || timeout < (timers->expires - now)))
+#ifdef DPMSExtension
+	    if (DPMSEnabled)
+	    {
+		if (standbyTimeout > 0 
+		    && (timeout <= 0 || timeout > standbyTimeout))
+		    timeout = standbyTimeout;
+		if (suspendTimeout > 0 
+		    && (timeout <= 0 || timeout > suspendTimeout))
+		    timeout = suspendTimeout;
+		if (offTimeout > 0 
+		    && (timeout <= 0 || timeout > offTimeout))
+		    timeout = offTimeout;
+	    }
+#endif
+	    if (timeout > 0 && (!wt || timeout < (timers->expires - now)))
 	    {
 		waittime.tv_sec = timeout / MILLI_PER_SECOND;
 		waittime.tv_usec = (timeout % MILLI_PER_SECOND) *
 					(1000000 / MILLI_PER_SECOND);
 		wt = &waittime;
 	    }
-	}
-	COPYBITS(AllSockets, LastSelectMask);
-#ifdef apollo
-        COPYBITS(apInputMask, LastWriteMask);
+#ifdef DPMSExtension
+	    /* don't bother unless it's switched on */
+	    if (DPMSEnabled)
+	    {
+		/*
+		 * If this mode's enabled, and if the time's come
+		 * and if we're still at a lesser mode, do it now.
+		 */
+		if (DPMSStandbyTime > 0) {
+		    if (standbyTimeout <= 0) {
+			if (DPMSPowerLevel < DPMSModeStandby) {
+			    DPMSSet(DPMSModeStandby);
+			}
+		    }
+		}
+		/*
+		 * and ditto.  Note that since these modes can have the
+		 * same timeouts, they can happen at the same time.
+		 */
+		if (DPMSSuspendTime > 0) {
+		    if (suspendTimeout <= 0) {
+			if (DPMSPowerLevel < DPMSModeSuspend) {
+			    DPMSSet(DPMSModeSuspend);
+			}
+		    }
+		}
+		if (DPMSOffTime > 0) {
+		    if (offTimeout <= 0) {
+			if (DPMSPowerLevel < DPMSModeOff) {
+			    DPMSSet(DPMSModeOff);
+			}
+		    }
+		}
+           }
 #endif
-	BlockHandler((pointer)&wt, (pointer)LastSelectMask);
+	}
+	XFD_COPYSET(&AllSockets, &LastSelectMask);
+	BlockHandler((pointer)&wt, (pointer)&LastSelectMask);
 	if (NewOutputPending)
 	    FlushAllOutput();
 #ifdef XTESTEXT1
@@ -232,20 +329,13 @@ WaitForSomething(pClientsReady)
 	    i = -1;
 	else if (AnyClientsWriteBlocked)
 	{
-	    COPYBITS(ClientsWriteBlocked, clientsWritable);
-	    i = select (MAXSOCKS, (int *)LastSelectMask,
-			(int *)clientsWritable, (int *) NULL, wt);
+	    XFD_COPYSET(&ClientsWriteBlocked, &clientsWritable);
+	    i = Select (MAXSOCKS, &LastSelectMask, &clientsWritable, NULL, wt);
 	}
 	else
-#ifdef apollo
-	    i = select (MAXSOCKS, (int *)LastSelectMask,
-			(int *)LastWriteMask, (int *) NULL, wt);
-#else
-	    i = select (MAXSOCKS, (int *)LastSelectMask,
-			(int *) NULL, (int *) NULL, wt);
-#endif
+	    i = Select (MAXSOCKS, &LastSelectMask, NULL, NULL, wt);
 	selecterr = errno;
-	WakeupHandler(i, (pointer)LastSelectMask);
+	WakeupHandler(i, (pointer)&LastSelectMask);
 #ifdef XTESTEXT1
 	if (playback_on) {
 	    i = XTestProcessInputAction (i, &waittime);
@@ -256,17 +346,24 @@ WaitForSomething(pClientsReady)
 
 	    if (dispatchException)
 		return 0;
-	    CLEARBITS(clientsWritable);
+	    FD_ZERO(&clientsWritable);
 	    if (i < 0) 
 		if (selecterr == EBADF)    /* Some client disconnected */
 		{
 		    CheckConnections ();
-		    if (! ANYSET (AllClients))
+		    if (! XFD_ANYSET (&AllClients))
 			return 0;
 		}
+		else if (selecterr == EINVAL)
+		{
+		    FatalError("WaitForSomething(): select: errno=%d\n",
+			selecterr);
+		}
 		else if (selecterr != EINTR)
+		{
 		    ErrorF("WaitForSomething(): select: errno=%d\n",
 			selecterr);
+		}
 	    if (timers)
 	    {
 		now = GetTimeInMillis();
@@ -278,38 +375,62 @@ WaitForSomething(pClientsReady)
 	}
 	else
 	{
-	    if (AnyClientsWriteBlocked && ANYSET (clientsWritable))
+#ifdef WIN32
+	    fd_set tmp_set;
+#endif
+	    if (AnyClientsWriteBlocked && XFD_ANYSET (&clientsWritable))
 	    {
 		NewOutputPending = TRUE;
-		ORBITS(OutputPending, clientsWritable, OutputPending);
-		UNSETBITS(ClientsWriteBlocked, clientsWritable);
-		if (! ANYSET(ClientsWriteBlocked))
+		XFD_ORSET(&OutputPending, &clientsWritable, &OutputPending);
+		XFD_UNSET(&ClientsWriteBlocked, &clientsWritable);
+		if (! XFD_ANYSET(&ClientsWriteBlocked))
 		    AnyClientsWriteBlocked = FALSE;
 	    }
 
-	    MASKANDSETBITS(devicesReadable, LastSelectMask, EnabledDevices);
-	    MASKANDSETBITS(clientsReadable, LastSelectMask, AllClients); 
-	    if (LastSelectMask[0] & WellKnownConnections) 
+	    XFD_ANDSET(&devicesReadable, &LastSelectMask, &EnabledDevices);
+	    XFD_ANDSET(&clientsReadable, &LastSelectMask, &AllClients); 
+#ifndef WIN32
+	    if (LastSelectMask.fds_bits[0] & WellKnownConnections.fds_bits[0]) 
+#else
+	    XFD_ANDSET(&tmp_set, &LastSelectMask, &WellKnownConnections);
+	    if (XFD_ANYSET(&tmp_set))
+#endif
 		QueueWorkProc(EstablishNewConnections, NULL,
-			      (pointer)LastSelectMask[0]);
-	    if (ANYSET (devicesReadable) || ANYSET (clientsReadable))
+			      (pointer)&LastSelectMask);
+#ifdef DPMSExtension
+	    if (XFD_ANYSET (&devicesReadable) && (DPMSPowerLevel != DPMSModeOn))
+		DPMSSet(DPMSModeOn);
+#endif
+	    if (XFD_ANYSET (&devicesReadable) || XFD_ANYSET (&clientsReadable))
 		break;
 	}
     }
 
     nready = 0;
-    if (ANYSET(clientsReadable))
+    if (XFD_ANYSET (&clientsReadable))
     {
-	for (i=0; i<mskcnt; i++)
+#ifndef WIN32
+	for (i=0; i<howmany(XFD_SETSIZE, NFDBITS); i++)
 	{
 	    int highest_priority;
 
-	    while (clientsReadable[i])
+	    while (clientsReadable.fds_bits[i])
 	    {
 	        int client_priority, client_index;
 
-		curclient = ffs (clientsReadable[i]) - 1;
+		curclient = ffs (clientsReadable.fds_bits[i]) - 1;
 		client_index = ConnectionTranslation[curclient + (i << 5)];
+#else
+	int highest_priority;
+	fd_set savedClientsReadable;
+	XFD_COPYSET(&clientsReadable, &savedClientsReadable);
+	for (i = 0; i < XFD_SETCOUNT(&savedClientsReadable); i++)
+	{
+	    int client_priority, client_index;
+
+	    curclient = XFD_FD(&savedClientsReadable, i);
+	    client_index = ConnectionTranslation[curclient];
+#endif
 #ifdef XSYNC
 		/*  We implement "strict" priorities.
 		 *  Only the highest priority client is returned to
@@ -341,14 +462,18 @@ WaitForSomething(pClientsReady)
 		{
 		    pClientsReady[nready++] = client_index;
 		}
-		clientsReadable[i] &= ~(((FdMask)1) << curclient);
+#ifndef WIN32
+		clientsReadable.fds_bits[i] &= ~(((fd_mask)1) << curclient);
 	    }
-	}	
+#else
+	    FD_CLR(curclient, &clientsReadable);
+#endif
+	}
     }
     return nready;
 }
 
-#ifndef ANYSET
+#if 0
 /*
  * This is not always a macro.
  */
@@ -363,6 +488,168 @@ ANYSET(src)
     return (FALSE);
 }
 #endif
+
+#else /* AMOEBA */
+
+#define dbprintf(list)  /* printf list */
+
+int
+WaitForSomething(pClientsReady)
+    int		*pClientsReady;
+{
+    register int	i, wt, nt;
+    struct timeval	*wtp;
+    long        	alwaysCheckForInput[2];
+    int 		nready;
+    int 		timeout;
+    unsigned long	now;
+
+    WakeupInitWaiters();
+
+    /* Be sure to check for input on every sweep in the dispatcher.
+     * This routine should be in InitInput, but since this is more
+     * or less a device dependent routine, and the semantics of it
+     * are device independent I decided to put it here.
+     */
+    alwaysCheckForInput[0] = 0;
+    alwaysCheckForInput[1] = 1;
+    SetInputCheck(&alwaysCheckForInput[0], &alwaysCheckForInput[1]);
+
+    while (1) {
+	/* deal with any blocked jobs */
+	if (workQueue)
+	    ProcessWorkQueue();
+
+	if (ANYSET(ClientsWithInput)) {
+	    FdSet clientsReadable;
+	    int highest_priority;
+
+	    COPYBITS(ClientsWithInput, clientsReadable);
+	    dbprintf(("WaitFor: "));
+	    nready = 0;
+	    for (i=0; i < mskcnt; i++) {
+		while (clientsReadable[i]) {
+		    int client_priority, curclient, client_index;
+
+		    curclient = ffs (clientsReadable[i]) - 1;
+		    client_index = ConnectionTranslation[curclient + (i << 5)];
+		    dbprintf(("%d has input\n", curclient));
+#ifdef XSYNC
+		    client_priority = clients[client_index]->priority;
+		    if (nready == 0 || client_priority > highest_priority)
+		    {
+		        pClientsReady[0] = client_index;
+		        highest_priority = client_priority;
+		        nready = 1;
+		    }
+		    else if (client_priority == highest_priority)
+#endif
+		    {
+		        pClientsReady[nready++] = client_index;
+		    }
+		    clientsReadable[i] &= ~(((FdMask)1) << curclient);
+		}
+	    }
+	    break;
+	}	
+
+	wt = -1;
+	now = GetTimeInMillis();
+	if (timers)
+	{
+	    while (timers && timers->expires <= now)
+		DoTimer(timers, now, &timers);
+	    if (timers)
+	    {
+		timeout = timers->expires - now;
+		wt = timeout;
+	    }
+	}
+	if (ScreenSaverTime) {
+	    timeout = ScreenSaverTime - TimeSinceLastInputEvent();
+	    if (timeout <= 0) { /* may be forced by AutoResetServer() */
+		long timeSinceSave;
+
+		timeSinceSave = -timeout;
+		if ((timeSinceSave >= timeTilFrob) && (timeTilFrob >= 0)) {
+		    SaveScreens(SCREEN_SAVER_ON, ScreenSaverActive);
+		    if (ScreenSaverInterval)
+			/* round up to the next ScreenSaverInterval */
+			timeTilFrob = ScreenSaverInterval *
+				((timeSinceSave + ScreenSaverInterval) /
+					ScreenSaverInterval);
+		    else
+			timeTilFrob = -1;
+		}
+		timeout = timeTilFrob - timeSinceSave;
+	    } else {
+		if (timeout > ScreenSaverTime)
+		    timeout = ScreenSaverTime;
+		timeTilFrob = 0;
+	    }
+	    
+	    if (wt < 0 || (timeTilFrob >= 0 && wt > timeout)) {
+		wt = timeout;
+	    }
+	}
+
+	/* Check for new clients. We do this here and not in the listener
+	 * threads because we cannot be sure that dix is re-entrant, and
+	 * we need to call some dix routines during startup.
+	 */
+	if (nNewConns) {
+	    QueueWorkProc(EstablishNewConnections, NULL,
+			  (pointer) 0);
+	}
+
+	/* Call device dependent block handlers, which may want to
+	 * specify a different timeout (e.g. used for key auto-repeat).
+	 */
+	wtp = (struct timeval *) NULL;
+	BlockHandler((pointer)&wtp, (pointer)NULL);
+	if (wtp) wt = (wtp->tv_sec * 1000) + (wtp->tv_usec / 1000);
+
+	if (NewOutputPending)
+	    FlushAllOutput();
+
+	/* TODO: XTESTEXT1 */
+
+	nready = AmFindReadyClients(pClientsReady, AllSockets);
+
+	/* If we found some work, or the iop server has us informed about
+	 * new device events, we return.
+	 */
+	if (nready || AmoebaEventsAvailable())
+	    break;
+
+	if (dispatchException)
+	    return 0;
+
+	/* Nothing interesting is available. Go to sleep with a timeout.
+	 * The other threads will wake us when needed.
+	 */
+	i = SleepMainThread(wt);
+
+	/* Wake up any of the sleeping handlers */
+	WakeupHandler((unsigned long)0, (pointer)NULL);
+
+	/* TODO: XTESTEXT1 */
+
+	if (dispatchException)
+	    return 0;
+
+	if (i == -1) {
+	    /* An error or timeout occurred */
+	    return 0;
+	}
+    }
+
+    dbprintf(("WaitForSomething: %d clients ready\n", nready));
+    return nready;
+}
+
+#endif /* AMOEBA */
+
 
 static void
 DoTimer(timer, now, prev)
@@ -450,8 +737,9 @@ TimerForce(timer)
     return FALSE;
 }
 
+
 void
-TimerFree(timer)
+TimerCancel(timer)
     register OsTimerPtr timer;
 {
     register OsTimerPtr *prev;
@@ -466,6 +754,15 @@ TimerFree(timer)
 	    break;
 	}
     }
+}
+
+void
+TimerFree(timer)
+    register OsTimerPtr timer;
+{
+    if (!timer)
+	return;
+    TimerCancel(timer);
     xfree(timer);
 }
 

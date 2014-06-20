@@ -45,9 +45,11 @@ ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
 SOFTWARE.
 
 ******************************************************************/
-/* $XConsortium: miarc.c,v 5.51 94/07/25 13:47:32 kaleb Exp $ */
+/* $XConsortium: miarc.c /main/90 1996/08/01 19:25:10 dpw $ */
 /* Author: Keith Packard and Bob Scheifler */
 /* Warning: this code is toxic, do not dally very long here. */
+
+/* $XFree86: xc/programs/Xserver/mi/miarc.c,v 3.4.2.1 1997/07/13 14:45:05 dawes Exp $ */
 
 #ifdef _XOPEN_SOURCE
 #include <math.h>
@@ -241,7 +243,7 @@ typedef struct _miPolyArc {
 #define GCValsJoinStyle		5
 #define GCValsMask		(GCFunction | GCForeground | GCBackground | \
 				 GCLineWidth | GCCapStyle | GCJoinStyle)
-static XID gcvals[6];
+static CARD32 gcvals[6];
 
 static void fillSpans(), newFinalSpan();
 static void drawArc(), drawQuadrant(), drawZeroArc();
@@ -492,8 +494,8 @@ miComputeCircleSpans(lw, parc, spdata)
 	    spdata->count2--;
 	else
 	{
-	    if (lw > parc->height)
-		span[-1].rx = span[-1].rw = -((lw - parc->height) >> 1);
+	    if (lw > (int)parc->height)
+		span[-1].rx = span[-1].rw = -((lw - (int)parc->height) >> 1);
 	    else
 		span[-1].rw = 0;
 	    spdata->count1--;
@@ -513,8 +515,8 @@ miComputeEllipseSpans(lw, parc, spdata)
     double A, T, b, d, x, y, t, inx, outx, hepp, hepm;
     int flip, solution;
 
-    w = parc->width / 2.0;
-    h = parc->height / 2.0;
+    w = (double)parc->width / 2.0;
+    h = (double)parc->height / 2.0;
     r = lw / 2.0;
     rs = r * r;
     Hs = h * h;
@@ -541,8 +543,8 @@ miComputeEllipseSpans(lw, parc, spdata)
     spdata->count1 = 0;
     spdata->count2 = 0;
     spdata->hole = (spdata->top &&
-		    parc->height * lw <= parc->width * parc->width &&
-		    lw < parc->height);
+		 (int)parc->height * lw <= (int)(parc->width * parc->width) &&
+		    lw < (int)parc->height);
     for (; K > 0.0; K -= 1.0)
     {
 	N = (K * K + Nk) / 6.0;
@@ -588,7 +590,10 @@ miComputeEllipseSpans(lw, parc, spdata)
 		t = y / h;
 		x = w * sqrt(1 - (t * t));
 		t = K - y;
-		t = sqrt(rs - (t * t));
+		if (rs - (t * t) >= 0)
+		   t = sqrt(rs - (t * t));
+		else
+		   t = 0;
 		if (flip == 2)
 		    inx = x - t;
 		else
@@ -613,7 +618,10 @@ miComputeEllipseSpans(lw, parc, spdata)
 		t = y / h;
 		x = w * sqrt(1 - (t * t));
 		t = K - y;
-		inx = x - sqrt(rs - (t * t));
+		if (rs - (t * t) >= 0)
+		   inx = x - sqrt(rs - (t * t));
+		else
+		   inx = x;
 	    }
 	    y = (b - d) / 2;
 	    if (y >= 0.0)
@@ -623,7 +631,10 @@ miComputeEllipseSpans(lw, parc, spdata)
 		t = y / h;
 		x = w * sqrt(1 - (t * t));
 		t = K - y;
-		t = sqrt(rs - (t * t));
+		if (rs - (t * t) >= 0)
+		   t = sqrt(rs - (t * t));
+		else 
+		   t = 0;
 		if (flip == 1)
 		    inx = x - t;
 		else
@@ -770,7 +781,10 @@ tailX(K, def, bounds, acc)
 	    t = y / h;
 	    x = w * sqrt(1 - (t * t));
 	    t = K - y;
-	    t = sqrt(rs - (t * t));
+	    if (rs - (t * t) >= 0)
+	       t = sqrt(rs - (t * t));
+	    else
+	       t = 0;
 	    *xp++ = x - t;
 	}
     }
@@ -792,7 +806,10 @@ tailX(K, def, bounds, acc)
 	    t = y / h;
 	    x = w * sqrt(1 - (t * t));
 	    t = K - y;
-	    *xp++ = x - sqrt(rs - (t * t));
+	    if (rs - (t * t) >= 0)
+	       *xp++ = x - sqrt(rs - (t * t));
+	    else
+	       *xp++ = x;
 	}
 	y = (b - d) / 2;
 	if (y >= 0.0 && flip == 1)
@@ -802,7 +819,10 @@ tailX(K, def, bounds, acc)
 	    t = y / h;
 	    x = w * sqrt(1 - (t * t));
 	    t = K - y;
-	    t = sqrt(rs - (t * t));
+	    if (rs - (t * t) >= 0)
+	       t = sqrt(rs - (t * t));
+	    else
+	       t = 0;
 	    *xp++ = x - t;
 	}
     }
@@ -1040,16 +1060,17 @@ miPolyArc(pDraw, pGC, narcs, parcs)
     register int		i;
     xArc			*parc;
     int				xMin, xMax, yMin, yMax;
-    int				dx, dy;
+    int				pixmapWidth, pixmapHeight;
     int				xOrg, yOrg;
     int				width;
     Bool			fTricky;
     DrawablePtr			pDrawTo;
-    unsigned long		fg, bg;
+    CARD32			fg, bg;
     GCPtr			pGCTo;
     miPolyArcPtr		polyArcs;
     int				cap[2], join[2];
     int				iphase;
+    int				halfWidth;
 
     width = pGC->lineWidth;
     if(width == 0 && pGC->lineStyle == LineSolid)
@@ -1088,6 +1109,7 @@ miPolyArc(pDraw, pGC, narcs, parcs)
 	  default:
 	    fTricky = TRUE;
 
+	    /* find bounding box around arcs */
 	    xMin = yMin = MAXSHORT;
 	    xMax = yMax = MINSHORT;
 
@@ -1099,21 +1121,22 @@ miPolyArc(pDraw, pGC, narcs, parcs)
 		yMax = max (yMax, (parc->y + (int) parc->height));
 	    }
 
-	    pGCTo = GetScratchGC(1, pDraw->pScreen);
-	    if (!pGCTo)
-		return;
-	    gcvals[GCValsFunction] = GXcopy;
-	    gcvals[GCValsForeground] = 1;
-	    gcvals[GCValsBackground] = 0;
-	    gcvals[GCValsLineWidth] = pGC->lineWidth;
-	    gcvals[GCValsCapStyle] = pGC->capStyle;
-	    gcvals[GCValsJoinStyle] = pGC->joinStyle;
-	    DoChangeGC(pGCTo, GCValsMask, gcvals, 0);
-    
-    	    xOrg = xMin - (width + 1)/2;
-	    yOrg = yMin - (width + 1)/2;
-	    dx = (xMax - xMin) + width + 1;
-	    dy = (yMax - yMin) + width + 1;
+	    /* expand box to deal with line widths */
+	    halfWidth = (width + 1)/2;
+	    xMin -= halfWidth;
+	    yMin -= halfWidth;
+	    xMax += halfWidth;
+	    yMax += halfWidth;
+
+	    /* compute pixmap size; limit it to size of drawable */
+	    xOrg = max(xMin, 0);
+	    yOrg = max(yMin, 0);
+	    pixmapWidth = min(xMax, pDraw->width) - xOrg;
+	    pixmapHeight = min(yMax, pDraw->height) - yOrg;
+
+	    /* if nothing left, return */
+	    if ( (pixmapWidth <= 0) || (pixmapHeight <= 0) ) return;
+
 	    for(i = narcs, parc = parcs; --i >= 0; parc++)
 	    {
 		parc->x -= xOrg;
@@ -1125,10 +1148,23 @@ miPolyArc(pDraw, pGC, narcs, parcs)
 		yOrg += pDraw->y;
 	    }
 
+	    /* set up scratch GC */
+
+	    pGCTo = GetScratchGC(1, pDraw->pScreen);
+	    if (!pGCTo)
+		return;
+	    gcvals[GCValsFunction] = GXcopy;
+	    gcvals[GCValsForeground] = 1;
+	    gcvals[GCValsBackground] = 0;
+	    gcvals[GCValsLineWidth] = pGC->lineWidth;
+	    gcvals[GCValsCapStyle] = pGC->capStyle;
+	    gcvals[GCValsJoinStyle] = pGC->joinStyle;
+	    dixChangeGC(NullClient, pGCTo, GCValsMask, gcvals, NULL);
+    
 	    /* allocate a 1 bit deep pixmap of the appropriate size, and
 	     * validate it */
 	    pDrawTo = (DrawablePtr)(*pDraw->pScreen->CreatePixmap)
-					(pDraw->pScreen, dx, dy, 1);
+				(pDraw->pScreen, pixmapWidth, pixmapHeight, 1);
 	    if (!pDrawTo)
 	    {
 		FreeScratchGC(pGCTo);
@@ -1162,10 +1198,10 @@ miPolyArc(pDraw, pGC, narcs, parcs)
 	     iphase--)
 	{
 	    if (iphase == 1) {
-		DoChangeGC (pGC, GCForeground, (XID *)&bg, 1);
+		dixChangeGC (NullClient, pGC, GCForeground, &bg, NULL);
 		ValidateGC (pDraw, pGC);
 	    } else if (pGC->lineStyle == LineDoubleDash) {
-		DoChangeGC (pGC, GCForeground, (XID *)&fg, 1);
+		dixChangeGC (NullClient, pGC, GCForeground, &fg, NULL);
 		ValidateGC (pDraw, pGC);
 	    }
 	    for (i = 0; i < polyArcs[iphase].narcs; i++) {
@@ -1227,7 +1263,7 @@ miPolyArc(pDraw, pGC, narcs, parcs)
 			if (pGC->serialNumber != pDraw->serialNumber)
 			    ValidateGC (pDraw, pGC);
 		    	(*pGC->ops->PushPixels) (pGC, (PixmapPtr)pDrawTo,
-						 pDraw, dx, dy, xOrg, yOrg);
+				 pDraw, pixmapWidth, pixmapHeight, xOrg, yOrg);
 			miClearDrawable ((DrawablePtr) pDrawTo, pGCTo);
 		    }
 		}
@@ -1333,7 +1369,7 @@ miArcJoin (pDraw, pGC, pLeft, pRight,
 	}
 	switch (pGC->joinStyle) {
 	case JoinRound:
-		width = (pGC->lineWidth ? pGC->lineWidth : 1);
+		width = (pGC->lineWidth ? (double)pGC->lineWidth : (double)1);
 
 		arc.x = center.x - width/2;
 		arc.y = center.y - width/2;
@@ -1461,7 +1497,7 @@ miRoundCap(pDraw, pGC, pCenter, pEnd, pCorner, pOtherCorner, fLineEnd,
     SppArcRec	arc;
     SppPointPtr	pArcPts;
 
-    width = (pGC->lineWidth ? pGC->lineWidth : 1);
+    width = (pGC->lineWidth ? (double)pGC->lineWidth : (double)1);
 
     arc.x = pCenter.x - width/2;
     arc.y = pCenter.y - width/2;
@@ -1585,10 +1621,10 @@ double	dy, dx;
  * This procedure allocates the space necessary to fit the arc points.
  * Sometimes it's convenient for those points to be at the end of an existing
  * array. (For example, if we want to leave a spare point to make sectors
- * instead of segments.)  So we pass in the Xalloc()ed chunk that contains the
+ * instead of segments.)  So we pass in the xalloc()ed chunk that contains the
  * array and an index saying where we should start stashing the points.
  * If there isn't an array already, we just pass in a null pointer and 
- * count on Xrealloc() to handle the null pointer correctly.
+ * count on xrealloc() to handle the null pointer correctly.
  */
 static int
 miGetArcPts(parc, cpt, ppPts)
@@ -1827,6 +1863,8 @@ computeDashMap (arcp, map)
 	}
 }
 
+typedef enum {HORIZONTAL, VERTICAL, OTHER} arcTypes;
+
 /* this routine is a bit gory */
 
 static miPolyArcPtr
@@ -1948,25 +1986,53 @@ miComputeArcs (parcs, narcs, pGC)
 			nexti = 0;
 		if (isDashed) {
 			/*
-			 * precompute an approximation map
-			 */
-			computeDashMap (&parcs[i], &map);
-			/*
-			 * compute each individual dash segment using the path
-			 * length function
-			 */
-			startAngle = parcs[i].angle1;
-			spanAngle = parcs[i].angle2;
-			if (spanAngle > FULLCIRCLE)
-				spanAngle = FULLCIRCLE;
-			else if (spanAngle < -FULLCIRCLE)
-				spanAngle = -FULLCIRCLE;
-			if (startAngle < 0)
-				startAngle = FULLCIRCLE - (-startAngle) % FULLCIRCLE;
-			if (startAngle >= FULLCIRCLE)
-				startAngle = startAngle % FULLCIRCLE;
-			endAngle = startAngle + spanAngle;
-			backwards = spanAngle < 0;
+			** deal with dashed arcs.  Use special rules for certain 0 area arcs.
+			** Presumably, the other 0 area arcs still aren't done right.
+			*/
+			arcTypes	arcType = OTHER;
+			CARD16		thisLength;
+
+			if (parcs[i].height == 0
+			    && (parcs[i].angle1 % FULLCIRCLE) == 0x2d00
+			    && parcs[i].angle2 == 0x2d00) 
+				arcType = HORIZONTAL;
+			else if (parcs[i].width == 0
+			    && (parcs[i].angle1 % FULLCIRCLE) == 0x1680
+			    && parcs[i].angle2 == 0x2d00)
+				arcType = VERTICAL;
+			if (arcType == OTHER) {
+				/*
+				 * precompute an approximation map
+				 */
+				computeDashMap (&parcs[i], &map);
+				/*
+				 * compute each individual dash segment using the path
+				 * length function
+				 */
+				startAngle = parcs[i].angle1;
+				spanAngle = parcs[i].angle2;
+				if (spanAngle > FULLCIRCLE)
+					spanAngle = FULLCIRCLE;
+				else if (spanAngle < -FULLCIRCLE)
+					spanAngle = -FULLCIRCLE;
+				if (startAngle < 0)
+					startAngle = FULLCIRCLE - (-startAngle) % FULLCIRCLE;
+				if (startAngle >= FULLCIRCLE)
+					startAngle = startAngle % FULLCIRCLE;
+				endAngle = startAngle + spanAngle;
+				backwards = spanAngle < 0;
+			} else {
+				xarc = parcs[i];
+				if (arcType == VERTICAL) {
+					xarc.angle1 = 0x1680;
+					startAngle = parcs[i].y;
+					endAngle = startAngle + parcs[i].height;
+				} else {
+					xarc.angle1 = 0x2d00;
+					startAngle = parcs[i].x;
+					endAngle = startAngle + parcs[i].width;
+				}
+			}
 			dashAngle = startAngle;
 			selfJoin = data[i].selfJoin &&
  				    (iphase == 0 || isDoubleDash);
@@ -1976,36 +2042,52 @@ miComputeArcs (parcs, narcs, pGC)
 			arc = 0;
 			while (dashAngle != endAngle) {
 				prevDashAngle = dashAngle;
-				dashAngle = computeAngleFromPath (prevDashAngle, endAngle,
-							&map, &dashRemaining, backwards);
-				/* avoid troubles with huge arcs and small dashes */
-				if (dashAngle == prevDashAngle) {
-					if (backwards)
-						dashAngle--;
-					else
-						dashAngle++;
+				if (arcType == OTHER) {
+					dashAngle = computeAngleFromPath (prevDashAngle, endAngle,
+								&map, &dashRemaining, backwards);
+					/* avoid troubles with huge arcs and small dashes */
+					if (dashAngle == prevDashAngle) {
+						if (backwards)
+							dashAngle--;
+						else
+							dashAngle++;
+					}
+				} else {
+					thisLength = (dashAngle + dashRemaining <= endAngle) ? 
+					    dashRemaining : endAngle - dashAngle;
+					if (arcType == VERTICAL) {
+						xarc.y = dashAngle;
+						xarc.height = thisLength;
+					} else {
+						xarc.x = dashAngle;
+						xarc.width = thisLength;
+					}
+					dashAngle += thisLength;
+					dashRemaining -= thisLength;
 				}
 				if (iphase == 0 || isDoubleDash) {
-					xarc = parcs[i];
-					spanAngle = prevDashAngle;
-    					if (spanAngle < 0)
-					    spanAngle = FULLCIRCLE - (-spanAngle) % FULLCIRCLE;
-					if (spanAngle >= FULLCIRCLE)
-					    spanAngle = spanAngle % FULLCIRCLE;
-					xarc.angle1 = spanAngle;
-					spanAngle = dashAngle - prevDashAngle;
-					if (backwards) {
-						if (dashAngle > prevDashAngle)
-							spanAngle = - FULLCIRCLE + spanAngle;
-					} else {
-						if (dashAngle < prevDashAngle)
-							spanAngle = FULLCIRCLE + spanAngle;
+					if (arcType == OTHER) {
+						xarc = parcs[i];
+						spanAngle = prevDashAngle;
+						if (spanAngle < 0)
+						    spanAngle = FULLCIRCLE - (-spanAngle) % FULLCIRCLE;
+						if (spanAngle >= FULLCIRCLE)
+						    spanAngle = spanAngle % FULLCIRCLE;
+						xarc.angle1 = spanAngle;
+						spanAngle = dashAngle - prevDashAngle;
+						if (backwards) {
+							if (dashAngle > prevDashAngle)
+								spanAngle = - FULLCIRCLE + spanAngle;
+						} else {
+							if (dashAngle < prevDashAngle)
+								spanAngle = FULLCIRCLE + spanAngle;
+						}
+						if (spanAngle > FULLCIRCLE)
+						    spanAngle = FULLCIRCLE;
+						if (spanAngle < -FULLCIRCLE)
+						    spanAngle = -FULLCIRCLE;
+						xarc.angle2 = spanAngle;
 					}
-					if (spanAngle > FULLCIRCLE)
-					    spanAngle = FULLCIRCLE;
-					if (spanAngle < -FULLCIRCLE)
-					    spanAngle = -FULLCIRCLE;
-					xarc.angle2 = spanAngle;
 					arc = addArc (&arcs[iphase].arcs, &arcs[iphase].narcs,
  							&arcSize[iphase], &xarc);
 					if (!arc)
@@ -2368,8 +2450,8 @@ drawZeroArc (pDraw, pGC, tarc, lw, left, right)
 		a1 = FULLCIRCLE;
 	else if (a1 < -FULLCIRCLE)
 		a1 = -FULLCIRCLE;
-	w = tarc->width / 2.0;
-	h = tarc->height / 2.0;
+	w = (double)tarc->width / 2.0;
+	h = (double)tarc->height / 2.0;
 	/*
 	 * play in X coordinates right away
 	 */
@@ -2424,7 +2506,10 @@ drawZeroArc (pDraw, pGC, tarc, lw, left, right)
 	if ((x1 - x0) + (y1 - y0) < 0)
 	    lx = ly = -l;
 	if (h)
+	{
 	    ly = 0.0;
+	    lx = -lx;
+	}
 	else
 	    lx = 0.0;
 	if (right)
@@ -3067,8 +3152,8 @@ fillSpans (pDrawable, pGC)
 
 	if (nspans == 0)
 		return;
-	xSpan = xSpans = (DDXPointPtr) xalloc (nspans * sizeof (DDXPointRec));
-	xWidth = xWidths = (int *) xalloc (nspans * sizeof (int));
+	xSpan = xSpans = (DDXPointPtr) ALLOCATE_LOCAL (nspans * sizeof (DDXPointRec));
+	xWidth = xWidths = (int *) ALLOCATE_LOCAL (nspans * sizeof (int));
 	if (xSpans && xWidths)
 	{
 	    i = 0;
@@ -3087,8 +3172,10 @@ fillSpans (pDrawable, pGC)
 	    (*pGC->ops->FillSpans) (pDrawable, pGC, i, xSpans, xWidths, TRUE);
 	}
 	disposeFinalSpans ();
-	xfree (xSpans);
-	xfree (xWidths);
+	if (xSpans)
+	    DEALLOCATE_LOCAL (xSpans);
+	if (xWidths)
+	    DEALLOCATE_LOCAL (xWidths);
 	finalMiny = 0;
 	finalMaxy = -1;
 	finalSize = 0;

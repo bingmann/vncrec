@@ -26,6 +26,7 @@ in this Software without prior written authorization from the X Consortium.
 ********************************************************/
 
 /* $XConsortium: mbufpx.c,v 1.5 94/04/17 20:32:54 dpw Exp $ */
+/* $XFree86: xc/programs/Xserver/Xext/mbufpx.c,v 3.0 1994/05/08 05:17:32 dawes Exp $ */
 #define NEED_REPLIES
 #define NEED_EVENTS
 #include <stdio.h>
@@ -43,7 +44,9 @@ in this Software without prior written authorization from the X Consortium.
 #include "regionstr.h"
 #include "gcstruct.h"
 #include "inputstr.h"
+#ifndef MINIX
 #include <sys/time.h>
+#endif
 
 #define _MULTIBUF_SERVER_	/* don't want Xlib structures */
 #define _MULTIBUF_PIXMAP_

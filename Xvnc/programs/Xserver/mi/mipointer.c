@@ -3,6 +3,7 @@
  */
 
 /* $XConsortium: mipointer.c,v 5.24 94/04/17 20:27:39 dpw Exp $ */
+/* $XFree86: xc/programs/Xserver/mi/mipointer.c,v 3.1 1996/03/10 12:12:44 dawes Exp $ */
 
 /*
 
@@ -491,9 +492,21 @@ miPointerMove (pScreen, x, y, time)
 }
 
 void
+_miRegisterPointerDevice (pScreen, pDevice)
+    ScreenPtr	pScreen;
+    DeviceIntPtr pDevice;
+{
+    miPointer.pPointer = (DevicePtr)pDevice;
+}
+
+/* obsolete: for binary compatibility */
+#ifdef miRegisterPointerDevice
+#undef miRegisterPointerDevice
+void
 miRegisterPointerDevice (pScreen, pDevice)
     ScreenPtr	pScreen;
-    DevicePtr	pDevice;
+    DevicePtr pDevice;
 {
     miPointer.pPointer = pDevice;
 }
+#endif /* miRegisterPointerDevice */

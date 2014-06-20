@@ -1,4 +1,5 @@
 /* $XConsortium: bufio.c,v 1.8 94/04/17 20:17:00 gildea Exp $ */
+/* $XFree86: xc/lib/font/fontfile/bufio.c,v 3.0 1994/12/17 09:41:39 dawes Exp $ */
 
 /*
 
@@ -129,6 +130,10 @@ BufFilePtr
 BufFileOpenRead (fd)
     int	fd;
 {
+#ifdef __EMX__
+    /* hv: I'd bet WIN32 has the same effect here */
+    setmode(fd,O_BINARY);
+#endif
     return BufFileCreate ((char *) fd, BufFileRawFill, BufFileRawSkip, BufFileRawClose);
 }
 
@@ -155,6 +160,10 @@ BufFileOpenWrite (fd)
 {
     BufFilePtr	f;
 
+#ifdef __EMX__
+    /* hv: I'd bet WIN32 has the same effect here */
+    setmode(fd,O_BINARY);
+#endif
     f = BufFileCreate ((char *) fd, BufFileRawFlush, 0, BufFileFlush);
     f->bufp = f->buffer;
     f->left = BUFFILESIZE;

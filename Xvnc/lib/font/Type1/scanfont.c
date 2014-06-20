@@ -1,4 +1,4 @@
-/* $XConsortium: scanfont.c,v 1.10 94/02/06 16:23:17 gildea Exp $ */
+/* $TOG: scanfont.c /main/11 1997/06/09 13:27:16 barstow $ */
 /* Copyright International Business Machines,Corp. 1991
  * All Rights Reserved
  *
@@ -591,11 +591,33 @@ static int getArray(arrayP)
 {
   int N;   /* count the items in the array */
   psobj *objP;
- 
- 
+
+  /* That is totally a kludge. If some stupid font file has
+   *	/foo/foo	# ftp://ftp.cdrom.com/pub/os2/fonts/future.zip
+   * we will treat it as /foo.
+   *  H.J. */
+  char tmp [1024];
+
+  strncpy (tmp, tokenStartP, sizeof (tmp));
+  tmp [sizeof (tmp) - 1] = '\0';
+
+restart: 
   scan_token(inputP);
-  if ( (tokenType != TOKEN_LEFT_BRACE) &&
-       (tokenType != TOKEN_LEFT_BRACKET) ) {
+  switch (tokenType)
+  {
+  case TOKEN_LEFT_BRACE:
+  case TOKEN_LEFT_BRACKET:
+    break;
+
+  case TOKEN_LITERAL_NAME:
+    tokenStartP[tokenLength] = '\0';
+    if (strcmp (tokenStartP, tmp) == 0)
+    {
+      /* Ok, We see /foo/foo. Let's restart. */
+      goto restart;
+    }
+
+  default:
     return(SCAN_ERROR);
   }
   /* format the array in memory, save pointer to the beginning */
@@ -921,7 +943,7 @@ static int BuildPrivate(fontP)
   objFormatBoolean(&(Private[FORCEBOLD].value),DEFAULTFORCEBOLD);
   objFormatName(&(Private[LANGUAGEGROUP].key),13,"LanguageGroup");
   objFormatInteger(&(Private[LANGUAGEGROUP].value),DEFAULTLANGUAGEGROUP);
-  objFormatName(&(Private[LENIV].key),5,"LenIV");
+  objFormatName(&(Private[LENIV].key),5,"lenIV");
   objFormatInteger(&(Private[LENIV].value),DEFAULTLENIV);
   objFormatName(&(Private[RNDSTEMUP].key),9,"RndStemUp");
   objFormatBoolean(&(Private[RNDSTEMUP].value),DEFAULTRNDSTEMUP);

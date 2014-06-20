@@ -104,6 +104,8 @@ vncDecryptPasswdFromFile(char *fname)
 	passwd[i] = ch;
     }
 
+    fclose(fp);
+
     deskey(fixedkey, DE1);
     des(passwd, passwd);
 

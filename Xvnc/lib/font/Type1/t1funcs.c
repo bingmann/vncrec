@@ -1,4 +1,4 @@
-/* $XConsortium: t1funcs.c,v 1.20 94/07/25 13:50:03 kaleb Exp $ */
+/* $TOG: t1funcs.c /main/23 1997/06/09 14:55:44 barstow $ */
 /* Copyright International Business Machines,Corp. 1991
  * All Rights Reserved
  *
@@ -54,6 +54,7 @@
  * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
+/* $XFree86: xc/lib/font/Type1/t1funcs.c,v 3.4.2.1 1997/07/05 15:55:35 dawes Exp $ */
 
 /*
 
@@ -91,7 +92,7 @@ from the X Consortium.
 #else
 #define _XOPEN_SOURCE	/* to get prototype for hypot on some systems */
 #include <math.h>
-#undef _X_OPEN_SOURCE
+#undef _XOPEN_SOURCE
 #endif
 #include "X11/Xfuncs.h"
 #include "fntfilst.h"
@@ -211,6 +212,8 @@ int Type1OpenScalable (fpe, ppFont, flags, entry, fileName, vals, format,
        /* load font if not already loaded */
        if (!fontfcnA(fileName, &rc)) {
          delmemory();
+	 xfree(type1);
+	 xfree(pFont);
          xfree(pool);
          return Type1ReturnCodeToXReturnCode(rc);
        }
@@ -644,7 +647,7 @@ static void fillrun(p, x0, x1, bit)
        else {
                *p++ |= startmask;
                while (--middle > 0)
-                       *p++ = ALLONES;
+                       *p++ = (char)ALLONES;
                *p |= endmask;
        }
 }

@@ -45,9 +45,11 @@ ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
 SOFTWARE.
 
 ******************************************************************/
-/* $XConsortium: miinitext.c,v 1.32 94/04/17 20:27:38 rws Exp $ */
+/* $XConsortium: miinitext.c /main/41 1996/09/28 17:15:08 rws $ */
+/* $XFree86: xc/programs/Xserver/mi/miinitext.c,v 3.17.2.3 1997/05/22 14:00:46 dawes Exp $ */
 
 #include "misc.h"
+#include "extension.h"
 
 #ifdef NOPEXEXT /* sleaze for Solaris cpp building XsunMono */
 #undef PEXEXT
@@ -58,65 +60,110 @@ extern Bool noTestExtensions;
 extern Bool noXkbExtension;
 #endif
 
+#if NeedFunctionPrototypes
+#define INITARGS void
+#else
+#define INITARGS /*nothing*/
+#endif
+typedef void (*InitExtension)(INITARGS);
+
+/* FIXME: this whole block of externs should be from the appropriate headers */
 #ifdef BEZIER
-extern void BezierExtensionInit();
+extern void BezierExtensionInit(INITARGS);
 #endif
 #ifdef XTESTEXT1
-extern void XTestExtension1Init();
+extern void XTestExtension1Init(INITARGS);
 #endif
 #ifdef SHAPE
-extern void ShapeExtensionInit();
+extern void ShapeExtensionInit(INITARGS);
 #endif
 #ifdef MITSHM
-extern void ShmExtensionInit();
+extern void ShmExtensionInit(INITARGS);
 #endif
 #ifdef PEXEXT
-extern void PexExtensionInit();
+#ifndef PEX_MODULE
+extern void PexExtensionInit(INITARGS);
+#endif
+InitExtension PexExtensionInitPtr = NULL;
 #endif
 #ifdef MULTIBUFFER
-extern void MultibufferExtensionInit();
+extern void MultibufferExtensionInit(INITARGS);
 #endif
 #ifdef XINPUT
-extern void XInputExtensionInit();
+extern void XInputExtensionInit(INITARGS);
 #endif
 #ifdef XTEST
-extern void XTestExtensionInit();
+extern void XTestExtensionInit(INITARGS);
 #endif
 #ifdef BIGREQS
-extern void BigReqExtensionInit();
+extern void BigReqExtensionInit(INITARGS);
 #endif
 #ifdef MITMISC
-extern void MITMiscExtensionInit();
+extern void MITMiscExtensionInit(INITARGS);
 #endif
 #ifdef XIDLE
-extern void XIdleExtensionInit();
+extern void XIdleExtensionInit(INITARGS);
 #endif
 #ifdef XTRAP
-extern void DEC_XTRAPInit();
+extern void DEC_XTRAPInit(INITARGS);
 #endif
 #ifdef SCREENSAVER
-extern void ScreenSaverExtensionInit ();
+extern void ScreenSaverExtensionInit (INITARGS);
 #endif
 #ifdef XV
-extern void XvExtensionInit();
+extern void XvExtensionInit(INITARGS);
 #endif
 #ifdef XIE
-extern void XieInit();
+#ifndef XIE_MODULE
+extern void XieInit(INITARGS);
+#endif
+InitExtension XieInitPtr = NULL;
 #endif
 #ifdef XSYNC
-extern void SyncExtensionInit();
+extern void SyncExtensionInit(INITARGS);
 #endif
 #ifdef XKB
-extern void XkbExtensionInit();
+extern void XkbExtensionInit(INITARGS);
 #endif
 #ifdef XCMISC
-extern void XCMiscExtensionInit();
+extern void XCMiscExtensionInit(INITARGS);
 #endif
 #ifdef XRECORD
-extern void XRecordExtensionInit();
+extern void RecordExtensionInit(INITARGS);
 #endif
 #ifdef LBX
-extern void     LbxExtensionInit();
+extern void     LbxExtensionInit(INITARGS);
+#endif
+#ifdef DBE
+extern void     DbeExtensionInit(INITARGS);
+#endif
+#ifdef XAPPGROUP
+extern void XagExtensionInit(INITARGS);
+#endif
+#ifdef XCSECURITY
+extern void SecurityExtensionInit(INITARGS);
+#endif
+#ifdef XPRINT
+extern void	XpExtensionInit(INITARGS);
+#endif
+#ifdef XF86VIDMODE
+extern void	XFree86VidModeExtensionInit(INITARGS);
+#endif
+#ifdef XF86MISC
+extern void	XFree86MiscExtensionInit(INITARGS);
+#endif
+#ifdef XFreeXDGA
+extern void XFree86DGAExtensionInit(INITARGS);
+#endif
+#ifdef DPMSExtension
+extern void DPMSExtensionInit(INITARGS);
+#endif
+#ifdef GLXEXT
+#ifndef GLX_MODULE
+extern void GlxExtensionInit(INITARGS);
+#else
+InitExtension GlxExtensionInitPtr = NULL;
+#endif
 #endif
 
 /*ARGSUSED*/
@@ -138,7 +185,13 @@ InitExtensions(argc, argv)
     ShmExtensionInit();
 #endif
 #ifdef PEXEXT
+#ifndef PEX_MODULE
     PexExtensionInit();
+#else
+    if (PexExtensionInitPtr != NULL) {
+	(*PexExtensionInitPtr)();
+    }
+#endif
 #endif
 #ifdef MULTIBUFFER
     MultibufferExtensionInit();
@@ -168,7 +221,13 @@ InitExtensions(argc, argv)
     XvExtensionInit();
 #endif
 #ifdef XIE
+#ifndef XIE_MODULE
     XieInit();
+#else
+    if (XieInitPtr != NULL) {
+	(*XieInitPtr)();
+    }
+#endif
 #endif
 #ifdef XSYNC
     SyncExtensionInit();
@@ -180,9 +239,42 @@ InitExtensions(argc, argv)
     XCMiscExtensionInit();
 #endif
 #ifdef XRECORD
-    if (!noTestExtensions) XRecordExtensionInit(); 
+    if (!noTestExtensions) RecordExtensionInit(); 
 #endif
 #ifdef LBX
     LbxExtensionInit();
+#endif
+#ifdef DBE
+    DbeExtensionInit();
+#endif
+#ifdef XAPPGROUP
+    XagExtensionInit();
+#endif
+#ifdef XCSECURITY
+    SecurityExtensionInit();
+#endif
+#ifdef XPRINT
+    XpExtensionInit();
+#endif
+#if defined(XF86VIDMODE) && !defined(PRINT_ONLY_SERVER)
+    XFree86VidModeExtensionInit();
+#endif
+#if defined(XF86MISC) && !defined(PRINT_ONLY_SERVER)
+    XFree86MiscExtensionInit();
+#endif
+#if defined(XFreeXDGA) && !defined(PRINT_ONLY_SERVER)
+    XFree86DGAExtensionInit();
+#endif
+#if defined(DPMSExtension) && !defined(PRINT_ONLY_SERVER)
+    DPMSExtensionInit();
+#endif
+#ifdef GLXEXT
+#ifndef GLX_MODULE
+    GlxExtensionInit();
+#else
+    if (GlxExtensionInitPtr != NULL) {
+        (*GlxExtensionInitPtr)();
+    }
+#endif
 #endif
 }

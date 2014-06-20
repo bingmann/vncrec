@@ -1,4 +1,4 @@
-/* $XConsortium: speedo.h,v 1.6 94/02/07 10:00:41 gildea Exp $ */
+/* $XConsortium: speedo.h,v 1.7 95/06/08 23:20:39 gildea Exp $ */
 
 /*
 
@@ -280,7 +280,7 @@ typedef struct specs_tag
                                    /*   Bit 14: Clip top if set             */
                                    /*   Bit 15: Clip bottom if set          */
                                    /*   Bits 16-31   not used               */
-#if __STDC__
+#ifdef __STDC__
     void *out_info;                /* information for output module         */
 #else
     char *out_info;

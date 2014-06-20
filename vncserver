@@ -1,4 +1,4 @@
-#!/usr/local/bin/perl
+#!/usr/bin/perl
 #
 #  Copyright (C) 1997, 1998 Olivetti & Oracle Research Laboratory
 #
@@ -32,6 +32,9 @@
 # Global variables.  You may want to configure some of these for your site.
 #
 
+$geometry = "1024x768";
+$depth = 8;
+$desktopName = "X";
 $vncClasses = "/usr/local/vnc/classes";
 $vncUserDir = "$ENV{HOME}/.vnc";
 $xauthorityFile = "$ENV{HOME}/.Xauthority";
@@ -45,16 +48,35 @@ $defaultXStartup
 
 chop($host = `uname -n`);
 
-&ParseOptions("-geometry",1,"-depth",1,"-pixelformat",1,"-name",1,"-help",0);
+
+# Check command line options
+
+&ParseOptions("-geometry",1,"-depth",1,"-pixelformat",1,"-name",1,"-help",0,
+	      "-kill",1);
 
 &Usage() if ($opt{'-help'});
 
-&GetXDisplayDefaults();
+&Kill() if ($opt{'-kill'});
+
+# Uncomment this line if you want default geometry, depth and pixelformat
+# to match the current X display:
+# &GetXDisplayDefaults();
+
+if ($opt{'-geometry'}) {
+    $geometry = $opt{'-geometry'}
+}
+if ($opt{'-depth'}) {
+    $depth = $opt{'-depth'};
+    $pixelformat = "";
+}
+if ($opt{'-pixelformat'}) {
+    $pixelformat = $opt{'-pixelformat'};
+}
 
 &CheckGeometryAndDepth();
 
-if (!$opt{'-name'}) {
-    $opt{'-name'} = "X"; # default desktop name
+if ($opt{'-name'}) {
+    $desktopName = $opt{'-name'};
 }
 
 
@@ -65,10 +87,6 @@ if (!(-e $vncUserDir)) {
 	die "$prog: Could not create $vncUserDir.\n";
     }
 }
-
-$desktopLog = "$vncUserDir/".&removeSlashes($opt{'-name'}).".log";
-unlink($desktopLog);
-
     
 # Make sure the user has a password.
 
@@ -89,12 +107,16 @@ if ((@ARGV > 0) && ($ARGV[0] =~ /^:(\d+)$/)) {
     if (!&CheckDisplayNumber($displayNumber)) {
 	die "A VNC server is already running as :$displayNumber\n";
     }
+} elsif ((@ARGV > 0) && ($ARGV[0] !~ /^-/)) {
+    &Usage();
 } else {
     $displayNumber = &GetDisplayNumber();
 }
 
 $vncPort = 5900 + $displayNumber;
 
+$desktopLog = "$vncUserDir/$host:$displayNumber.log";
+unlink($desktopLog);
         
 # Make an X server cookie
 
@@ -105,17 +127,17 @@ for (1..16) {
 }
     
 system("xauth -f $xauthorityFile add $host:$displayNumber . $cookie");
-
+system("xauth -f $xauthorityFile add $host/unix:$displayNumber . $cookie"); 
 
 # Now start the X VNC Server
 
 $cmd = "Xvnc :$displayNumber";
-$cmd .= " -desktop " . &quotedString($opt{'-name'});
+$cmd .= " -desktop " . &quotedString($desktopName);
 $cmd .= " -httpd $vncClasses";
 $cmd .= " -auth $xauthorityFile";
-$cmd .= " -geometry $opt{'-geometry'}" if ($opt{'-geometry'});
-$cmd .= " -depth $opt{'-depth'}" if ($opt{'-depth'});
-$cmd .= " -pixelformat $opt{'-pixelformat'}" if ($opt{'-pixelformat'});
+$cmd .= " -geometry $geometry" if ($geometry);
+$cmd .= " -depth $depth" if ($depth);
+$cmd .= " -pixelformat $pixelformat" if ($pixelformat);
 $cmd .= " -rfbwait 120000";
 $cmd .= " -rfbauth $vncUserDir/passwd";
 $cmd .= " -rfbport $vncPort";
@@ -131,11 +153,16 @@ foreach $arg (@ARGV) {
 }
 $cmd .= " >> " . &quotedString($desktopLog) . " 2>&1";
 
-system("$cmd &");
+# Run $cmd and record the process ID.
 
-sleep(3); # give Xvnc a chance to start up
+$pidFile = "$vncUserDir/$host:$displayNumber.pid";
+system("$cmd & echo \$! >$pidFile");
 
-warn "\nNew '$opt{'-name'}' desktop is $host:$displayNumber\n\n";
+# Give Xvnc a chance to start up
+
+sleep(3); 
+
+warn "\nNew '$desktopName' desktop is $host:$displayNumber\n\n";
 
 # Create the user's xstartup script if necessary.
 
@@ -153,7 +180,7 @@ warn "Starting applications specified in $vncUserDir/xstartup\n";
 warn "Log file is $desktopLog\n\n";
 
 $ENV{DISPLAY}= "$host:$displayNumber";
-$ENV{VNCDESKTOP}= $opt{'-name'};
+$ENV{VNCDESKTOP}= $desktopName;
 
 system("$vncUserDir/xstartup >> " . &quotedString($desktopLog) . " 2>&1 &");
 
@@ -168,32 +195,34 @@ exit;
 
 sub CheckGeometryAndDepth
 {
-    if ($opt{'-geometry'}) {
-	if ($opt{'-geometry'} =~ /^(\d+)x(\d+)$/) {
-	    $width = $1; $height = $2;
+    if ($geometry =~ /^(\d+)x(\d+)$/) {
+	$width = $1; $height = $2;
 
-	    if (($width<1) || ($height<1)) {
-		die "$prog: geometry $opt{'-geometry'} is invalid\n";
-	    }
-
-	    while (($width % 4)!=0) {
-		$width = $width + 1;
-	    }
-
-	    while (($height % 2)!=0) {
-		$height = $height + 1;
-	    }
-
-	    $opt{-geometry} = "${width}x$height";
-	} else {
-	    die "$prog: geometry $opt{'-geometry'} is invalid\n";
+	if (($width<1) || ($height<1)) {
+	    die "$prog: geometry $geometry is invalid\n";
 	}
+
+	while (($width % 4)!=0) {
+	    $width = $width + 1;
+	}
+
+	while (($height % 2)!=0) {
+	    $height = $height + 1;
+	}
+
+	$geometry = "${width}x$height";
+    } else {
+	die "$prog: geometry $geometry is invalid\n";
     }
 
-    if ($opt{'-depth'}) {
-	if (($opt{'-depth'} < "8") || ($opt{'-depth'} > 32)) {
-	    die "Depth must be between 8 and 32\n";
-	}
+    if (($depth < 8) || ($depth > 32)) {
+	die "Depth must be between 8 and 32\n";
+    }
+
+    if (($os eq "SunOS") && ($depth >= 9) && ($depth <= 16)) {
+	warn "\nWarning: 16-bit-per-pixel support on Solaris X servers is ".
+	     "known to be buggy.\n".
+	     "If you find a problem, try using depth 8 or 24 instead.\n";
     }
 }
 
@@ -240,6 +269,18 @@ sub CheckDisplayNumber
     }
     close(S);
 
+    if (-e "/tmp/.X$n-lock") {
+	warn "\nWarning: $host:$n is taken because of /tmp/.X$n-lock\n";
+	warn "Remove this file if there is no X server $host:$n\n";
+	return 0;
+    }
+
+    if (-e "/tmp/.X11-unix/X$n") {
+	warn "\nWarning: $host:$n is taken because of /tmp/.X11-unix/X$n\n";
+	warn "Remove this file if there is no X server $host:$n\n";
+	return 0;
+    }
+
     return 1;
 }
 
@@ -268,57 +309,53 @@ sub GetXDisplayDefaults
 
     return if ($? != 0);
 
-    if (!$opt{'-geometry'}) {
-	@matchlines = grep(/dimensions/, @lines);
-	if (@matchlines) {
-	    ($width, $height) = ($matchlines[0] =~ /(\d+)x(\d+) pixels/);
+    @matchlines = grep(/dimensions/, @lines);
+    if (@matchlines) {
+	($width, $height) = ($matchlines[0] =~ /(\d+)x(\d+) pixels/);
 
-	    $width -= $wmDecorationWidth;
-	    $height -= $wmDecorationHeight;
+	$width -= $wmDecorationWidth;
+	$height -= $wmDecorationHeight;
 
-	    $opt{'-geometry'} = "${width}x$height";
-	}
+	$geometry = "${width}x$height";
     }
 
-    if (!$opt{'-depth'} && !$opt{'-pixelformat'}) {
-	@matchlines = grep(/default visual id/, @lines);
-	if (@matchlines) {
-	    ($defaultVisualId) = ($matchlines[0] =~ /id:\s+(\S+)/);
+    @matchlines = grep(/default visual id/, @lines);
+    if (@matchlines) {
+	($defaultVisualId) = ($matchlines[0] =~ /id:\s+(\S+)/);
 
-	    for ($i = 0; $i < @lines; $i++) {
-		if ($lines[$i] =~ /^\s*visual id:\s+$defaultVisualId$/) {
-		    if (($lines[$i+1] !~ /TrueColor/) ||
-			($lines[$i+2] !~ /depth/) ||
-			($lines[$i+4] !~ /red, green, blue masks/))
-		    {
-			return;
-		    }
-		    last;
+	for ($i = 0; $i < @lines; $i++) {
+	    if ($lines[$i] =~ /^\s*visual id:\s+$defaultVisualId$/) {
+		if (($lines[$i+1] !~ /TrueColor/) ||
+		    ($lines[$i+2] !~ /depth/) ||
+		    ($lines[$i+4] !~ /red, green, blue masks/))
+		{
+		    return;
 		}
+		last;
 	    }
+	}
 
-	    return if ($i >= @lines);
+	return if ($i >= @lines);
 
-	    ($opt{'-depth'}) = ($lines[$i+2] =~ /depth:\s+(\d+)/);
-	    ($red,$green,$blue)
-		= ($lines[$i+4]
-		   =~ /masks:\s+0x([0-9a-f]+), 0x([0-9a-f]+), 0x([0-9a-f]+)/);
+	($depth) = ($lines[$i+2] =~ /depth:\s+(\d+)/);
+	($red,$green,$blue)
+	    = ($lines[$i+4]
+	       =~ /masks:\s+0x([0-9a-f]+), 0x([0-9a-f]+), 0x([0-9a-f]+)/);
 
-	    $red = hex($red);
-	    $green = hex($green);
-	    $blue = hex($blue);
+	$red = hex($red);
+	$green = hex($green);
+	$blue = hex($blue);
 
-	    if ($red > $blue) {
-		$red = int(log($red) / log(2)) - int(log($green) / log(2));
-		$green = int(log($green) / log(2)) - int(log($blue) / log(2));
-		$blue = int(log($blue) / log(2)) + 1;
-		$opt{'-pixelformat'} = "rgb$red$green$blue";
-	    } else {
-		$blue = int(log($blue) / log(2)) - int(log($green) / log(2));
-		$green = int(log($green) / log(2)) - int(log($red) / log(2));
-		$red = int(log($red) / log(2)) + 1;
-		$opt{'-pixelformat'} = "bgr$blue$green$red";
-	    }
+	if ($red > $blue) {
+	    $red = int(log($red) / log(2)) - int(log($green) / log(2));
+	    $green = int(log($green) / log(2)) - int(log($blue) / log(2));
+	    $blue = int(log($blue) / log(2)) + 1;
+	    $pixelformat = "rgb$red$green$blue";
+	} else {
+	    $blue = int(log($blue) / log(2)) - int(log($green) / log(2));
+	    $green = int(log($green) / log(2)) - int(log($red) / log(2));
+	    $red = int(log($red) / log(2)) + 1;
+	    $pixelformat = "bgr$blue$green$red";
 	}
     }
 }
@@ -359,10 +396,37 @@ sub removeSlashes
 
 sub Usage
 {
-    die("usage: $prog [:<number>] [-name <desktop-name>] [-depth <depth>]\n".
+    die("\nusage: $prog [:<number>] [-name <desktop-name>] [-depth <depth>]\n".
 	"                 [-geometry <width>x<height>]\n".
 	"                 [-pixelformat rgbNNN|bgrNNN]\n".
-	"                 <Xvnc-options>...\n");
+	"                 <Xvnc-options>...\n\n".
+	"       $prog -kill :<number>\n\n");
+}
+
+
+#
+# Kill
+#
+
+sub Kill
+{
+    if ($opt{'-kill'} !~ /^:\d+$/) {
+	&Usage();
+    }
+
+    $pidFile = "$vncUserDir/$host$opt{'-kill'}.pid";
+
+    if (! -r $pidFile) {
+	die "\nCan't find file $vncUserDir/$host$opt{'-kill'}.pid\n".
+	    "You'll have to kill the Xvnc process manually\n\n";
+    }
+
+    $SIG{'HUP'} = 'IGNORE';
+    chop($pid = `cat $pidFile`);
+    warn "Killing Xvnc process ID $pid\n";
+    system("kill $pid");
+    unlink $pidFile;
+    exit;
 }
 
 
@@ -451,10 +515,11 @@ sub SanityCheck
     #
 
     chop($os = `uname`);
+    chop($osrev = `uname -r`);
 
     eval 'require "sys/socket.ph"';
     if ($@) {
-	if ($os eq "SunOS") {
+	if (($os eq "SunOS") && ($osrev !~ /^4/)) {
 	    $AF_INET = 2;
 	    $SOCK_STREAM = 2;
 	} else {

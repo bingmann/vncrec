@@ -36,7 +36,7 @@ for f in Xvnc/programs/Xserver/Xvnc vncviewer/vncviewer \
     echo "`basename $f` hasn't changed"
   else
     echo "Copying $f to $dst"
-    cp -f $f $dst
+    cp -pf $f $dst
     chmod 0555 $dst/`basename $f`
   fi
 done

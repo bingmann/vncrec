@@ -26,6 +26,7 @@ in this Software without prior written authorization from the X Consortium.
 ********************************************************/
 
 /* $XConsortium: cfbpolypnt.c,v 5.17 94/04/17 20:28:57 dpw Exp $ */
+/* $XFree86: xc/programs/Xserver/cfb/cfbpolypnt.c,v 3.0 1996/06/29 09:05:47 dawes Exp $ */
 
 #include "X.h"
 #include "gcstruct.h"
@@ -59,6 +60,10 @@ in this Software without prior written authorization from the X Consortium.
     } \
 }
 
+#if PSZ == 24
+# include "cfbrrop24.h"
+#endif
+
 void
 cfbPolyPoint(pDrawable, pGC, mode, npt, pptInit)
     DrawablePtr pDrawable;
@@ -80,6 +85,11 @@ cfbPolyPoint(pDrawable, pGC, mode, npt, pptInit)
     register int    nlwidth;
     register int    xoffset;
     unsigned long   *addrlt;
+#endif
+#if PSZ == 24
+    RROP_DECLARE
+    register int xtmp;
+    register PixelType *p;
 #endif
     register INT32  *ppt;
     RegionPtr	    cclip;
@@ -110,13 +120,27 @@ cfbPolyPoint(pDrawable, pGC, mode, npt, pptInit)
     off -= (off & 0x8000) << 1;
 #ifdef PIXEL_ADDR
     cfbGetPixelWidthAndPointer(pDrawable, npwidth, addrp);
+#if PSZ == 24
+    addrp = addrp + pDrawable->y * npwidth;
+#else
     addrp = addrp + pDrawable->y * npwidth + pDrawable->x;
+#endif
     if (rop == GXcopy)
     {
+#if PSZ == 24
+      RROP_COPY_SETUP(xor)
+#endif
 	if (!(npwidth & (npwidth - 1)))
 	{
 	    npwidth = ffs(npwidth) - 1;
+#if PSZ == 24
+	    PointLoop(
+		      xtmp = pDrawable->x + intToX(pt);
+		      p = addrp + (intToY(pt) << npwidth) + ((xtmp * 3) >>2);
+		      RROP_SOLID24_COPY(p, xtmp))
+#else
 	    PointLoop(*(addrp + (intToY(pt) << npwidth) + intToX(pt)) = xor;)
+#endif
 	}
 #ifdef sun
 	else if (npwidth == 1152)
@@ -127,25 +151,49 @@ cfbPolyPoint(pDrawable, pGC, mode, npt, pptInit)
 #endif
 	else
 	{
+#if PSZ == 24
+	    PointLoop(
+		      xtmp = pDrawable->x + intToX(pt);
+		      p = addrp + intToY(pt) * npwidth + ((xtmp * 3) >> 2);
+		      RROP_SOLID24_COPY(p, xtmp))
+#else
 	    PointLoop(*(addrp + intToY(pt) * npwidth + intToX(pt)) = xor;)
+#endif
 	}
     }
     else
     {
 	and = devPriv->and;
+#if PSZ == 24
+	RROP_SET_SETUP(xor, and)
+	PointLoop(  
+		  xtmp = pDrawable->x + intToX(pt);
+		  p = addrp + intToY(pt) * npwidth + ((xtmp * 3) >> 2);
+		  RROP_SOLID24_SET(p, xtmp))
+#else
 	PointLoop(  addrpt = addrp + intToY(pt) * npwidth + intToX(pt);
 		    *addrpt = DoRRop (*addrpt, and, xor);)
+#endif
     }
 #else /* !PIXEL_ADDR */
     cfbGetLongWidthAndPointer(pDrawable, nlwidth, addrl);
     addrl = addrl + pDrawable->y * nlwidth + (pDrawable->x >> PWSH);
     xoffset = pDrawable->x & PIM;
     and = devPriv->and;
+#if PSZ == 24
     PointLoop(   addrlt = addrl + intToY(pt) * nlwidth
  	                   + ((intToX(pt) + xoffset) >> PWSH);
  		   *addrlt = DoRRop (*addrlt,
  			   and | ~cfbmask[(intToX(pt) + xoffset) & PIM],
  			   xor & cfbmask[(intToX(pt) + xoffset) & PIM]);
 	     )
+#else
+    PointLoop(   addrlt = addrl + intToY(pt) * nlwidth
+ 	                   + ((intToX(pt) + xoffset) >> PWSH);
+ 		   *addrlt = DoRRop (*addrlt,
+ 			   and | ~cfbmask[((intToX(pt) + xoffset) & 3)<<1],
+ 			   xor & cfbmask[((intToX(pt) + xoffset) & 3)<<1]);
+	     )
+#endif
 #endif /* PIXEL_ADDR */
 }

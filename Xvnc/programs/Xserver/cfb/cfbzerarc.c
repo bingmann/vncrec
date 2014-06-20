@@ -25,7 +25,8 @@ in this Software without prior written authorization from the X Consortium.
 
 ********************************************************/
 
-/* $XConsortium: cfbzerarc.c,v 5.22 94/04/17 20:29:07 dpw Exp $ */
+/* $XConsortium: cfbzerarc.c /main/24 1995/12/06 16:58:51 dpw $ */
+/* $XFree86: xc/programs/Xserver/cfb/cfbzerarc.c,v 3.0 1996/06/29 09:05:57 dawes Exp $ */
 
 /* Derived from:
  * "Algorithm for drawing ellipses or hyperbolae with a digital plotter"
@@ -58,6 +59,10 @@ RROP_NAME(cfbZeroArcSS8) (pDraw, pGC, arc)
     register int x;
     PixelType *addrp;
     register PixelType *yorgp, *yorgop;
+#if PSZ == 24
+    int xorg, xorg3, xorgo, xorgo3;
+    register int xtmp;
+#endif
     RROP_DECLARE
     register int yoffset;
     int npwidth, dyoffset;
@@ -72,16 +77,31 @@ RROP_NAME(cfbZeroArcSS8) (pDraw, pGC, arc)
     yorgop = addrp + ((info.yorgo + pDraw->y) * npwidth);
     info.xorg += pDraw->x;
     info.xorgo += pDraw->x;
+#if PSZ == 24
+    xorg = info.xorg;
+    xorg3 = xorg * 3;
+    info.xorg = (info.xorg * 3) >> 2;
+    xorgo = info.xorgo;
+    xorgo3 = xorgo * 3; 
+    info.xorgo = (info.xorgo * 3) >> 2;
+#endif
     MIARCSETUP();
     yoffset = y ? npwidth : 0;
     dyoffset = 0;
     mask = info.initialMask;
     if (!(arc->width & 1))
     {
+#if PSZ == 24
+	if (mask & 2)
+	    RROP_SOLID24((yorgp + info.xorgo), xorgo);
+	if (mask & 8)
+	    RROP_SOLID24((yorgop + info.xorgo), xorgo);
+#else
 	if (mask & 2)
 	    RROP_SOLID((yorgp + info.xorgo));
 	if (mask & 8)
 	    RROP_SOLID((yorgop + info.xorgo));
+#endif /* PSZ == 24 */
     }
     if (!info.end.x || !info.end.y)
     {
@@ -91,6 +111,34 @@ RROP_NAME(cfbZeroArcSS8) (pDraw, pGC, arc)
     if (do360 && (arc->width == arc->height) && !(arc->width & 1))
     {
 	register int xoffset = npwidth;
+#if PSZ == 24
+	PixelType *yorghb = yorgp + (info.h * npwidth);
+	register int tmp1, tmp2, tmp1_3, tmp2_3;
+
+	tmp1 = xorg + info.h;
+	tmp1_3 = tmp1 * 3;
+	tmp2 = xorg - info.h;
+	tmp2_3 = tmp2 * 3;
+	while (1)
+	{
+	    xtmp = (xorg3 + x * 3) >> 2;
+	    RROP_SOLID24(yorgp + yoffset + xtmp, xorg + x);
+	    RROP_SOLID24(yorgop - yoffset + xtmp, xorg + x);
+	    xtmp = (xorg3 - x * 3) >> 2;
+	    RROP_SOLID24(yorgp + yoffset + xtmp, xorg - x);
+	    RROP_SOLID24(yorgop - yoffset + xtmp, xorg - x);
+	    if (a < 0)
+		break;
+	    xtmp = (tmp1_3 - y * 3) >> 2;
+	    RROP_SOLID24(yorghb - xoffset + xtmp, tmp1 - y);
+	    RROP_SOLID24(yorghb + xoffset + xtmp, tmp1 - y);
+	    xtmp = (tmp2_3 + y * 3) >> 2;
+	    RROP_SOLID24(yorghb - xoffset + xtmp, tmp2 + y);
+	    RROP_SOLID24(yorghb + xoffset + xtmp, tmp2 + y);
+	    xoffset += npwidth;
+	    MIARCCIRCLESTEP(yoffset += npwidth;);
+	}
+#else
 	PixelType *yorghb = yorgp + (info.h * npwidth) + info.xorg;
 	PixelType *yorgohb = yorghb - info.h;
 
@@ -114,6 +162,7 @@ RROP_NAME(cfbZeroArcSS8) (pDraw, pGC, arc)
 	}
 	yorgp -= info.xorg;
 	yorgop -= info.xorg;
+#endif /* PSZ == 24 */
 	x = info.w;
 	yoffset = info.h * npwidth;
     }
@@ -122,10 +171,19 @@ RROP_NAME(cfbZeroArcSS8) (pDraw, pGC, arc)
 	while (y < info.h || x < info.w)
 	{
 	    MIARCOCTANTSHIFT(dyoffset = npwidth;);
+#if PSZ == 24
+	    xtmp = (xorg3 + x * 3) >> 2;
+	    RROP_SOLID24(yorgp + yoffset + xtmp, xorg + x);
+	    RROP_SOLID24(yorgop - yoffset + xtmp, xorg + x);
+	    xtmp = (xorgo3 - x * 3) >> 2;
+	    RROP_SOLID24(yorgp + yoffset + xtmp, xorgo - x);
+	    RROP_SOLID24(yorgop - yoffset + xtmp, xorgo - x);
+#else
 	    RROP_SOLID(yorgp + yoffset + info.xorg + x);
 	    RROP_SOLID(yorgp + yoffset + info.xorgo - x);
 	    RROP_SOLID(yorgop - yoffset + info.xorgo - x);
 	    RROP_SOLID(yorgop - yoffset + info.xorg + x);
+#endif
 	    MIARCSTEP(yoffset += dyoffset;, yoffset += npwidth;);
 	}
     }
@@ -139,6 +197,24 @@ RROP_NAME(cfbZeroArcSS8) (pDraw, pGC, arc)
 		mask = info.start.mask;
 		info.start = info.altstart;
 	    }
+#if PSZ == 24
+	    if (mask & 1){
+	      xtmp = (xorg3 + x * 3) >> 2;
+	      RROP_SOLID24(yorgp + yoffset + xtmp, xorg + x);
+	    }
+	    if (mask & 2){
+	      xtmp = (xorgo3 - x * 3) >> 2;
+	      RROP_SOLID24(yorgp + yoffset + xtmp, xorgo - x);
+	    }
+	    if (mask & 4){
+	      xtmp = (xorgo3 - x * 3) >> 2;
+	      RROP_SOLID24(yorgop - yoffset + xtmp, xorgo - x);
+	    }
+	    if (mask & 8){
+	      xtmp = (xorg3 + x * 3) >> 2;
+	      RROP_SOLID24(yorgop - yoffset + xtmp, xorg + x);
+	    }
+#else
 	    if (mask & 1)
 		RROP_SOLID(yorgp + yoffset + info.xorg + x);
 	    if (mask & 2)
@@ -147,6 +223,7 @@ RROP_NAME(cfbZeroArcSS8) (pDraw, pGC, arc)
 		RROP_SOLID(yorgop - yoffset + info.xorgo - x);
 	    if (mask & 8)
 		RROP_SOLID(yorgop - yoffset + info.xorg + x);
+#endif /* PSZ == 24 */
 	    if ((x == info.end.x) || (y == info.end.y))
 	    {
 		mask = info.end.mask;
@@ -157,16 +234,38 @@ RROP_NAME(cfbZeroArcSS8) (pDraw, pGC, arc)
     }
     if ((x == info.start.x) || (y == info.start.y))
 	mask = info.start.mask;
+#if PSZ == 24
+    if (mask & 1){
+      xtmp = (xorg3 + x * 3) >> 2;
+      RROP_SOLID24(yorgp + yoffset + xtmp, xorg + x);
+    }
+    if (mask & 4){
+      xtmp = (xorgo3 - x * 3) >> 2;
+      RROP_SOLID24(yorgop - yoffset + xtmp, xorgo - x);
+    }
+#else
     if (mask & 1)
 	RROP_SOLID(yorgp + yoffset + info.xorg + x);
     if (mask & 4)
 	RROP_SOLID(yorgop - yoffset + info.xorgo - x);
+#endif /* PSZ == 24 */
     if (arc->height & 1)
     {
+#if PSZ == 24
+	if (mask & 2){
+	  xtmp = (xorgo3 - x * 3) >> 2;
+	  RROP_SOLID24(yorgp + yoffset + xtmp, xorgo - x);
+	}
+	if (mask & 8){
+	  xtmp = (xorg3 + x * 3) >> 2;
+	  RROP_SOLID24(yorgop - yoffset + xtmp, xorg + x);
+	}
+#else
 	if (mask & 2)
 	    RROP_SOLID(yorgp + yoffset + info.xorgo - x);
 	if (mask & 8)
 	    RROP_SOLID(yorgop - yoffset + info.xorg + x);
+#endif /* PSZ == 24 */
     }
 }
 
@@ -180,6 +279,7 @@ RROP_NAME (cfbZeroPolyArcSS8) (pDraw, pGC, narcs, parcs)
     register xArc *arc;
     register int i;
     BoxRec box;
+    int x2, y2;
     RegionPtr cclip;
 
     cclip = cfbGetCompositeClip(pGC);
@@ -189,9 +289,23 @@ RROP_NAME (cfbZeroPolyArcSS8) (pDraw, pGC, narcs, parcs)
 	{
 	    box.x1 = arc->x + pDraw->x;
 	    box.y1 = arc->y + pDraw->y;
-	    box.x2 = box.x1 + (int)arc->width + 1;
-	    box.y2 = box.y1 + (int)arc->height + 1;
-	    if (RECT_IN_REGION(pDraw->pScreen, cclip, &box) == rgnIN)
+ 	    /*
+ 	     * Because box.x2 and box.y2 get truncated to 16 bits, and the
+ 	     * RECT_IN_REGION test treats the resulting number as a signed
+ 	     * integer, the RECT_IN_REGION test alone can go the wrong way.
+ 	     * This can result in a server crash because the rendering
+ 	     * routines in this file deal directly with cpu addresses
+ 	     * of pixels to be stored, and do not clip or otherwise check
+ 	     * that all such addresses are within their respective pixmaps.
+ 	     * So we only allow the RECT_IN_REGION test to be used for
+ 	     * values that can be expressed correctly in a signed short.
+ 	     */
+ 	    x2 = box.x1 + (int)arc->width + 1;
+ 	    box.x2 = x2;
+ 	    y2 = box.y1 + (int)arc->height + 1;
+ 	    box.y2 = y2;
+ 	    if ( (x2 <= MAXSHORT) && (y2 <= MAXSHORT) &&
+ 		    (RECT_IN_REGION(pDraw->pScreen, cclip, &box) == rgnIN) )
 		RROP_NAME (cfbZeroArcSS8) (pDraw, pGC, arc);
 	    else
 		miZeroPolyArc(pDraw, pGC, 1, arc);

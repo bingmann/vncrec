@@ -25,7 +25,8 @@ in this Software without prior written authorization from the X Consortium.
 
 ********************************************************/
 
-/* $XConsortium: mfbzerarc.c,v 5.19 94/04/17 20:28:37 dpw Exp $ */
+/* $XConsortium: mfbzerarc.c /main/21 1995/12/06 16:55:48 dpw $ */
+/* $XFree86: xc/programs/Xserver/mfb/mfbzerarc.c,v 3.1 1996/01/05 13:19:46 dawes Exp $ */
 
 /* Derived from:
  * "Algorithm for drawing ellipses or hyperbolae with a digital plotter"
@@ -50,7 +51,7 @@ in this Software without prior written authorization from the X Consortium.
  * LONG2CHARS() takes care of the re-ordering as required. (DHD)
  */
 #if (BITMAP_BIT_ORDER == MSBFirst)
-#define LEFTMOST	((PixelType) LONG2CHARS((1 << PLST)))
+#define LEFTMOST	((PixelType) LONG2CHARS(((unsigned long)1 << PLST)))
 #else
 #define LEFTMOST	((PixelType) LONG2CHARS(1))
 #endif
@@ -215,6 +216,7 @@ mfbZeroPolyArcSS(pDraw, pGC, narcs, parcs)
     register xArc *arc;
     register int i;
     BoxRec box;
+    int x2, y2;
     RegionPtr cclip;
 
     if (!pGC->planemask & 1)
@@ -226,9 +228,23 @@ mfbZeroPolyArcSS(pDraw, pGC, narcs, parcs)
 	{
 	    box.x1 = arc->x + pDraw->x;
 	    box.y1 = arc->y + pDraw->y;
-	    box.x2 = box.x1 + (int)arc->width + 1;
-	    box.y2 = box.y1 + (int)arc->height + 1;
-	    if (RECT_IN_REGION(pDraw->pScreen, cclip, &box) == rgnIN)
+ 	    /*
+ 	     * Because box.x2 and box.y2 get truncated to 16 bits, and the
+ 	     * RECT_IN_REGION test treats the resulting number as a signed
+ 	     * integer, the RECT_IN_REGION test alone can go the wrong way.
+ 	     * This can result in a server crash because the rendering
+ 	     * routines in this file deal directly with cpu addresses
+ 	     * of pixels to be stored, and do not clip or otherwise check
+ 	     * that all such addresses are within their respective pixmaps.
+ 	     * So we only allow the RECT_IN_REGION test to be used for
+ 	     * values that can be expressed correctly in a signed short.
+ 	     */
+ 	    x2 = box.x1 + (int)arc->width + 1;
+ 	    box.x2 = x2;
+ 	    y2 = box.y1 + (int)arc->height + 1;
+ 	    box.y2 = y2;
+ 	    if ( (x2 <= MAXSHORT) && (y2 <= MAXSHORT) &&
+ 		    (RECT_IN_REGION(pDraw->pScreen, cclip, &box) == rgnIN) )
 		mfbZeroArcSS(pDraw, pGC, arc);
 	    else
 		miZeroPolyArc(pDraw, pGC, 1, arc);

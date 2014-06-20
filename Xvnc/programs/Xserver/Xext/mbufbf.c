@@ -26,6 +26,7 @@ in this Software without prior written authorization from the X Consortium.
 */
 
 /* $XConsortium: mbufbf.c,v 1.5 94/04/17 20:32:53 dpw Exp $ */
+/* $XFree86: xc/programs/Xserver/Xext/mbufbf.c,v 3.0 1994/05/08 05:17:30 dawes Exp $ */
 
 #define NEED_REPLIES
 #define NEED_EVENTS
@@ -45,7 +46,9 @@ in this Software without prior written authorization from the X Consortium.
 #include "gcstruct.h"
 #include "inputstr.h"
 #include "validate.h"
+#ifndef MINIX
 #include <sys/time.h>
+#endif
 
 #define _MULTIBUF_SERVER_	/* don't want Xlib structures */
 #define _MULTIBUF_BUFFER_

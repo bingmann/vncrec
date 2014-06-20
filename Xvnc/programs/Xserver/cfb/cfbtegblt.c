@@ -1,4 +1,5 @@
 /* $XConsortium: cfbtegblt.c,v 5.9 94/04/17 20:29:03 dpw Exp $ */
+/* $XFree86: xc/programs/Xserver/cfb/cfbtegblt.c,v 3.0 1996/06/29 09:05:52 dawes Exp $ */
 /***********************************************************
 
 Copyright (c) 1987  X Consortium
@@ -109,6 +110,9 @@ cfbTEGlyphBlt(pDrawable, pGC, x, y, nglyph, ppci, pglyphBase)
     register int wtmp,xtemp,width;
     unsigned long bgfill,fgfill,*ptemp,tmpDst1,tmpDst2,*pdtmp;
     int tmpx;
+#if PSZ == 24
+    int xIndex;
+#endif
 
     xpos += pDrawable->x;
     ypos += pDrawable->y;
@@ -175,18 +179,37 @@ cfbTEGlyphBlt(pDrawable, pGC, x, y, nglyph, ppci, pglyphBase)
 
 		while (width > 0)
 		{
+#if PSZ == 24
+		    tmpx = x & 3;
+		    w = 1;
+#else
 		    tmpx = x & PIM;
 		    w = min(width, PPW - tmpx);
 		    w = min(w, (PGSZ - xtemp));
+#endif
 
+#if PSZ == 24
+		    ptemp = (unsigned long *)(pglyph + ((xtemp *3)>> 2));
+#else
 		    ptemp = (unsigned long *)(pglyph + (xtemp >> MFB_PWSH));
+#endif
+#if PSZ == 24
+		    getstipplepixels24(ptemp,xtemp,0,&bgfill,&tmpDst1, xtemp);
+		    getstipplepixels24(ptemp,xtemp,1,&fgfill,&tmpDst2, xtemp);
+#else
 		    getstipplepixels(ptemp,xtemp,w,0,&bgfill,&tmpDst1);
 		    getstipplepixels(ptemp,xtemp,w,1,&fgfill,&tmpDst2);
+#endif
 
 		    {
 			unsigned long tmpDst = tmpDst1 | tmpDst2;
+#if PSZ == 24
+			unsigned long *pdsttmp = pdst + ((x*3) >> 2);
+			putbits24(tmpDst,tmpx,w,pdsttmp,pGC->planemask,x);
+#else
 			unsigned long *pdsttmp = pdst + (x >> PWSH);
 			putbits(tmpDst,tmpx,w,pdsttmp,pGC->planemask);
+#endif
 		    }
 		    x += w;
 		    xtemp += w;

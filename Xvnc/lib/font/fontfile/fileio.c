@@ -1,4 +1,5 @@
-/* $XConsortium: fileio.c,v 1.4 94/04/17 20:17:04 gildea Exp $ */
+/* $XConsortium: fileio.c /main/5 1996/11/03 19:32:03 kaleb $ */
+/* $XFree86: xc/lib/font/fontfile/fileio.c,v 3.1 1996/12/23 06:02:20 dawes Exp $ */
 
 /*
 
@@ -55,13 +56,27 @@ FontFileOpen (name)
 	return 0;
     }
     len = strlen (name);
+#ifndef __EMX__
     if (len > 2 && !strcmp (name + len - 2, ".Z")) {
+#else
+    if (len > 2 && (!strcmp (name + len - 4, ".pcz") || 
+		    !strcmp (name + len - 2, ".Z"))) {
+#endif
 	cooked = BufFilePushCompressed (raw);
 	if (!cooked) {
 	    BufFileClose (raw, TRUE);
 	    return 0;
 	}
 	raw = cooked;
+#ifdef X_GZIP_FONT_COMPRESSION
+    } else if (len > 3 && !strcmp (name + len - 3, ".gz")) {
+	cooked = BufFilePushZIP (raw);
+	if (!cooked) {
+	    BufFileClose (raw, TRUE);
+	    return 0;
+	}
+	raw = cooked;
+#endif
     }
     return (FontFilePtr) raw;
 }

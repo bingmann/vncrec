@@ -31,6 +31,7 @@ Author: Keith Packard
 
 */
 /* $XConsortium: mfbblt.c,v 1.11 94/04/17 20:28:16 dpw Exp $ */
+/* $XFree86: xc/programs/Xserver/mfb/mfbblt.c,v 3.0 1994/08/12 14:03:38 dawes Exp $ */
 
 #include	"X.h"
 #include	"Xmd.h"
@@ -337,8 +338,10 @@ psrc += UNROLL;
 		    if (startmask)
 		    {
 			bits1 = BitLeft(bits,leftShift);
-			bits = *psrc++;
-			bits1 |= BitRight(bits,rightShift);
+			if (BitLeft(startmask, rightShift)) {
+				bits = *psrc++;
+				bits1 |= BitRight(bits,rightShift);
+			}
 			*pdst = MROP_MASK(bits1, *pdst, startmask);
 			pdst++;
 		    }
@@ -501,8 +504,10 @@ psrc -= UNROLL;
 		    if (endmask)
 		    {
 			bits1 = BitRight(bits, rightShift);
-			bits = *--psrc;
-			bits1 |= BitLeft(bits, leftShift);
+			if (BitRight(endmask, leftShift)) {
+				bits = *--psrc;
+				bits1 |= BitLeft(bits, leftShift);
+			}
 			pdst--;
 			*pdst = MROP_MASK(bits1, *pdst, endmask);
 		    }

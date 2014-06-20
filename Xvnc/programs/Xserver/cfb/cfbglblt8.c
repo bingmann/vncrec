@@ -1,4 +1,5 @@
 /* $XConsortium: cfbglblt8.c,v 5.31 94/04/17 20:28:51 dpw Exp $ */
+/* $XFree86: xc/programs/Xserver/cfb/cfbglblt8.c,v 3.1 1996/08/13 11:27:34 dawes Exp $ */
 /*
 
 Copyright (c) 1989  X Consortium
@@ -93,13 +94,18 @@ static void cfbPolyGlyphBlt8Clipped();
 #define USE_STIPPLE_CODE
 #endif
 
-#if defined(__GNUC__) && !defined(GLYPHROP) && (defined(mc68020) || defined(mc68000) || defined(__mc68000__)) && !defined(USE_LEFTBITS)
+#if defined(__GNUC__) && !defined(GLYPHROP) && (defined(mc68020) || defined(mc68000) || defined(__mc68000__)) && PSZ == 8 && !defined(USE_LEFTBITS)
 #ifdef USE_STIPPLE_CODE
 #undef USE_STIPPLE_CODE
 #endif
+#include "stip68kgnu.h"
 #endif
 
+#if PSZ == 24
+#define DST_INC	    3
+#else
 #define DST_INC	    (PGSZB >> PWSH)
+#endif
 
 /*  cfbStippleStack/cfbStippleStackTE are coded in assembly language.
  *  They are only provided on some architecures.
@@ -216,12 +222,20 @@ cfbPolyGlyphBlt8 (pDrawable, pGC, x, y, nglyph, ppci, pglyphBase)
 	pci = *ppci++;
 	glyphBits = (glyphPointer) FONTGLYPHBITS(pglyphBase,pci);
 	xoff = x + pci->metrics.leftSideBearing;
+#if PSZ == 24
+	dstLine = pdstBase + (y - pci->metrics.ascent) * widthDst +((xoff>> 2)*3);
+#else
 	dstLine = pdstBase +
 	          (y - pci->metrics.ascent) * widthDst + (xoff >> PWSH);
+#endif
 	x += pci->metrics.characterWidth;
 	if (hTmp = pci->metrics.descent + pci->metrics.ascent)
 	{
+#if PSZ == 24
+	    xoff &= 0x03;
+#else
 	    xoff &= PIM;
+#endif /* PSZ == 24 */
 #ifdef STIPPLE
 	    STIPPLE(dstLine,glyphBits,pixel,bwidthDst,hTmp,xoff);
 #else
@@ -341,8 +355,17 @@ cfbPolyGlyphBlt8Clipped (pDrawable, pGC, x, y, nglyph, ppci, pglyphBase)
 	x += pci->metrics.characterWidth;
 	if (hTmp = pci->metrics.descent + pci->metrics.ascent)
 	{
+#if PSZ == 24
+	    dstLine = pdstBase + yG * widthDst + ((xG>> 2)*3);
+	    /* never use (xG*3)>>2 */
+#else
 	    dstLine = pdstBase + yG * widthDst + (xG >> PWSH);
+#endif
+#if PSZ == 24
+	    xoff = xG & 3;
+#else
 	    xoff = xG & PIM;
+#endif
 #ifdef USE_LEFTBITS
 	    w = pci->metrics.rightSideBearing - pci->metrics.leftSideBearing;
 	    widthGlyph = PADGLYPHWIDTHBYTES(w);

@@ -47,6 +47,7 @@ SOFTWARE.
 ********************************************************/
 
 /* $XConsortium: swapreq.c,v 1.39 94/04/17 20:26:45 dpw Exp $ */
+/* $XFree86: xc/programs/Xserver/dix/swapreq.c,v 3.1 1996/05/06 05:56:24 dawes Exp $ */
 
 #include "X.h"
 #define NEED_EVENTS
@@ -54,9 +55,10 @@ SOFTWARE.
 #include "Xprotostr.h"
 #include "misc.h"
 #include "dixstruct.h"
+#include "extnsionst.h"	/* for SendEvent */
+#include "swapreq.h"
 
 extern int (* ProcVector[256]) ();
-extern void (* EventSwapVector[128]) ();  /* for SendEvent */
 
 /* Thanks to Jack Palevich for testing and subsequently rewriting all this */
 
@@ -327,7 +329,7 @@ SProcSendEvent(client)
 {
     register char n;
     xEvent eventT;
-    void (*proc)(), NotImplemented();
+    EventSwapPtr proc;
     REQUEST(xSendEventReq);
     swaps(&stuff->length, n);
     REQUEST_SIZE_MATCH(xSendEventReq);
@@ -336,7 +338,7 @@ SProcSendEvent(client)
 
     /* Swap event */
     proc = EventSwapVector[stuff->event.u.u.type & 0177];
-    if (!proc || (int (*)()) proc == (int (*)()) NotImplemented)    /* no swapping proc; invalid event type? */
+    if (!proc ||  proc == NotImplemented)    /* no swapping proc; invalid event type? */
        return (BadValue);
     (*proc)(&stuff->event, &eventT);
     stuff->event = eventT;

@@ -25,13 +25,14 @@ in this Software without prior written authorization from the X Consortium.
 
 ********************************************************/
 
-/* $XConsortium: mbuf.c,v 1.24 94/04/17 20:32:52 dpw Exp $ */
+/* $XConsortium: mbuf.c /main/25 1996/12/02 10:19:23 lehors $ */
+/* $XFree86: xc/programs/Xserver/Xext/mbuf.c,v 3.3 1997/01/18 06:52:58 dawes Exp $ */
 #define NEED_REPLIES
 #define NEED_EVENTS
 #include <stdio.h>
 #include "X.h"
 #include "Xproto.h"
-#include "misc.h"
+#include "window.h"
 #include "os.h"
 #include "windowstr.h"
 #include "scrnintstr.h"
@@ -41,11 +42,13 @@ in this Software without prior written authorization from the X Consortium.
 #include "resource.h"
 #include "opaque.h"
 #define _MULTIBUF_SERVER_	/* don't want Xlib structures */
-#include "multibufst.h"
 #include "regionstr.h"
 #include "gcstruct.h"
 #include "inputstr.h"
+#include "multibufst.h"
+#if !defined(WIN32) && !defined(MINIX) && !defined(Lynx)
 #include <sys/time.h>
+#endif
 
 /* given an OtherClientPtr obj, get the ClientPtr */
 #define rClient(obj) (clients[CLIENT_ID((obj)->resource)])
@@ -55,111 +58,99 @@ in this Software without prior written authorization from the X Consortium.
 
 #define ValidEventMasks (ExposureMask|MultibufferClobberNotifyMask|MultibufferUpdateNotifyMask)
 
-/* The _Multibuffer and _Multibuffers structures below refer to each other,
- * so we need this forward declaration
- */
-typedef struct _Multibuffers	*MultibuffersPtr;
-
-/*
- * per-Multibuffer data
- */
- 
-typedef struct _Multibuffer {
-    MultibuffersPtr pMultibuffers;  /* associated window data */
-    Mask	    eventMask;	    /* MultibufferClobberNotifyMask|ExposureMask|MultibufferUpdateNotifyMask */
-    Mask	    otherEventMask; /* mask of all other clients event masks */
-    OtherClients    *otherClients;  /* other clients that want events */
-    int		    number;	    /* index of this buffer into array */
-    int		    side;	    /* always Mono */
-    int		    clobber;	    /* Unclobbered, PartiallyClobbered, FullClobbered */
-    PixmapPtr	    pPixmap;	    /* associated pixmap */
-} MultibufferRec, *MultibufferPtr;
-
-/*
- * per-window data
- */
-
-typedef struct _Multibuffers {
-    WindowPtr	pWindow;		/* associated window */
-    int		numMultibuffer;		/* count of buffers */
-    int		refcnt;			/* ref count for delete */
-    int		displayedMultibuffer;	/* currently active buffer */
-    int		updateAction;		/* Undefined, Background, Untouched, Copied */
-    int		updateHint;		/* Frequent, Intermittent, Static */
-    int		windowMode;		/* always Mono */
-
-    TimeStamp	lastUpdate;		/* time of last update */
-
-    unsigned short	width, height;	/* last known window size */
-    short		x, y;		/* for static gravity */
-
-    MultibufferPtr	buffers;        /* array of numMultibuffer buffers */
-} MultibuffersRec;
-
-/*
- * per-screen data
- */
-typedef struct _MultibufferScreen {
-    Bool	(*PositionWindow)();
-} MultibufferScreenRec, *MultibufferScreenPtr;
-
-/*
- * per display-image-buffers request data.
- */
-
-typedef struct _DisplayRequest {
-    struct _DisplayRequest	*next;
-    TimeStamp			activateTime;
-    ClientPtr			pClient;
-    XID				id;
-} DisplayRequestRec, *DisplayRequestPtr;
-
 static unsigned char	MultibufferReqCode;
 static int		MultibufferEventBase;
 static int		MultibufferErrorBase;
 int			MultibufferScreenIndex = -1;
 int			MultibufferWindowIndex = -1;
 
-static void		PerformDisplayRequest ();
-static void		DisposeDisplayRequest ();
-static Bool		QueueDisplayRequest ();
+static void		PerformDisplayRequest (
+#if NeedFunctionPrototypes
+				MultibuffersPtr * /* ppMultibuffers */,
+				MultibufferPtr * /* pMultibuffer */,
+				int /* nbuf */
+#endif
+				);
+static Bool		QueueDisplayRequest (
+#if NeedFunctionPrototypes
+				ClientPtr /* client */,
+				TimeStamp /* activateTime */
+#endif
+				);
 
-static void		BumpTimeStamp ();
+static void		BumpTimeStamp (
+#if NeedFunctionPrototypes
+				TimeStamp * /* ts */,
+				CARD32 /* inc */
+#endif
+				);
 
-void			MultibufferExpose ();
-void			MultibufferUpdate ();
-static void		AliasMultibuffer ();
-int			CreateImageBuffers ();
-void			DestroyImageBuffers ();
-int			DisplayImageBuffers ();
-static void		RecalculateMultibufferOtherEvents ();
-static int		EventSelectForMultibuffer();
+static void		AliasMultibuffer (
+#if NeedFunctionPrototypes
+				MultibuffersPtr /* pMultibuffers */,
+				int /* i */
+#endif
+				);
+static void		RecalculateMultibufferOtherEvents (
+#if NeedFunctionPrototypes
+				MultibufferPtr /* pMultibuffer */
+#endif
+				);
+static int		EventSelectForMultibuffer(
+#if NeedFunctionPrototypes
+				MultibufferPtr /* pMultibuffer */,
+				ClientPtr /* client */,
+				Mask /* mask */
+#endif
+				);
 
 /*
  * The Pixmap associated with a buffer can be found as a resource
  * with this type
  */
 RESTYPE			MultibufferDrawableResType;
-static int		MultibufferDrawableDelete ();
+static int		MultibufferDrawableDelete (
+#if NeedFunctionPrototypes
+				pointer /* value */,
+				XID /* id */
+#endif
+				);
 /*
  * The per-buffer data can be found as a resource with this type.
  * the resource id of the per-buffer data is the same as the resource
  * id of the pixmap
  */
 static RESTYPE		MultibufferResType;
-static int		MultibufferDelete ();
+static int		MultibufferDelete (
+#if NeedFunctionPrototypes
+				pointer /* value */,
+				XID /* id */
+#endif
+				);
+
 /*
  * The per-window data can be found as a resource with this type,
  * using the window resource id
  */
 static RESTYPE		MultibuffersResType;
-static int		MultibuffersDelete ();
+static int		MultibuffersDelete (
+#if NeedFunctionPrototypes
+				pointer /* value */,
+				XID /* id */
+#endif
+				);
+
 /*
  * Clients other than the buffer creator attach event masks in
  * OtherClient structures; each has a resource of this type.
  */
 static RESTYPE		OtherClientResType;
-static int		OtherClientDelete ();
+static int		OtherClientDelete (
+#if NeedFunctionPrototypes
+				pointer /* value */,
+				XID /* id */
+#endif
+				);
 
 /****************
  * MultibufferExtensionInit
@@ -168,10 +159,70 @@ static int		OtherClientDelete ();
  *
  ****************/
 
-static int		ProcMultibufferDispatch(), SProcMultibufferDispatch();
-static void		MultibufferResetProc();
-static void		SClobberNotifyEvent(), SUpdateNotifyEvent();
-static Bool		MultibufferPositionWindow();
+extern DISPATCH_PROC(ProcGetBufferAttributes);
+
+static DISPATCH_PROC(ProcClearImageBufferArea);
+static DISPATCH_PROC(ProcCreateImageBuffers);
+static DISPATCH_PROC(ProcDestroyImageBuffers);
+static DISPATCH_PROC(ProcDisplayImageBuffers);
+static DISPATCH_PROC(ProcGetBufferInfo);
+static DISPATCH_PROC(ProcGetBufferVersion);
+static DISPATCH_PROC(ProcGetMBufferAttributes);
+static DISPATCH_PROC(ProcMultibufferDispatch);
+static DISPATCH_PROC(ProcSetBufferAttributes);
+static DISPATCH_PROC(ProcSetMBufferAttributes);
+static DISPATCH_PROC(SProcClearImageBufferArea);
+static DISPATCH_PROC(SProcCreateImageBuffers);
+static DISPATCH_PROC(SProcDestroyImageBuffers);
+static DISPATCH_PROC(SProcDisplayImageBuffers);
+static DISPATCH_PROC(SProcGetBufferAttributes);
+static DISPATCH_PROC(SProcGetBufferInfo);
+static DISPATCH_PROC(SProcGetBufferVersion);
+static DISPATCH_PROC(SProcGetMBufferAttributes);
+static DISPATCH_PROC(SProcMultibufferDispatch);
+static DISPATCH_PROC(SProcSetBufferAttributes);
+static DISPATCH_PROC(SProcSetMBufferAttributes);
+
+static void		MultibufferResetProc(
+#if NeedFunctionPrototypes
+				ExtensionEntry * /* extEntry */
+#endif
+				);
+static void		SClobberNotifyEvent(
+#if NeedFunctionPrototypes
+				xMbufClobberNotifyEvent * /* from */,
+				xMbufClobberNotifyEvent	* /* to */
+# endif
+				);
+static void		SUpdateNotifyEvent(
+#if NeedFunctionPrototypes
+				xMbufUpdateNotifyEvent * /* from */,
+				xMbufUpdateNotifyEvent * /* to */
+#endif
+				);
+static Bool		MultibufferPositionWindow(
+#if NeedFunctionPrototypes
+				WindowPtr /* pWin */,
+				int /* x */,
+				int /* y */
+#endif
+				);
+
+static void		SetupBackgroundPainter (
+#if NeedFunctionPrototypes
+				WindowPtr /* pWin */,
+				GCPtr /* pGC */
+#endif
+				);
+
+static int		DeliverEventsToMultibuffer (
+#if NeedFunctionPrototypes
+				MultibufferPtr /* pMultibuffer */,
+				xEvent * /* pEvents */,
+				int /* count */,
+				Mask /* filter */
+#endif
+				);
 
 void
 MultibufferExtensionInit()
@@ -228,8 +279,8 @@ MultibufferExtensionInit()
 	MultibufferReqCode = (unsigned char)extEntry->base;
 	MultibufferEventBase = extEntry->eventBase;
 	MultibufferErrorBase = extEntry->errorBase;
-	EventSwapVector[MultibufferEventBase + MultibufferClobberNotify] = SClobberNotifyEvent;
-	EventSwapVector[MultibufferEventBase + MultibufferUpdateNotify] = SUpdateNotifyEvent;
+	EventSwapVector[MultibufferEventBase + MultibufferClobberNotify] = (EventSwapPtr) SClobberNotifyEvent;
+	EventSwapVector[MultibufferEventBase + MultibufferUpdateNotify] = (EventSwapPtr) SUpdateNotifyEvent;
     }
 }
 
@@ -260,7 +311,6 @@ static int
 ProcGetBufferVersion (client)
     register ClientPtr	client;
 {
-    REQUEST(xMbufGetBufferVersionReq);
     xMbufGetBufferVersionReply	rep;
     register int		n;
 
@@ -573,7 +623,7 @@ ProcSetMBufferAttributes (client)
     MultibuffersPtr	pMultibuffers;
     int		len;
     Mask	vmask;
-    Mask	index;
+    Mask	index2;
     CARD32	updateHint;
     XID		*vlist;
 
@@ -591,9 +641,9 @@ ProcSetMBufferAttributes (client)
     vlist = (XID *) &stuff[1];
     while (vmask)
     {
-	index = (Mask) lowbit (vmask);
-	vmask &= ~index;
-	switch (index)
+	index2 = (Mask) lowbit (vmask);
+	vmask &= ~index2;
+	switch (index2)
 	{
 	case MultibufferWindowUpdateHint:
 	    updateHint = (CARD32) *vlist;
@@ -670,7 +720,7 @@ ProcSetBufferAttributes (client)
     REQUEST(xMbufSetBufferAttributesReq);
     MultibufferPtr	pMultibuffer;
     int		len;
-    Mask	vmask, index;
+    Mask	vmask, index2;
     XID		*vlist;
     Mask	eventMask;
     int		result;
@@ -686,9 +736,9 @@ ProcSetBufferAttributes (client)
     vlist = (XID *) &stuff[1];
     while (vmask)
     {
-	index = (Mask) lowbit (vmask);
-	vmask &= ~index;
-	switch (index)
+	index2 = (Mask) lowbit (vmask);
+	vmask &= ~index2;
+	switch (index2)
 	{
 	case MultibufferBufferEventMask:
 	    eventMask = (Mask) *vlist;
@@ -705,6 +755,7 @@ ProcSetBufferAttributes (client)
     return Success;
 }
 
+int
 ProcGetBufferAttributes (client)
     register ClientPtr	client;
 {
@@ -1161,7 +1212,6 @@ PerformDisplayRequest (ppMultibuffers, pMultibuffer, nbuf)
 	    	{
 		    RegionPtr	pWinSize;
 		    ScreenPtr pScreen = pWin->drawable.pScreen;
-		    extern RegionPtr	CreateUnclippedWinSize();
 
 		    pWinSize = CreateUnclippedWinSize (pWin);
 		    /* pExposed is window-relative, but at this point
@@ -1303,8 +1353,8 @@ DeliverEventsToMultibuffer (pMultibuffer, pEvents, count, filter)
 	return 0;
 
     /* maybe send event to owner */
-    if (attempt = TryClientEvents(
-	bClient(pMultibuffer), pEvents, count, pMultibuffer->eventMask, filter, (GrabPtr) 0))
+    if ((attempt = TryClientEvents(
+	bClient(pMultibuffer), pEvents, count, pMultibuffer->eventMask, filter, (GrabPtr) 0)) != 0)
     {
 	if (attempt > 0)
 	    deliveries++;
@@ -1315,8 +1365,8 @@ DeliverEventsToMultibuffer (pMultibuffer, pEvents, count, filter)
     /* maybe send event to other clients */
     for (other = pMultibuffer->otherClients; other; other=other->next)
     {
-	if (attempt = TryClientEvents(
-	      rClient(other), pEvents, count, other->mask, filter, (GrabPtr) 0))
+	if ((attempt = TryClientEvents(
+	      rClient(other), pEvents, count, other->mask, filter, (GrabPtr) 0)) != 0)
 	{
 	    if (attempt > 0)
 		deliveries++;
@@ -1377,15 +1427,15 @@ MultibufferExpose (pMultibuffer, pRegion)
 
 /* send UpdateNotify event */
 void
-MultibufferUpdate (pMultibuffer, time)
+MultibufferUpdate (pMultibuffer, time2)
     MultibufferPtr	pMultibuffer;
-    CARD32	time;
+    CARD32	time2;
 {
     xMbufUpdateNotifyEvent	event;
 
     event.type = MultibufferEventBase + MultibufferUpdateNotify;
     event.buffer = pMultibuffer->pPixmap->drawable.id;
-    event.timeStamp = time;
+    event.timeStamp = time2;
     (void) DeliverEventsToMultibuffer (pMultibuffer, (xEvent *)&event,
 				1, (Mask)MultibufferUpdateNotifyMask);
 }

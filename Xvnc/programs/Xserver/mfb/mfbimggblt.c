@@ -47,6 +47,7 @@ SOFTWARE.
 
 ******************************************************************/
 /* $XConsortium: mfbimggblt.c,v 5.17 94/04/17 20:28:25 dpw Exp $ */
+/* $XFree86: xc/programs/Xserver/mfb/mfbimggblt.c,v 3.0 1995/06/14 12:43:46 dawes Exp $ */
 #include	"X.h"
 #include	"Xmd.h"
 #include	"Xproto.h"
@@ -215,7 +216,7 @@ MFBIMAGEGLYPHBLT(pDrawable, pGC, x, y, nglyph, ppci, pglyphBase)
 	    widthGlyph = GLYPHWIDTHBYTESPADDED(pci);
 
 	    /* start at top scanline of glyph */
-	    pdst = mfbScanlineDelta(pdstBase, -pci->metrics.ascent, widthDst);
+	    pdst = pdstBase;
 
 	    /* find correct word in scanline and x offset within it
 	       for left edge of glyph
@@ -231,6 +232,8 @@ MFBIMAGEGLYPHBLT(pDrawable, pGC, x, y, nglyph, ppci, pglyphBase)
 	        xoff += PPW;
 	        pdst--;
 	    }
+
+	    pdst = mfbScanlineDelta(pdst, -pci->metrics.ascent, widthDst);
 
 	    if ((xoff + w) <= PPW)
 	    {
@@ -385,7 +388,7 @@ MFBIMAGEGLYPHBLT(pDrawable, pGC, x, y, nglyph, ppci, pglyphBase)
 		pglyph = FONTGLYPHBITS(pglyphBase, pci);
 		pglyph += (glyphRow * widthGlyph);
 
-		pdst = mfbScanlineDelta(ppos[i].pdstBase, -(y-topEdge), widthDst);
+		pdst = ppos[i].pdstBase;
 
 		glyphCol = (leftEdge - ppos[i].xpos) -
 			   (pci->metrics.leftSideBearing);
@@ -401,6 +404,8 @@ MFBIMAGEGLYPHBLT(pDrawable, pGC, x, y, nglyph, ppci, pglyphBase)
 		    xoff += PPW;
 		    pdst--;
 		}
+
+		pdst = mfbScanlineDelta(pdst, -(y-topEdge), widthDst);
 
 		if ((xoff + w) <= PPW)
 		{

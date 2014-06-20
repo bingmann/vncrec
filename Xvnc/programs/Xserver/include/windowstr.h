@@ -1,4 +1,4 @@
-/* $XConsortium: windowstr.h,v 5.19 94/04/17 20:26:13 dpw Exp $ */
+/* $XConsortium: windowstr.h /main/36 1995/09/22 10:23:19 dpw $ */
 /***********************************************************
 
 Copyright (c) 1987  X Consortium
@@ -130,6 +130,12 @@ typedef struct _Window {
     unsigned		viewable:1;	/* realized && InputOutput */
     unsigned		dontPropagate:3;/* index into DontPropagateMasks */
     unsigned		forcedBS:1;	/* system-supplied backingStore */
+#ifdef NEED_DBE_BUF_BITS
+#define DBE_FRONT_BUFFER 1
+#define DBE_BACK_BUFFER  0
+    unsigned		dstBuffer:1;	/* destination buffer for rendering */
+    unsigned		srcBuffer:1;	/* source buffer for rendering */
+#endif
     DevUnion		*devPrivates;
 } WindowRec;
 
@@ -141,10 +147,10 @@ typedef struct _Window {
 extern Mask	    DontPropagateMasks[];
 
 #define wTrackParent(w,field)	((w)->optional ? \
-				    w->optional->field \
+				    (w)->optional->field \
  				 : FindWindowWithOptional(w)->optional->field)
 #define wUseDefault(w,field,def)	((w)->optional ? \
-				    w->optional->field \
+				    (w)->optional->field \
 				 : def)
 
 #define wVisual(w)		wTrackParent(w, visual)

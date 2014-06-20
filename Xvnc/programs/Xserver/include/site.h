@@ -1,4 +1,4 @@
-/* $XConsortium: site.h,v 1.24 94/04/17 20:26:10 rws Exp $ */
+/* $XConsortium: site.h /main/27 1996/12/09 17:52:19 kaleb $ */
 /************************************************************
 
 Copyright (c) 1987  X Consortium
@@ -63,7 +63,7 @@ SOFTWARE.
  * by the vendor.
  */
 #ifndef VENDOR_RELEASE
-#define VENDOR_RELEASE	6000
+#define VENDOR_RELEASE	6300
 #endif
 
 /*

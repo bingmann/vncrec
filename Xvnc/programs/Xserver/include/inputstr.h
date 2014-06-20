@@ -46,7 +46,7 @@ SOFTWARE.
 
 ********************************************************/
 
-/* $XConsortium: inputstr.h,v 1.34 94/04/17 20:25:47 rws Exp $ */
+/* $XConsortium: inputstr.h /main/28 1996/09/25 00:51:24 dpw $ */
 
 #ifndef INPUTSTRUCT_H
 #define INPUTSTRUCT_H
@@ -130,8 +130,6 @@ typedef struct _KeyClassRec {
     unsigned short	state;
     unsigned short	prev_state;
 #ifdef XKB
-    int			keymapSerial;
-    int			ddxSerial;
     struct _XkbSrvInfo *xkbInfo;
 #endif
 } KeyClassRec, *KeyClassPtr;
@@ -161,6 +159,9 @@ typedef struct _ButtonClassRec {
     Mask		motionMask;
     CARD8		down[DOWN_LENGTH];
     CARD8		map[MAP_LENGTH];
+#ifdef XKB
+    union _XkbAction *	xkb_acts;
+#endif
 } ButtonClassRec, *ButtonClassPtr;
 
 typedef struct _FocusClassRec {
@@ -188,6 +189,9 @@ typedef struct _KbdFeedbackClassRec {
     KbdCtrlProcPtr	CtrlProc;
     KeybdCtrl	 	ctrl;
     KbdFeedbackPtr	next;
+#ifdef XKB
+    struct _XkbSrvLedInfo *xkb_sli;
+#endif
 } KbdFeedbackClassRec;
 
 typedef struct _PtrFeedbackClassRec {
@@ -219,6 +223,9 @@ typedef struct _LedFeedbackClassRec {
     LedCtrlProcPtr	CtrlProc;
     LedCtrl	 	ctrl;
     LedFeedbackPtr	next;
+#ifdef XKB
+    struct _XkbSrvLedInfo *xkb_sli;
+#endif
 } LedFeedbackClassRec;
 
 /* states for devices */
@@ -281,6 +288,9 @@ typedef struct _DeviceIntRec {
     StringFeedbackPtr	stringfeed;
     BellFeedbackPtr	bell;
     LedFeedbackPtr	leds;
+#ifdef XKB
+    struct _XkbInterest *	xkb_interest;
+#endif
 } DeviceIntRec;
 
 typedef struct {
@@ -290,6 +300,8 @@ typedef struct {
     DeviceIntPtr	keyboard;	/* the main one for the server */
     DeviceIntPtr	pointer;
 } InputInfo;
+
+extern InputInfo inputInfo;
 
 /* for keeping the events for devices grabbed synchronously */
 typedef struct _QdEvent *QdEventPtr;

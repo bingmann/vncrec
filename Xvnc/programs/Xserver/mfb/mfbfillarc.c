@@ -25,7 +25,7 @@ in this Software without prior written authorization from the X Consortium.
 
 ********************************************************/
 
-/* $XConsortium: mfbfillarc.c,v 5.14 94/04/17 20:28:20 dpw Exp $ */
+/* $XConsortium: mfbfillarc.c /main/16 1995/12/06 16:54:28 dpw $ */
 
 #include "X.h"
 #include "Xprotostr.h"
@@ -281,6 +281,7 @@ mfbPolyFillArcSolid(pDraw, pGC, narcs, parcs)
     register xArc *arc;
     register int i;
     BoxRec box;
+    int x2, y2;
     RegionPtr cclip;
     int rop;
 
@@ -297,9 +298,23 @@ mfbPolyFillArcSolid(pDraw, pGC, narcs, parcs)
 	{
 	    box.x1 = arc->x + pDraw->x;
 	    box.y1 = arc->y + pDraw->y;
-	    box.x2 = box.x1 + (int)arc->width + 1;
-	    box.y2 = box.y1 + (int)arc->height + 1;
-	    if (RECT_IN_REGION(pDraw->pScreen, cclip, &box) == rgnIN)
+ 	    /*
+ 	     * Because box.x2 and box.y2 get truncated to 16 bits, and the
+ 	     * RECT_IN_REGION test treats the resulting number as a signed
+ 	     * integer, the RECT_IN_REGION test alone can go the wrong way.
+ 	     * This can result in a server crash because the rendering
+ 	     * routines in this file deal directly with cpu addresses
+ 	     * of pixels to be stored, and do not clip or otherwise check
+ 	     * that all such addresses are within their respective pixmaps.
+ 	     * So we only allow the RECT_IN_REGION test to be used for
+ 	     * values that can be expressed correctly in a signed short.
+ 	     */
+ 	    x2 = box.x1 + (int)arc->width + 1;
+ 	    box.x2 = x2;
+ 	    y2 = box.y1 + (int)arc->height + 1;
+ 	    box.y2 = y2;
+ 	    if ( (x2 <= MAXSHORT) && (y2 <= MAXSHORT) &&
+ 		    (RECT_IN_REGION(pDraw->pScreen, cclip, &box) == rgnIN) )
 	    {
 		if ((arc->angle2 >= FULLCIRCLE) ||
 		    (arc->angle2 <= -FULLCIRCLE))

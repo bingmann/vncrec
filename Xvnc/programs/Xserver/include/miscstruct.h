@@ -1,4 +1,5 @@
 /* $XConsortium: miscstruct.h,v 5.5 94/04/17 20:25:50 dpw Exp $ */
+/* $XFree86: xc/programs/Xserver/include/miscstruct.h,v 3.0 1996/02/18 03:45:10 dawes Exp $ */
 /***********************************************************
 
 Copyright (c) 1987  X Consortium
@@ -62,7 +63,11 @@ typedef union _DevUnion {
     pointer		ptr;
     long		val;
     unsigned long	uval;
-    pointer		(*fptr)();
+    pointer		(*fptr)(
+#if NeedFunctionPrototypes
+                        void
+#endif
+                        );
 } DevUnion;
 
 #endif /* MISCSTRUCT_H */

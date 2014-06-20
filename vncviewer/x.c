@@ -28,14 +28,6 @@
 #include <X11/cursorfont.h>
 #include <X11/keysym.h>
 
-/*
- * It's just about impossible to reliably find out the size of the window
- * manager decoration, what with virtual desktops, etc.  So just take a
- * reasonable guess at a typical size.
- */
-
-#define WM_DECORATION_WIDTH 4
-#define WM_DECORATION_HEIGHT 24
 
 #define SCROLLBAR_SIZE 10
 #define SCROLLBAR_BG_SIZE (SCROLLBAR_SIZE + 2)
@@ -48,6 +40,7 @@ Display *dpy;
 Window canvas = 0;
 Colormap cmap;
 GC gc;
+GC srcGC, dstGC;
 unsigned long BGR233ToPixel[COLORMAP_SIZE];
 
 static Window topLevel;
@@ -96,7 +89,9 @@ CreateXWindow()
     XSetWindowAttributes attr;
     XEvent ev;
     XColor grey;
+    char defaultGeometry[256];
     XSizeHints wmHints;
+    XGCValues gcv;
     int displayWidth, displayHeight;
     int i;
 
@@ -127,21 +122,36 @@ CreateXWindow()
     fprintf(stderr,"Creating window depth %d, visualid 0x%x colormap 0x%x\n",
 	    visdepth,(int)vis->visualid,(int)cmap);
 
+    /* Try to work out the geometry of the top-level window */
+
     displayWidth = WidthOfScreen(DefaultScreenOfDisplay(dpy));
     displayHeight = HeightOfScreen(DefaultScreenOfDisplay(dpy));
 
     topLevelWidth = si.framebufferWidth;
     topLevelHeight = si.framebufferHeight;
 
-    if ((topLevelWidth + WM_DECORATION_WIDTH) >= displayWidth)
-	topLevelWidth = displayWidth - WM_DECORATION_WIDTH;
+    if ((topLevelWidth + wmDecorationWidth) >= displayWidth)
+	topLevelWidth = displayWidth - wmDecorationWidth;
 
-    wmHints.x = (displayWidth - topLevelWidth - WM_DECORATION_WIDTH) / 2;
+    wmHints.x = (displayWidth - topLevelWidth - wmDecorationWidth) / 2;
 
-    if ((topLevelHeight + WM_DECORATION_HEIGHT) >= displayHeight)
-	topLevelHeight = displayHeight - WM_DECORATION_HEIGHT;
+    if ((topLevelHeight + wmDecorationHeight) >= displayHeight)
+	topLevelHeight = displayHeight - wmDecorationHeight;
 
-    wmHints.y = (displayHeight - topLevelHeight - WM_DECORATION_HEIGHT) / 2;
+    wmHints.y = (displayHeight - topLevelHeight - wmDecorationHeight) / 2;
+
+    wmHints.flags = PMaxSize;
+    wmHints.max_width = si.framebufferWidth;
+    wmHints.max_height = si.framebufferHeight;
+
+    sprintf(defaultGeometry, "%dx%d+%d+%d", topLevelWidth, topLevelHeight,
+	    wmHints.x, wmHints.y);
+
+    XWMGeometry(dpy, DefaultScreen(dpy), geometry, defaultGeometry, 0,
+		&wmHints, &wmHints.x, &wmHints.y,
+		&topLevelWidth, &topLevelHeight, &wmHints.win_gravity);
+
+    /* Create the top-level window */
 
     attr.border_pixel = 0; /* needed to allow 8-bit cmap on 24-bit display -
 			      otherwise we get a Match error! */
@@ -155,9 +165,7 @@ CreateXWindow()
 			     (CWBorderPixel|CWBackPixel|CWEventMask
 			      |CWColormap), &attr);
 
-    wmHints.flags = (USPosition|PMaxSize);
-    wmHints.max_width = si.framebufferWidth;
-    wmHints.max_height = si.framebufferHeight;
+    wmHints.flags |= USPosition; /* try to force WM to place window */
     XSetWMNormalHints(dpy, topLevel, &wmHints);
 
     wmProtocols = XInternAtom(dpy, "WM_PROTOCOLS", False);
@@ -165,6 +173,8 @@ CreateXWindow()
     XSetWMProtocols(dpy, topLevel, &wmDeleteWindow, 1);
 
     XStoreName(dpy, topLevel, desktopName);
+
+    /* Create the scrollbars */
 
     attr.background_pixel = WhitePixelOfScreen(DefaultScreenOfDisplay(dpy));
     attr.event_mask = ButtonPressMask;
@@ -198,6 +208,8 @@ CreateXWindow()
 				   (CWBackPixel|CWEventMask|CWCursor),
 				   &attr);
 
+    /* Create the viewport window and the canvas window */
+
     viewport = XCreateWindow(dpy, topLevel, 0, 0, 1, 1, 0,
 			     CopyFromParent, CopyFromParent, CopyFromParent,
 			     0, &attr);
@@ -218,6 +230,13 @@ CreateXWindow()
 
     gc = XCreateGC(dpy,canvas,0,NULL);
 
+    /* srcGC and dstGC are used for debugging copyrect */
+    gcv.function = GXxor;
+    gcv.foreground = 0x0f0f0f0f;
+    srcGC = XCreateGC(dpy,canvas,GCFunction|GCForeground,&gcv);
+    gcv.foreground = 0xf0f0f0f0;
+    dstGC = XCreateGC(dpy,canvas,GCFunction|GCForeground,&gcv);
+
     viewportX = 0;
     viewportY = 0;
     PositionViewportAndScrollbars();
@@ -227,7 +246,7 @@ CreateXWindow()
     XMaskEvent(dpy, ExposureMask, &ev);
 
     screenData = malloc(si.framebufferWidth * si.framebufferHeight
-			* (visbpp / 8));
+			* visbpp / 8);
 
     im = XCreateImage(dpy, vis, visdepth, ZPixmap,
 		      0, (char *)screenData,
@@ -327,6 +346,10 @@ HandleXEvents()
 
 	    if (!HandleRootEvent(&ev))
 		return False;
+
+	} else if (ev.type == MappingNotify) {
+
+	    XRefreshKeyboardMapping(&ev.xmapping);
 	}
     }
 
@@ -354,6 +377,8 @@ HandleCanvasEvent(XEvent *ev)
 					    ev->xexpose.height, False);
 
     case MotionNotify:
+	if (viewOnly) return True;
+
 	while (XCheckTypedWindowEvent(dpy, canvas, MotionNotify, ev))
 	    ;	/* discard all queued motion notify events */
 
@@ -362,6 +387,8 @@ HandleCanvasEvent(XEvent *ev)
 
     case ButtonPress:
     case ButtonRelease:
+	if (viewOnly) return True;
+
 	if (ev->type == ButtonPress) {
 	    buttonMask = (((ev->xbutton.state & 0x1f00) >> 8) |
 			  (1 << (ev->xbutton.button - 1)));
@@ -374,6 +401,8 @@ HandleCanvasEvent(XEvent *ev)
 
     case KeyPress:
     case KeyRelease:
+	if (viewOnly) return True;
+
 	XLookupString(&ev->xkey, keyname, 256, &ks, NULL);
 
 	if (IsModifierKey(ks)) {
@@ -406,6 +435,8 @@ HandleTopLevelEvent(XEvent *ev)
 	break;
 
     case LeaveNotify:
+	if (viewOnly) return True;
+
 	for (i = 0; i < 256; i++) {
 	    if (modifierPressed[i]) {
 		if (!SendKeyEvent(XKeycodeToKeysym(dpy, i, 0), False))
@@ -948,13 +979,13 @@ FindBestVisual()
 void
 CopyDataToScreen(CARD8 *buf, int x, int y, int width, int height)
 {
-    if (delay != 0) {
+    if (rawDelay != 0) {
 	XFillRectangle(dpy, canvas, DefaultGC(dpy,DefaultScreen(dpy)),
 		       x, y, width, height);
 
 	XSync(dpy,False);
 
-	usleep(delay * 1000);
+	usleep(rawDelay * 1000);
     }
 
     if (!useBGR233) {
@@ -987,11 +1018,35 @@ static void
 CopyBGR233ToScreen(CARD8 *buf, int x, int y, int width, int height)
 {
     int p, q;
+    int xoff = 7 - x & 7;
+    int xcur;
+    int fbwb = si.framebufferWidth / 8;
+    CARD8 *scr1 = ((CARD8 *)screenData) + y * fbwb + x / 8;
+    CARD8 *scrt;
     CARD8 *scr8 = ((CARD8 *)screenData) + y * si.framebufferWidth + x;
     CARD16 *scr16 = ((CARD16 *)screenData) + y * si.framebufferWidth + x;
     CARD32 *scr32 = ((CARD32 *)screenData) + y * si.framebufferWidth + x;
 
     switch (visdepth) {
+
+	/* thanks to Chris Hooper for single bpp support */
+
+    case 1:
+	for (q = 0; q < height; q++) {
+             xcur = xoff;
+             scrt = scr1;
+             for (p = 0; p < width; p++) {
+                 *scrt = (*scrt & ~(1 << xcur)
+			  | (BGR233ToPixel[*(buf++)] << xcur));
+
+                 if (xcur-- == 0) {
+                     xcur = 7;
+                     scrt++;
+                 }
+             }
+             scr1 += fbwb;
+	}
+	break;
 
     case 8:
 	for (q = 0; q < height; q++) {

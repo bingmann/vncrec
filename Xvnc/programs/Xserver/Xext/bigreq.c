@@ -1,4 +1,5 @@
-/* $XConsortium: bigreq.c,v 1.4 94/04/17 20:32:51 rws Exp $ */
+/* $XConsortium: bigreq.c /main/5 1996/08/01 19:22:48 dpw $ */
+/* $XFree86: xc/programs/Xserver/Xext/bigreq.c,v 3.2 1996/12/23 06:28:58 dawes Exp $ */
 /*
 
 Copyright (c) 1992  X Consortium
@@ -29,6 +30,7 @@ from the X Consortium.
 
 */
 
+#define NEED_EVENTS
 #include "X.h"
 #include "Xproto.h"
 #include "misc.h"
@@ -38,18 +40,25 @@ from the X Consortium.
 #include "bigreqstr.h"
 
 static unsigned char XBigReqCode;
-static int ProcBigReqDispatch();
-static void BigReqResetProc();
+
+static void BigReqResetProc(
+#if NeedFunctionPrototypes
+    ExtensionEntry * /* extEntry */
+#endif
+);
+
+static DISPATCH_PROC(ProcBigReqDispatch);
 
 void
 BigReqExtensionInit()
 {
-    ExtensionEntry *extEntry, *AddExtension();
+    ExtensionEntry *extEntry;
 
-    if (extEntry = AddExtension(XBigReqExtensionName, 0, 0,
+    if ((extEntry = AddExtension(XBigReqExtensionName, 0, 0,
 				 ProcBigReqDispatch, ProcBigReqDispatch,
-				 BigReqResetProc, StandardMinorOpcode))
+				 BigReqResetProc, StandardMinorOpcode)) != 0)
 	XBigReqCode = (unsigned char)extEntry->base;
+    DeclareExtensionSecurity(XBigReqExtensionName, TRUE);
 }
 
 /*ARGSUSED*/

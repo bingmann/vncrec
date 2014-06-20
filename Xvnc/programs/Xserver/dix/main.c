@@ -45,11 +45,12 @@ ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
 SOFTWARE.
 
 ******************************************************************/
-/* $XConsortium: main.c,v 5.30 94/04/17 20:26:40 dpw Exp $ */
+/* $XConsortium: main.c /main/82 1996/09/28 17:12:09 rws $ */
+/* $XFree86: xc/programs/Xserver/dix/main.c,v 3.10.2.2 1998/01/22 10:47:08 dawes Exp $ */
 
+#define NEED_EVENTS
 #include "X.h"
 #include "Xproto.h"
-#include "input.h"
 #include "scrnintstr.h"
 #include "misc.h"
 #include "os.h"
@@ -58,18 +59,26 @@ SOFTWARE.
 #include "dixstruct.h"
 #include "gcstruct.h"
 #include "extension.h"
+#include "extnsionst.h"
 #include "colormap.h"
+#include "colormapst.h"
 #include "cursorstr.h"
 #include "font.h"
 #include "opaque.h"
 #include "servermd.h"
 #include "site.h"
 #include "dixfont.h"
+#include "dixevents.h"		/* InitEvents() */
+#include "dispatch.h"		/* InitProcVectors() */
 
-extern long defaultScreenSaverTime;
-extern long defaultScreenSaverInterval;
+extern CARD32 defaultScreenSaverTime;
+extern CARD32 defaultScreenSaverInterval;
 extern int defaultScreenSaverBlanking;
 extern int defaultScreenSaverAllowExposures;
+
+#ifdef DPMSExtension
+#include "dpms.h"
+#endif
 
 void ddxGiveUp();
 
@@ -92,11 +101,6 @@ xConnSetupPrefix connSetupPrefix;
 extern WindowPtr *WindowTable;
 extern FontPtr defaultFont;
 extern int screenPrivateCount;
-
-extern void InitProcVectors();
-extern void InitEvents();
-extern void DefineInitialRootWindow();
-extern Bool CreateGCperDepthArray();
 
 static Bool CreateConnectionBlock(
 #if NeedFunctionPrototypes
@@ -124,8 +128,33 @@ int connBlockScreenStart;
 
 static int restart = 0;
 
+/*
+ * Dummy entry for EventSwapVector[]
+ */
+/*ARGSUSED*/
 void
-NotImplemented()
+NotImplemented(
+#if NeedFunctionPrototypes && defined(EVENT_SWAP_PTR)
+	xEvent * from,
+	xEvent * to
+#endif
+	)
+{
+    FatalError("Not implemented");
+}
+
+/*
+ * Dummy entry for ReplySwapVector[]
+ */
+/*ARGSUSED*/
+void
+ReplyNotSwappd(
+#if NeedNestedPrototypes
+	ClientPtr pClient ,
+	int size ,
+	void * pbuf
+#endif
+	)
 {
     FatalError("Not implemented");
 }
@@ -165,6 +194,22 @@ static int indexForBitsPerPixel[ 33 ] = {
 };
 
 /*
+ * This array gives the bytesperPixel value for cases where the number
+ * of bits per pixel is a multiple of 8 but not a power of 2.
+ */
+static int answerBytesPerPixel[ 33 ] = {
+	~0, 0, ~0, ~0,	/* 1 bit per pixel */
+	0, ~0, ~0, ~0,	/* 4 bits per pixel */
+	0, ~0, ~0, ~0,	/* 8 bits per pixel */
+	~0,~0, ~0, ~0,
+	0, ~0, ~0, ~0,	/* 16 bits per pixel */
+	~0,~0, ~0, ~0,
+	3, ~0, ~0, ~0,	/* 24 bits per pixel */
+	~0,~0, ~0, ~0,
+	0		/* 32 bits per pixel */
+};
+
+/*
  * This array gives the answer to the question "what is the second index for
  * the answer array above given the number of bits per scanline pad unit?"
  * Note that ~0 is an invalid entry (mostly for the benefit of the reader).
@@ -196,7 +241,7 @@ main(argc, argv)
     char	*argv[];
 {
     int		i, j, k;
-    long	alwaysCheckForInput[2];
+    HWEventQueueType	alwaysCheckForInput[2];
 
     /* Notice if we're restart.  Probably this is because we jumped through
      * uninitialized pointer */
@@ -205,7 +250,9 @@ main(argc, argv)
     else
 	restart = 1;
 
+#if 0
     ExpandCommandLine(&argc, &argv);
+#endif
 
     /* These are needed by some routines which are called from interrupt
      * handlers, thus have no direct calling path back to main and thus
@@ -224,6 +271,13 @@ main(argc, argv)
 	ScreenSaverInterval = defaultScreenSaverInterval;
 	ScreenSaverBlanking = defaultScreenSaverBlanking;
 	ScreenSaverAllowExposures = defaultScreenSaverAllowExposures;
+#ifdef DPMSExtension
+	DPMSStandbyTime = defaultDPMSStandbyTime;
+	DPMSSuspendTime = defaultDPMSSuspendTime;
+	DPMSOffTime = defaultDPMSOffTime;
+	DPMSEnabled = defaultDPMSEnabled;
+	DPMSPowerLevel = 0;
+#endif
 	InitBlockAndWakeupHandlers();
 	/* Perform any operating system dependent initializations you'd like */
 	OsInit();		
@@ -252,6 +306,7 @@ main(argc, argv)
 	SetInputCheck(&alwaysCheckForInput[0], &alwaysCheckForInput[1]);
 	screenInfo.arraySize = MAXSCREENS;
 	screenInfo.numScreens = 0;
+	screenInfo.numVideoScreens = -1;
 	WindowTable = (WindowPtr *)xalloc(MAXSCREENS * sizeof(WindowPtr));
 	if (!WindowTable)
 	    FatalError("couldn't create root window table");
@@ -288,11 +343,17 @@ main(argc, argv)
 #ifdef PIXPRIV
 	ResetPixmapPrivates();
 #endif
+	ResetColormapPrivates();
 	ResetFontPrivateIndex();
 	InitCallbackManager();
 	InitOutput(&screenInfo, argc, argv);
 	if (screenInfo.numScreens < 1)
 	    FatalError("no screens found");
+	if (screenInfo.numVideoScreens < 0)
+	    screenInfo.numVideoScreens = screenInfo.numScreens;
+#ifdef XPRINT
+	PrinterInitOutput(&screenInfo, argc, argv);
+#endif
 	InitExtensions(argc, argv);
 	if (!InitClientPrivates(serverClient))
 	    FatalError("failed to allocate serverClient devprivates");
@@ -323,6 +384,12 @@ main(argc, argv)
 	if (!(rootCursor = CreateRootCursor(defaultCursorFont, 0)))
 	    FatalError("could not open default cursor font '%s'",
 		       defaultCursorFont);
+#ifdef DPMSExtension
+ 	/* check all screens, looking for DPMS Capabilities */
+ 	DPMSCapableFlag = DPMSSupported();
+	if (!DPMSCapableFlag)
+     	    DPMSEnabled = FALSE;
+#endif
 	for (i = 0; i < screenInfo.numScreens; i++)
 	    InitRootWindow(WindowTable[i]);
         DefineInitialRootWindow(WindowTable[0]);
@@ -353,13 +420,14 @@ main(argc, argv)
 
 	if (dispatchException & DE_TERMINATE)
 	{
+	    OsCleanup();
 	    ddxGiveUp();
 	    break;
 	}
 
 	xfree(ConnectionInfo);
     }
-    exit(0);
+    return(0);
 }
 
 static int padlength[4] = {0, 3, 2, 1};
@@ -526,10 +594,24 @@ with its screen number, a pointer to its ScreenRec, argc, and argv.
 */
 
 int
+#if NeedFunctionPrototypes
+AddScreen(
+    Bool	(* pfnInit)(
+#if NeedNestedPrototypes
+	int /*index*/,
+	ScreenPtr /*pScreen*/,
+	int /*argc*/,
+	char ** /*argv*/
+#endif
+		),
+    int argc,
+    char **argv)
+#else
 AddScreen(pfnInit, argc, argv)
     Bool	(* pfnInit)();
     int argc;
     char **argv;
+#endif
 {
 
     int i;
@@ -564,10 +646,10 @@ AddScreen(pfnInit, argc, argv)
 #ifdef PIXPRIV
     pScreen->PixmapPrivateLen = 0;
     pScreen->PixmapPrivateSizes = (unsigned *)NULL;
-    pScreen->totalPixmapSize = sizeof(PixmapRec);
+    pScreen->totalPixmapSize = BitmapBytePad(sizeof(PixmapRec)*8);
 #endif
-    pScreen->ClipNotify = (void (*)())NULL; /* for R4 ddx compatibility */
-    pScreen->CreateScreenResources = (Bool (*)())NULL;
+    pScreen->ClipNotify = 0;	/* for R4 ddx compatibility */
+    pScreen->CreateScreenResources = 0;
     
 #ifdef DEBUG
     for (jNI = &pScreen->QueryBestSize; 
@@ -597,6 +679,16 @@ AddScreen(pfnInit, argc, argv)
  	    (scanlinepad/bitsPerPixel) - 1;
  	j = indexForBitsPerPixel[ 8 ]; /* bits per byte */
  	PixmapWidthPaddingInfo[ depth ].padBytesLog2 = answer[j][k];
+	if (answerBytesPerPixel[bitsPerPixel])
+	{
+	    PixmapWidthPaddingInfo[ depth ].notPower2 = 1;
+	    PixmapWidthPaddingInfo[ depth ].bytesPerPixel =
+		answerBytesPerPixel[bitsPerPixel];
+	}
+	else
+	{
+	    PixmapWidthPaddingInfo[ depth ].notPower2 = 0;
+	}
 
 #ifdef INTERNAL_VS_EXTERNAL_PADDING
 	/* Fake out protocol interface to make them believe we support
@@ -609,6 +701,16 @@ AddScreen(pfnInit, argc, argv)
  	    (BITMAP_SCANLINE_PAD_PROTO/bitsPerPixel) - 1;
  	j = indexForBitsPerPixel[ 8 ]; /* bits per byte */
  	PixmapWidthPaddingInfoProto[ depth ].padBytesLog2 = answer[j][k];
+	if (answerBytesPerPixel[bitsPerPixel])
+	{
+	    PixmapWidthPaddingInfoProto[ depth ].notPower2 = 1;
+	    PixmapWidthPaddingInfoProto[ depth ].bytesPerPixel =
+		answerBytesPerPixel[bitsPerPixel];
+	}
+	else
+	{
+	    PixmapWidthPaddingInfoProto[ depth ].notPower2 = 0;
+	}
 #endif /* INTERNAL_VS_EXTERNAL_PADDING */
     }
   

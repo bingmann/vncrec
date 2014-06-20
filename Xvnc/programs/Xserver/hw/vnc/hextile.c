@@ -26,9 +26,9 @@
 #include <stdio.h>
 #include "rfb.h"
 
-static Bool sendHextiles8 _((rfbClientPtr cl, int x, int y, int w, int h));
-static Bool sendHextiles16 _((rfbClientPtr cl, int x, int y, int w, int h));
-static Bool sendHextiles32 _((rfbClientPtr cl, int x, int y, int w, int h));
+static Bool sendHextiles8(rfbClientPtr cl, int x, int y, int w, int h);
+static Bool sendHextiles16(rfbClientPtr cl, int x, int y, int w, int h);
+static Bool sendHextiles32(rfbClientPtr cl, int x, int y, int w, int h);
 
 
 /*
@@ -57,8 +57,8 @@ rfbSendRectEncodingHextile(cl, x, y, w, h)
 	   sz_rfbFramebufferUpdateRectHeader);
     ublen += sz_rfbFramebufferUpdateRectHeader;
 
-    rfbRectanglesSent[rfbEncodingHextile]++;
-    rfbBytesSent[rfbEncodingHextile] += sz_rfbFramebufferUpdateRectHeader;
+    cl->rfbRectanglesSent[rfbEncodingHextile]++;
+    cl->rfbBytesSent[rfbEncodingHextile] += sz_rfbFramebufferUpdateRectHeader;
 
     switch (cl->format.bitsPerPixel) {
     case 8:
@@ -69,8 +69,7 @@ rfbSendRectEncodingHextile(cl, x, y, w, h)
 	return sendHextiles32(cl, x, y, w, h);
     }
 
-    fprintf(stderr,"rfbSendRectEncodingHextile: bpp %d?\n",
-	    cl->format.bitsPerPixel);
+    rfbLog("rfbSendRectEncodingHextile: bpp %d?\n", cl->format.bitsPerPixel);
     return FALSE;
 }
 
@@ -129,9 +128,9 @@ sendHextiles##bpp(cl, rx, ry, rw, rh)					      \
 	    fbptr = (rfbScreen.pfbMemory + (rfbScreen.paddedWidthInBytes * y) \
 		     + (x * (rfbScreen.bitsPerPixel / 8)));		      \
 									      \
-	    (*cl->translateFn)(cl, fbptr, (char *)clientPixelData,	      \
-			       rfbScreen.paddedWidthInBytes,		      \
-			       w * (bpp/8), h);				      \
+	    (*cl->translateFn)(cl->translateLookupTable, &rfbServerFormat,    \
+			       &cl->format, fbptr, (char *)clientPixelData,   \
+			       rfbScreen.paddedWidthInBytes, w, h);	      \
 									      \
 	    startUblen = ublen;						      \
 	    updateBuf[startUblen] = 0;					      \
@@ -148,7 +147,7 @@ sendHextiles##bpp(cl, rx, ry, rw, rh)					      \
 	    }								      \
 									      \
 	    if (solid) {						      \
-		rfbBytesSent[rfbEncodingHextile] += ublen - startUblen;	      \
+		cl->rfbBytesSent[rfbEncodingHextile] += ublen - startUblen;   \
 		continue;						      \
 	    }								      \
 									      \
@@ -172,9 +171,10 @@ sendHextiles##bpp(cl, rx, ry, rw, rh)					      \
 		validFg = FALSE;					      \
 		ublen = startUblen;					      \
 		updateBuf[ublen++] = rfbHextileRaw;			      \
-		(*cl->translateFn)(cl, fbptr, (char *)clientPixelData,	      \
-				   rfbScreen.paddedWidthInBytes,	      \
-				   w * (bpp/8), h);			      \
+		(*cl->translateFn)(cl->translateLookupTable,		      \
+				   &rfbServerFormat, &cl->format, fbptr,      \
+				   (char *)clientPixelData,		      \
+				   rfbScreen.paddedWidthInBytes, w, h);	      \
 									      \
 		memcpy(&updateBuf[ublen], (char *)clientPixelData,	      \
 		       w * h * (bpp/8));				      \
@@ -182,7 +182,7 @@ sendHextiles##bpp(cl, rx, ry, rw, rh)					      \
 		ublen += w * h * (bpp/8);				      \
 	    }								      \
 									      \
-	    rfbBytesSent[rfbEncodingHextile] += ublen - startUblen;	      \
+	    cl->rfbBytesSent[rfbEncodingHextile] += ublen - startUblen;	      \
 	}								      \
     }									      \
 									      \

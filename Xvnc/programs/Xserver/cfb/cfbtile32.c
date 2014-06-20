@@ -30,6 +30,7 @@ in this Software without prior written authorization from the X Consortium.
 */
 
 /* $XConsortium: cfbtile32.c,v 1.8 94/04/17 20:29:05 dpw Exp $ */
+/* $XFree86: xc/programs/Xserver/cfb/cfbtile32.c,v 3.0 1996/06/29 09:05:53 dawes Exp $ */
 
 #include "X.h"
 #include "Xmd.h"
@@ -53,6 +54,93 @@ in this Software without prior written authorization from the X Consortium.
 #define SHARED_IDCACHE
 #endif
 
+#if PSZ == 24
+#define STORE(p)    (*(p) = MROP_PREBUILT_SOLID(srcpix,*(p)))
+/*#define STORE24(p,index)    {\
+	    register int idx = ((index) & 3)<< 1; \
+	    *(p) = (((MROP_PREBUILT_SOLID(srcpix,*(p))<<cfb24Shift[idx])&cfbmask[idx])| \
+	            (*(p)&cfbrmask[idx])); \
+	    idx++; \
+	    (p)++; \
+	    *(p) = (((MROP_PREBUILT_SOLID(srcpix,*(p))>>cfb24Shift[idx])&cfbmask[idx])| \
+	            (*(p)&cfbrmask[idx])); \
+	    (p)--; \
+	}*/
+#define STORE24(p,index)    MROP_PREBUILT_SOLID24(srcpix, (p), index)
+
+#define STORE_MASK(p,mask)    (*(p) = MROP_PREBUILT_MASK(srcpix,*(p),(mask)))
+#define QSTORE(p)    ((*(p) = MROP_PREBUILT_SOLID(((srcpix<<24)|srcpix),*(p))), \
+                      (p)++,(*(p) = MROP_PREBUILT_SOLID(((srcpix<<16)|(srcpix>>8)),*(p))), \
+                      (p)++,(*(p) = MROP_PREBUILT_SOLID(((srcpix<<8)|(srcpix>>16)),*(p))))
+
+#if (MROP == Mcopy) && defined(FAST_CONSTANT_OFFSET_MODE) && defined(SHARED_IDCACHE)
+# define Expand(left,right) {\
+    int part = nlwMiddle & ((PGSZB*2)-1); \
+    nlwMiddle *= 3; \
+    nlwMiddle >>= PWSH + 3; \
+    while (h--) { \
+	srcpix = psrc[srcy]; \
+	MROP_PREBUILD(srcpix); \
+	++srcy; \
+	if (srcy == tileHeight) \
+	    srcy = 0; \
+	left \
+	p += part; \
+	switch (part) { \
+	case 7: \
+	    STORE24(p - 7, xtmp - 7); \
+	case 6: \
+	    STORE24(p - 6, xtmp - 6); \
+	case 5: \
+	    STORE24(p - 5, xtmp - 5); \
+	case 4: \
+	    STORE24(p - 4, xtmp - 4); \
+	case 3: \
+	    STORE24(p - 3, xtmp - 3); \
+	case 2: \
+	    STORE24(p - 2, xtmp - 2); \
+	case 1: \
+	    STORE24(p - 1, xtmp - 1); \
+	} \
+	nlw = nlwMiddle; \
+	while (nlw) { \
+	    STORE24 (p + 0, xtmp + 0); \
+	    STORE24 (p + 1, xtmp + 1); \
+	    STORE24 (p + 2, xtmp + 2); \
+	    STORE24 (p + 3, xtmp + 3); \
+	    STORE24 (p + 4, xtmp + 4); \
+	    STORE24 (p + 5, xtmp + 5); \
+	    STORE24 (p + 6, xtmp + 6); \
+	    STORE24 (p + 7, xtmp + 7); \
+	    p += 8; \
+	    xtmp += 8; \
+	    nlw--; \
+	} \
+	right \
+	p += nlwExtra; \
+    } \
+}
+#else
+#define Expand(left,right) {\
+    while (h--)	{ \
+	srcpix = psrc[srcy]; \
+	MROP_PREBUILD(srcpix); \
+	++srcy; \
+	if (srcy == tileHeight) \
+	    srcy = 0; \
+	left \
+	while (nlw--) \
+	{ \
+	    STORE24(p,xtmp); \
+	    if(xtmp&3) p++; \
+	    xtmp++; \
+	} \
+	right \
+	p += nlwExtra; \
+    } \
+}
+#endif
+#else /*PSZ != 24*/
 #define STORE(p)    (*(p) = MROP_PREBUILT_SOLID(srcpix,*(p)))
 
 #if (MROP == Mcopy) && defined(FAST_CONSTANT_OFFSET_MODE) && defined(SHARED_IDCACHE)
@@ -120,6 +208,7 @@ in this Software without prior written authorization from the X Consortium.
     } \
 }
 #endif
+#endif /*PSZ == 24*/
 
 void
 MROP_NAME(cfbFillRectTile32) (pDrawable, pGC, nBox, pBox)
@@ -148,6 +237,9 @@ MROP_NAME(cfbFillRectTile32) (pDrawable, pGC, nBox, pBox)
     PixmapPtr	    tile;	/* rotated, expanded tile */
     MROP_DECLARE_REG()
     MROP_PREBUILT_DECLARE()
+#if PSZ == 24
+    unsigned long xtmp;
+#endif
 
     tile = cfbGetGCPrivate(pGC)->pRotatedPixmap;
     tileHeight = tile->drawable.height;
@@ -162,10 +254,20 @@ MROP_NAME(cfbFillRectTile32) (pDrawable, pGC, nBox, pBox)
 	w = pBox->x2 - pBox->x1;
 	h = pBox->y2 - pBox->y1;
 	y = pBox->y1;
+#if PSZ == 24
+	xtmp = pBox->x1;
+	p = pbits + (y * nlwDst) + ((pBox->x1*3) >> 2);
+/*	p = pbits + (y * nlwDst) + ((pBox->x1>> 2)*3);*/
+#else
 	p = pbits + (y * nlwDst) + (pBox->x1 >> PWSH);
+#endif
 	srcy = y % tileHeight;
 
+#if PSZ == 24
+	if (w == 1  &&  ((pBox->x1 & 3) == 0  ||  (pBox->x1 & 3) == 3))
+#else
 	if ( ((pBox->x1 & PIM) + w) <= PPW)
+#endif
 	{
 	    maskpartialbits(pBox->x1, w, startmask);
 	    nlwExtra = nlwDst;
@@ -247,6 +349,9 @@ MROP_NAME(cfbTile32FS)(pDrawable, pGC, nInit, pptInit, pwidthInit, fSorted)
     int			tileHeight;/* height of the tile */
     MROP_DECLARE_REG ()
     MROP_PREBUILT_DECLARE()
+#if PSZ == 24      
+    unsigned long	xtmp;
+#endif
 
     n = nInit * miFindMaxBand( cfbGetCompositeClip(pGC) );
     pwidthFree = (int *)ALLOCATE_LOCAL(n * sizeof(int));
@@ -281,11 +386,21 @@ MROP_NAME(cfbTile32FS)(pDrawable, pGC, nInit, pptInit, pwidthInit, fSorted)
 	    y = ppt->y;
 	    ++ppt;
 	    w = *pwidth++;
+#if PSZ == 24
+/*	    p = pbits + (y * nlwDst) + ((x*3) >> 2);*/
+	    xtmp = x;
+	    p = pbits + (y * nlwDst) + ((x >> 2)*3);
+#else
 	    p = pbits + (y * nlwDst) + (x >> PWSH);
+#endif
 	    srcpix = psrc[y & tileHeight];
 	    MROP_PREBUILD(srcpix);
     
+#if PSZ == 24
+	    if ((x & 3) + w < 5)
+#else
 	    if ((x & PIM) + w < PPW)
+#endif
 	    {
 	    	maskpartialbits(x, w, startmask);
 	    	*p = MROP_PREBUILT_MASK (srcpix, *p, startmask);
@@ -296,12 +411,23 @@ MROP_NAME(cfbTile32FS)(pDrawable, pGC, nInit, pptInit, pwidthInit, fSorted)
 	    	if (startmask)
 	    	{
 		    *p = MROP_PREBUILT_MASK(srcpix, *p, startmask);
+#if PSZ == 24
+		    if(xtmp&3) p++;
+		    xtmp++;
+#else
 		    p++;
+#endif
 	    	}
 	    	while (nlw--)
 	    	{
+#if PSZ == 24
+		    STORE24(p,xtmp);
+		    if(xtmp&3) p++;
+		    ++xtmp;
+#else
 		    STORE(p);
 		    ++p;
+#endif
 	    	}
 	    	if (endmask)
 	    	{
@@ -319,11 +445,21 @@ MROP_NAME(cfbTile32FS)(pDrawable, pGC, nInit, pptInit, pwidthInit, fSorted)
 	    y = ppt->y;
 	    ++ppt;
 	    w = *pwidth++;
+#if PSZ == 24
+/*	    p = pbits + (y * nlwDst) + ((x *3)>> 2);*/
+	    p = pbits + (y * nlwDst) + ((x >> 2)*3);
+	    xtmp = x;
+#else
 	    p = pbits + (y * nlwDst) + (x >> PWSH);
+#endif
 	    srcpix = psrc[y % tileHeight];
 	    MROP_PREBUILD(srcpix);
     
+#if PSZ == 24
+	    if ((x & 3) + w < 5)
+#else
 	    if ((x & PIM) + w < PPW)
+#endif
 	    {
 	    	maskpartialbits(x, w, startmask);
 	    	*p = MROP_PREBUILT_MASK (srcpix, *p, startmask);
@@ -334,12 +470,23 @@ MROP_NAME(cfbTile32FS)(pDrawable, pGC, nInit, pptInit, pwidthInit, fSorted)
 	    	if (startmask)
 	    	{
 		    *p = MROP_PREBUILT_MASK(srcpix, *p, startmask);
+#if PSZ == 24
+		    if(xtmp&3)p++;
+		    xtmp++;
+#else
 		    p++;
+#endif
 	    	}
 	    	while (nlw--)
 	    	{
+#if PSZ == 24
+		    STORE24(p,xtmp);
+		    if(xtmp&3)p++;
+		    xtmp++;
+#else
 		    STORE(p);
 		    ++p;
+#endif
 	    	}
 	    	if (endmask)
 	    	{

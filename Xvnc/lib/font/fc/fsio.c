@@ -1,4 +1,5 @@
-/* $XConsortium: fsio.c,v 1.36 94/03/18 11:01:01 mor Exp $ */
+/* $XConsortium: fsio.c,v 1.37 95/04/05 19:58:13 kaleb Exp $ */
+/* $XFree86: xc/lib/font/fc/fsio.c,v 3.5.2.1 1998/02/15 16:08:40 hohndel Exp $ */
 /*
  * Copyright 1990 Network Computing Devices
  *
@@ -34,15 +35,20 @@
 #include	"FS.h"
 #include	"FSproto.h"
 
-#include	"fslibos.h"
+#include 	"X11/Xtrans.h"
+#include	"X11/Xpoll.h"
 #include	"fontmisc.h"
 #include	"fsio.h"
 
 #include	<stdio.h>
 #include	<signal.h>
 #include	<sys/types.h>
-#ifndef WIN32
+#if !defined(WIN32) && !defined(AMOEBA) && !defined(_MINIX)
+#ifndef Lynx
 #include	<sys/socket.h>
+#else
+#include	<socket.h>
+#endif
 #endif
 #include	<errno.h>
 #ifdef X_NOT_STDC_ENV
@@ -52,6 +58,15 @@ extern int errno;
 #define EWOULDBLOCK WSAEWOULDBLOCK
 #undef EINTR
 #define EINTR WSAEINTR
+#endif
+
+#ifdef MINIX
+#include <sys/nbio.h>
+#define select(n,r,w,x,t) nbio_select(n,r,w,x,t)
+#endif
+
+#ifdef __EMX__
+#define select(n,r,w,x,t) os2PseudoSelect(n,r,w,x,t)
 #endif
 
 /* check for both EAGAIN and EWOULDBLOCK, because some supposedly POSIX
@@ -74,12 +89,16 @@ extern int errno;
 #define ECHECK(err) (WSAGetLastError() == err)
 #define ESET(val) WSASetLastError(val)
 #else
+#ifdef ISC
+#define ECHECK(err) ((errno == err) || ETEST())
+#else
 #define ECHECK(err) (errno == err)
+#endif
 #define ESET(val) errno = val
 #endif
 
 static int  padlength[4] = {0, 3, 2, 1};
-FdSet _fs_fd_mask;
+fd_set _fs_fd_mask;
 
 int  _fs_wait_for_readable();
 
@@ -344,6 +363,9 @@ _fs_read(conn, data, size)
     unsigned long size;
 {
     long        bytes_read;
+#if defined(SVR4) && defined(i386)
+    int		num_failed_reads = 0;
+#endif
 
     if (size == 0) {
 
@@ -354,11 +376,19 @@ _fs_read(conn, data, size)
 	return 0;
     }
     ESET(0);
+    /*
+     * For SVR4 with a unix-domain connection, ETEST() after selecting
+     * readable means the server has died.  To do this here, we look for
+     * two consecutive reads returning ETEST().
+     */
     while ((bytes_read = _FontTransRead(conn->trans_conn,
 	data, (int) size)) != size) {
 	if (bytes_read > 0) {
 	    size -= bytes_read;
 	    data += bytes_read;
+#if defined(SVR4) && defined(i386)
+	    num_failed_reads = 0;
+#endif
 	} else if (ETEST()) {
 	    /* in a perfect world, this shouldn't happen */
 	    /* ... but then, its less than perfect... */
@@ -367,8 +397,19 @@ _fs_read(conn, data, size)
 		ESET(EPIPE);
 		return -1;
 	    }
+#if defined(SVR4) && defined(i386)
+	    num_failed_reads++;
+	    if (num_failed_reads > 1) {
+		_fs_connection_died(conn);
+		ESET(EPIPE);
+		return -1;
+	    }
+#endif
 	    ESET(0);
 	} else if (ECHECK(EINTR)) {
+#if defined(SVR4) && defined(i386)
+	    num_failed_reads = 0;
+#endif
 	    continue;
 	} else {		/* something bad happened */
 	    if (conn->fs_fd > 0)
@@ -476,82 +517,77 @@ int
 _fs_wait_for_readable(conn)
     FSFpePtr    conn;
 {
-    FdSet r_mask;
-    FdSet e_mask;
+#ifndef AMOEBA
+    fd_set r_mask;
+    fd_set e_mask;
     int         result;
 
 #ifdef DEBUG
     fprintf(stderr, "read would block\n");
 #endif
 
-    CLEARBITS(r_mask);
-    CLEARBITS(e_mask);
     do {
-	BITSET(r_mask, conn->fs_fd);
-	BITSET(e_mask, conn->fs_fd);
-#ifdef WIN32
-	result = select(0, &r_mask, NULL, &e_mask, NULL);
-#else
-	result = select(conn->fs_fd + 1, r_mask, NULL, e_mask, NULL);
+	FD_ZERO(&r_mask);
+#ifndef MINIX
+	FD_ZERO(&e_mask);
 #endif
+	FD_SET(conn->fs_fd, &r_mask);
+	FD_SET(conn->fs_fd, &e_mask);
+	result = Select(conn->fs_fd + 1, &r_mask, NULL, &e_mask, NULL);
 	if (result == -1) {
-	    if (!ECHECK(EINTR))
-		return -1;
-	    else
+	    if (ECHECK(EINTR) || ECHECK(EAGAIN))
 		continue;
+	    else
+		return -1;
 	}
-	if (result && _fs_any_bit_set(e_mask))
+	if (result && FD_ISSET(conn->fs_fd, &e_mask))
 	    return -1;
     } while (result <= 0);
 
     return 0;
+#else
+    printf("fs_wait_for_readable(): fail\n");
+    return -1;
+#endif
 }
 
 int
 _fs_set_bit(mask, fd)
-    FdSetPtr mask;
+    fd_set* mask;
     int         fd;
 {
-    BITSET(mask, fd);
+    FD_SET(fd, mask);
     return fd;
 }
 
 int
 _fs_is_bit_set(mask, fd)
-    FdSetPtr mask;
+    fd_set* mask;
     int         fd;
 {
-    return GETBIT(mask, fd);
+    return FD_ISSET(fd, mask);
 }
 
 void
 _fs_bit_clear(mask, fd)
-    FdSetPtr mask;
+    fd_set* mask;
     int         fd;
 {
-    BITCLEAR(mask, fd);
+    FD_CLR(fd, mask);
 }
 
 int
 _fs_any_bit_set(mask)
-    FdSetPtr mask;
+    fd_set* mask;
 {
-
-#ifdef ANYSET
-    return ANYSET(mask);
-#else
-    int         i;
-
-    for (i = 0; i < MSKCNT; i++)
-	if (mask[i])
-	    return (1);
-    return (0);
-#endif
+    XFD_ANYSET(mask);
 }
 
 int
 _fs_or_bits(dst, m1, m2)
-    FdSetPtr dst, m1, m2;
+    fd_set* dst;
+    fd_set* m1;
+    fd_set* m2;
 {
 #ifdef WIN32
     int i;
@@ -568,7 +604,7 @@ _fs_or_bits(dst, m1, m2)
 	}
     }
 #else
-    ORBITS(dst, m1, m2);
+    XFD_ORSET(dst, m1, m2);
 #endif
 }
 

@@ -5,6 +5,7 @@
  */
 
 /* $XConsortium: misprite.c,v 5.47 94/04/17 20:27:53 dpw Exp $ */
+/* $XFree86: xc/programs/Xserver/mi/misprite.c,v 3.0 1996/08/25 14:13:56 dawes Exp $ */
 
 /*
 
@@ -175,7 +176,7 @@ static GCOps miSpriteGCOps = {
     (pScreenPriv->isUp &&					    \
         (pScreenPriv->pCacheWin == pWin ?			    \
 	    pScreenPriv->isInCacheWin : (			    \
-	    ((int) (pScreenPriv->pCacheWin = (pWin))) ,		    \
+	    (pScreenPriv->pCacheWin = (pWin)),			    \
 	    (pScreenPriv->isInCacheWin =			    \
 		(pWin)->drawable.x < pScreenPriv->saved.x2 &&	    \
 		pScreenPriv->saved.x1 < (pWin)->drawable.x +	    \

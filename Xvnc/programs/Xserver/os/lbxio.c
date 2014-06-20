@@ -1,6 +1,7 @@
 /***********************************************************
 Copyright 1987, 1989 by Digital Equipment Corporation, Maynard, Massachusetts,
 and the Massachusetts Institute of Technology, Cambridge, Massachusetts.
+Copyright 1996 X Consortium, Inc.
 
                         All Rights Reserved
 
@@ -21,14 +22,12 @@ ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
 SOFTWARE.
 
 ******************************************************************/
-/* $XConsortium: lbxio.c,v 1.2 94/12/02 17:33:49 mor Exp $ */
-/*****************************************************************
- * i/o functions
- *
- *   WriteToClient, ReadRequestFromClient
- *   InsertFakeRequest, ResetCurrentRequest
- *
- *****************************************************************/
+/* $XConsortium: lbxio.c /main/10 1996/12/16 23:03:30 rws $ */
+
+
+
+
+/* $XFree86: xc/programs/Xserver/os/lbxio.c,v 3.8 1997/01/18 07:18:31 dawes Exp $ */
 
 #include <stdio.h>
 #include <X11/Xtrans.h>
@@ -37,15 +36,23 @@ extern int errno;
 #endif
 #include "Xmd.h"
 #include <errno.h>
+#ifndef Lynx
 #include <sys/param.h>
+#ifndef __EMX__
 #include <sys/uio.h>
+#endif
+#else
+#include <uio.h>
+#endif
 #include "X.h"
 #include "Xproto.h"
 #include "os.h"
+#include "Xpoll.h"
 #include "osdep.h"
 #include "opaque.h"
 #include "dixstruct.h"
 #include "misc.h"
+#include "lbxserve.h"
 
 /* check for both EAGAIN and EWOULDBLOCK, because some supposedly POSIX
  * systems are broken and return EWOULDBLOCK when they should return EAGAIN
@@ -60,11 +67,11 @@ extern int errno;
 #endif
 #endif
 
-extern FdSet ClientsWithInput, IgnoredClientsWithInput, AllClients;
-extern FdSet ClientsWriteBlocked;
-extern FdSet OutputPending;
+extern fd_set ClientsWithInput, IgnoredClientsWithInput;
+extern fd_set AllClients, AllSockets;
+extern fd_set ClientsWriteBlocked;
+extern fd_set OutputPending;
 extern int ConnectionTranslation[];
-extern int ConnectionOutputTranslation[];
 extern Bool NewOutputPending;
 extern Bool AnyClientsWriteBlocked;
 extern Bool CriticalOutputPending;
@@ -73,343 +80,58 @@ extern ConnectionInputPtr FreeInputs;
 extern ConnectionOutputPtr FreeOutputs;
 extern OsCommPtr AvailableInput;
 
-extern ConnectionInputPtr AllocateInputBuffer(
-#if NeedFunctionPrototypes
-    void
-#endif
-);
-
-static ConnectionOutputPtr AllocateUncompBuffer();
-
-ClientPtr   ReadingClient;
-ClientPtr   WritingClient;
-
-#define get_req_len(req,cli) (((cli)->swapped ? \
-			      lswaps((req)->length) : (req)->length) << 2)
-
-#define MAX_TIMES_PER         10
-
-/*****************************************************************
- * ReadRequestFromClient
- *    Returns one request in client->requestBuffer.  Return status is:
- *
- *    > 0  if  successful, specifies length in bytes of the request
- *    = 0  if  entire request is not yet available
- *    < 0  if  client should be terminated
- *
- *    The request returned must be contiguous so that it can be
- *    cast in the dispatcher to the correct request type.  Because requests
- *    are variable length, ReadRequestFromClient() must look at the first 4
- *    bytes of a request to determine the length (the request length is
- *    always the 3rd and 4th bytes of the request).  
- *
- *    Note: in order to make the server scheduler (WaitForSomething())
- *    "fair", the ClientsWithInput mask is used.  This mask tells which
- *    clients have FULL requests left in their buffers.  Clients with
- *    partial requests require a read.  Basically, client buffers
- *    are drained before select() is called again.  But, we can't keep
- *    reading from a client that is sending buckets of data (or has
- *    a partial request) because others clients need to be scheduled.
- *****************************************************************/
+#define get_req_len(req,cli) ((cli)->swapped ? \
+			      lswaps((req)->length) : (req)->length)
 
 #define YieldControl()				\
         { isItTimeToYield = TRUE;		\
 	  timesThisConnection = 0; }
 #define YieldControlNoInput()			\
         { YieldControl();			\
-	  BITCLEAR(ClientsWithInput, fd); }
-#define YieldControlDeath()			\
-        { timesThisConnection = 0; }
+	  FD_CLR(fd, &ClientsWithInput); }
 
-int
-LBXReadRequestFromClient(client)
+void
+SwitchClientInput (client, pending)
     ClientPtr client;
+    Bool pending;
 {
     OsCommPtr oc = (OsCommPtr)client->osPrivate;
-    register ConnectionInputPtr oci = oc->input;
-    int fd = oc->fd;
-    XtransConnInfo trans_conn = oc->trans_conn;
-    register int gotnow, needed;
-    int result;
-    register xReq *request;
-    Bool need_header;
-    int	nextneeds;
-    Bool part;
-#ifdef BIGREQS
-    Bool move_header;
-#endif
-
-    if (AvailableInput)
-    {
-	if (AvailableInput != oc)
-	{
-	    register ConnectionInputPtr aci = AvailableInput->input;
-	    if (aci->size > BUFWATERMARK)
-	    {
-		xfree(aci->buffer);
-		xfree(aci);
-	    }
-	    else
-	    {
-		aci->next = FreeInputs;
-		FreeInputs = aci;
-	    }
-	    AvailableInput->input = (ConnectionInputPtr)NULL;
-	}
-	AvailableInput = (OsCommPtr)NULL;
-    }
-    if (!oci)
-    {
-	if (oci = FreeInputs)
-	{
-	    FreeInputs = oci->next;
-	}
-	else if (!(oci = AllocateInputBuffer()))
-	{
-	    YieldControlDeath();
-	    return -1;
-	}
-	oc->input = oci;
-    }
-    oci->bufptr += oci->lenLastReq;
-    oci->lenLastReq = 0;
-
-    need_header = FALSE;
-#ifdef BIGREQS
-    move_header = FALSE;
-#endif
-    gotnow = oci->bufcnt + oci->buffer - oci->bufptr;
-    client->requestBuffer = (pointer)oci->bufptr;
-    needed = RequestLength (NULL, client, gotnow, &part);
-    client->req_len = needed >> 2;
-    if (gotnow < needed || part)
-    {
-	if (needed == -1)
-	{
-	    YieldControlDeath();
-	    return -1;
-	}
-	if ((gotnow == 0) ||
-	    ((oci->bufptr - oci->buffer + needed) > oci->size))
-	{
-	    if ((gotnow > 0) && (oci->bufptr != oci->buffer))
-		memmove(oci->buffer, oci->bufptr, gotnow);
-	    if (needed > oci->size)
-	    {
-		char *ibuf;
-
-		ibuf = (char *)xrealloc(oci->buffer, needed);
-		if (!ibuf)
-		{
-		    YieldControlDeath();
-		    return -1;
-		}
-		oci->size = needed;
-		oci->buffer = ibuf;
-	    }
-	    oci->bufptr = oci->buffer;
-	    oci->bufcnt = gotnow;
-	}
-	/*  XXX this is a workaround.  This function is sometimes called
-	 *  after the trans_conn has been freed.  In this case trans_conn
-	 *  will be null.  Really ought to restructure things so that we
-	 *  never get here in those circumstances.
-	 */
-	if (!trans_conn)
-	{
-	    /*  treat as if an error occured on the read, which is what
-	     *  used to happen
-	     */
-	    YieldControlDeath();
-	    return -1;
-	}
-	ReadingClient = client;
-#ifndef XTRANS
-	result = (*oc->Read)(fd, oci->buffer + oci->bufcnt, 
-		      oci->size - oci->bufcnt); 
-#else
-	result = _XSERVTransRead(trans_conn, oci->buffer + oci->bufcnt, 
-		      oci->size - oci->bufcnt); 
-#endif
-	if (result <= 0)
-	{
-	    if ((result < 0) && ETEST(errno))
-	    {
-		YieldControlNoInput();
-		return 0;
-	    }
-	    YieldControlDeath();
-	    return -1;
-	}
-	oci->bufcnt += result;
-	gotnow += result;
-	/* free up some space after huge requests */
-	if ((oci->size > BUFWATERMARK) &&
-	    (oci->bufcnt < BUFSIZE) && (needed < BUFSIZE))
-	{
-	    char *ibuf;
-
-	    ibuf = (char *)xrealloc(oci->buffer, BUFSIZE);
-	    if (ibuf)
-	    {
-		oci->size = BUFSIZE;
-		oci->buffer = ibuf;
-		oci->bufptr = ibuf + oci->bufcnt - gotnow;
-	    }
-	}
-	client->requestBuffer = (pointer) oci->bufptr;
-	if (part && gotnow >= needed)
-	{
-	    needed = RequestLength (NULL, client, gotnow, &part);
-	    client->req_len = needed >> 2;
-	}
-	if (gotnow < needed || part)
-	{
-	    if (needed == -1)
-	    {
-		YieldControlDeath();
-		return -1;
-	    }
-	    YieldControlNoInput();
-	    return 0;
-	}
-    }
-    oci->lenLastReq = needed;
-
-    /*
-     *  Check to see if client has at least one whole request in the
-     *  buffer.  If there is only a partial request, treat like buffer
-     *  is empty so that select() will be called again and other clients
-     *  can get into the queue.   
-     */
-
-    if (gotnow > needed)
-    {
-	request = (xReq *)(oci->bufptr + needed);
-	nextneeds = RequestLength (request, client, gotnow - needed, &part);
-	if (gotnow >= needed + nextneeds && !part)
-	    BITSET(ClientsWithInput, fd);
-	else
-	    YieldControlNoInput();
-    }
+    
+    ConnectionTranslation[oc->fd] = client->index;
+    if (pending)
+	FD_SET(oc->fd, &ClientsWithInput);
     else
-    {
-	AvailableInput = oc;
-	YieldControlNoInput();
-    }
-    if (++timesThisConnection >= MAX_TIMES_PER)
 	YieldControl();
-#ifdef BIGREQS
-    if (move_header)
-    {
-	request = (xReq *)oci->bufptr;
-	oci->bufptr += (sizeof(xBigReq) - sizeof(xReq));
-	*(xReq *)oci->bufptr = *request;
-	oci->lenLastReq -= (sizeof(xBigReq) - sizeof(xReq));
-	client->req_len -= (sizeof(xBigReq) - sizeof(xReq)) >> 2;
-    }
-#endif
-    return needed;
-}
-
-Bool
-SwitchClientInput (to, check)
-    ClientPtr to;
-    ClientPtr check;
-{
-    OsCommPtr ocTo = (OsCommPtr) to->osPrivate;
-    ConnectionInputPtr	ociTo = ocTo->input;
-    
-    ConnectionTranslation[ocTo->fd] = to->index;
-    YieldControl();
-    CheckPendingClientInput (check);
-    return TRUE;
-}
-
-SwitchClientOutput (from, to)
-    ClientPtr	from, to;
-{
-    OsCommPtr ocFrom = (OsCommPtr) from->osPrivate;
-    OsCommPtr ocTo = (OsCommPtr) to->osPrivate;
-    ConnectionOutputPtr	ocoFrom = ocFrom->output;
-    ConnectionOutputPtr	ocoTo = ocTo->output;
-    
-    ConnectionOutputTranslation[ocTo->fd] = to->index;
-    if (PendingClientOutput (to))
-    {
-	NewOutputPending = TRUE;
-	BITSET(OutputPending, ocTo->fd);
-    }
-}
-
-int
-PendingClientOutput (client)
-    ClientPtr	client;
-{
-    OsCommPtr oc = (OsCommPtr) client->osPrivate;
-    ConnectionOutputPtr	oco = oc->output;
-    
-    return (oco && oco->count != 0) || oc->ofirst;
-}
-
-int
-CheckPendingClientInput (client)
-    ClientPtr	client;
-{
-    OsCommPtr oc = (OsCommPtr)client->osPrivate;
-    register ConnectionInputPtr oci = oc->input;
-    xReq    *request;
-    int	    gotnow;
-    int	    needed;
-    Bool    part;
-    
-    if (!oci)
-	return 0;
-    needed = oci->lenLastReq;
-    gotnow = oci->bufcnt + oci->buffer - oci->bufptr;
-    request = (xReq *) (oci->bufptr + needed);
-    if (gotnow >= needed + RequestLength(request, client, gotnow - needed, &part) && !part)
-    {
-	BITSET(ClientsWithInput, oc->fd);
-	return 1;
-    }
-    return 0;
 }
 
 void
-MarkConnectionWriteBlocked (client)
+LbxPrimeInput(client, proxy)
     ClientPtr	client;
+    LbxProxyPtr proxy;
 {
     OsCommPtr oc = (OsCommPtr)client->osPrivate;
+    ConnectionInputPtr oci = oc->input;
 
-    BITSET(ClientsWriteBlocked, oc->fd);
-    AnyClientsWriteBlocked = TRUE;
+    if (oci && proxy->compHandle) {
+	char *extra = oci->bufptr + oci->lenLastReq;
+	int left = oci->bufcnt + oci->buffer - extra;
+
+	(*proxy->streamOpts.streamCompStuffInput)(oc->fd,
+						  (unsigned char *)extra,
+						  left);
+	oci->bufcnt -= left;
+	AvailableInput = oc;
+    }
 }
 
-int
-BytesInClientBuffer (client)
+void
+AvailableClientInput (client)
     ClientPtr	client;
 {
     OsCommPtr oc = (OsCommPtr)client->osPrivate;
-    register ConnectionInputPtr oci = oc->input;
 
-    if (!oci)
-	return 0;
-    return oci->bufcnt + oci->buffer - (oci->bufptr + oci->lenLastReq);
-}
-
-SkipInClientBuffer (client, nbytes, lenLastReq)
-    ClientPtr	client;
-    int		nbytes;
-    int		lenLastReq;
-{
-    OsCommPtr oc = (OsCommPtr)client->osPrivate;
-    register ConnectionInputPtr oci = oc->input;
-
-    if (!oci)
-	return;
-    oci->bufptr += nbytes;
-    oci->lenLastReq = lenLastReq;
+    if (FD_ISSET(oc->fd, &AllSockets))
+	FD_SET(oc->fd, &ClientsWithInput);
 }
 
 /*****************************************************************
@@ -425,225 +147,426 @@ AppendFakeRequest (client, data, count)
     int count;
 {
     OsCommPtr oc = (OsCommPtr)client->osPrivate;
-    register ConnectionInputPtr oco = oc->input;
+    register ConnectionInputPtr oci = oc->input;
     int fd = oc->fd;
-    register xReq *request;
-    register int gotnow, moveup;
-    Bool part;
+    register int gotnow;
 
-#ifdef NOTDEF
-    /* can't do this as the data may actually be coming from this buffer! */
-    if (AvailableInput)
+    if (!oci)
     {
-	if (AvailableInput != oc)
-	{
-	    register ConnectionInputPtr aci = AvailableInput->input;
-	    if (aci->size > BUFWATERMARK)
-	    {
-		xfree(aci->buffer);
-		xfree(aci);
-	    }
-	    else
-	    {
-		aci->next = FreeInputs;
-		FreeInputs = aci;
-	    }
-	    AvailableInput->input = (ConnectionInputPtr)NULL;
-	}
-	AvailableInput = (OsCommPtr)NULL;
-    }
-#endif
-    if (!oco)
-    {
-	if (oco = FreeInputs)
-	    FreeInputs = oco->next;
-	else if (!(oco = AllocateInputBuffer()))
+	if (oci = FreeInputs)
+	    FreeInputs = oci->next;
+	else if (!(oci = AllocateInputBuffer()))
 	    return FALSE;
-	oc->input = oco;
-    }
-    oco->bufptr += oco->lenLastReq;
-    oco->lenLastReq = 0;
-    gotnow = oco->bufcnt + oco->buffer - oco->bufptr;
-    if ((gotnow + count) > oco->size)
+	oc->input = oci;
+    } else if (AvailableInput == oc)
+	AvailableInput = (OsCommPtr)NULL;
+    /* do not free AvailableInput here, it could be proxy's */
+    oci->bufptr += oci->lenLastReq;
+    oci->lenLastReq = 0;
+    gotnow = oci->bufcnt + oci->buffer - oci->bufptr;
+    if ((gotnow + count) > oci->size)
     {
 	char *ibuf;
 
-	ibuf = (char *)xrealloc(oco->buffer, gotnow + count);
+	ibuf = (char *)xrealloc(oci->buffer, gotnow + count);
 	if (!ibuf)
 	    return(FALSE);
-	oco->size = gotnow + count;
-	oco->buffer = ibuf;
-	oco->bufptr = ibuf;
+	oci->size = gotnow + count;
+	oci->buffer = ibuf;
+	oci->bufptr = ibuf + oci->bufcnt - gotnow;
     }
-    bcopy(data, oco->bufptr + gotnow, count);
-    oco->bufcnt += count;
+    if (oci->bufcnt + count > oci->size) {
+	memmove(oci->buffer, oci->bufptr, gotnow);
+	oci->bufcnt = gotnow;
+	oci->bufptr = oci->buffer;
+    }
+    memmove(oci->bufptr + gotnow, data, count);
+    oci->bufcnt += count;
     gotnow += count;
-    if (gotnow >= RequestLength (oco->bufptr, client, gotnow, &part) && !part)
-	BITSET(ClientsWithInput, fd);
+    if ((gotnow >= sizeof(xReq)) &&
+	(gotnow >= (int)(get_req_len((xReq *)oci->bufptr, client) << 2)))
+	FD_SET(fd, &ClientsWithInput);
     else
 	YieldControlNoInput();
     return(TRUE);
 }
 
 static int
-ExpandOutputBuffer(oco, len)
-    ConnectionOutputPtr oco;
+LbxWrite(trans_conn, proxy, buf, len)
+    XtransConnInfo trans_conn;
+    LbxProxyPtr proxy;
+    char *buf;
     int len;
 {
-    unsigned char *obuf;
+    struct iovec iov;
+    int n;
+    int notWritten;
 
-    obuf = (unsigned char *)xrealloc(oco->buf, len + BUFSIZE);
-    if (!obuf)
-    {
-	oco->count = 0;
-	return(-1);
+    notWritten = len;
+    iov.iov_base = buf;
+    iov.iov_len = len;
+    while (notWritten) {
+	errno = 0;
+	if (proxy->compHandle)
+	    n = (*proxy->streamOpts.streamCompWriteV)(proxy->fd, &iov, 1);
+	else
+	    n = _XSERVTransWritev(trans_conn, &iov, 1);
+	if (n >= 0) {
+	    iov.iov_base = (char *)iov.iov_base + n;
+	    notWritten -= n;
+	    iov.iov_len = notWritten;
+	}
+	else if (ETEST(errno)
+#ifdef SUNSYSV /* check for another brain-damaged OS bug */
+		 || (errno == 0)
+#endif
+#ifdef EMSGSIZE /* check for another brain-damaged OS bug */
+		 || ((errno == EMSGSIZE) && (iov.iov_len == 1))
+#endif
+		)
+	    break;
+#ifdef EMSGSIZE /* check for another brain-damaged OS bug */
+	else if (errno == EMSGSIZE)
+	    iov.iov_len >>= 1;
+#endif
+	else
+	    return -1;
     }
-    oco->size = len + BUFSIZE;
-    oco->buf = obuf;
-    return 0;
+    return len - notWritten;
 }
 
-    /* lookup table for adding padding bytes to data that is read from
-    	or written to the X socket.  */
-static int padlength[4] = {0, 3, 2, 1};
+static Bool
+LbxAppendOutput(proxy, client, oco)
+    LbxProxyPtr proxy;
+    ClientPtr client;
+    ConnectionOutputPtr oco;
+{
+    ConnectionOutputPtr noco = proxy->olast;
+    LbxClientPtr lbxClient = LbxClient(client);
+
+    if (!lbxClient) {
+	xfree(oco->buf);
+	xfree(oco);
+	return TRUE;
+    }
+    if (noco)
+	LbxReencodeOutput(client,
+			  (char *)noco->buf, &noco->count,
+			  (char *)oco->buf, &oco->count);
+    else
+	LbxReencodeOutput(client,
+			  (char *)NULL, (int *)NULL,
+			  (char *)oco->buf, &oco->count);
+    if (!oco->count) {
+	if (oco->size > BUFWATERMARK)
+	{
+	    xfree(oco->buf);
+	    xfree(oco);
+	}
+	else
+	{
+	    oco->next = FreeOutputs;
+	    FreeOutputs = oco;
+	}
+	return TRUE;
+    }
+    if ((lbxClient->id != proxy->cur_send_id) && proxy->lbxClients[0]) {
+	xLbxSwitchEvent *ev;
+	int n;
+
+	if (!noco || (noco->size - noco->count) < sz_xLbxSwitchEvent) {
+	    if (noco = FreeOutputs)
+		FreeOutputs = noco->next;
+	    else
+		noco = AllocateOutputBuffer();
+	    if (!noco) {
+		MarkClientException(client);
+		return FALSE;
+	    }
+	    noco->next = NULL;
+	    if (proxy->olast)
+		proxy->olast->next = noco;
+	    else
+		proxy->ofirst = noco;
+	    proxy->olast = noco;
+	}
+	ev = (xLbxSwitchEvent *) (noco->buf + noco->count);
+	noco->count += sz_xLbxSwitchEvent;
+	proxy->cur_send_id = lbxClient->id;
+	ev->type = LbxEventCode;
+	ev->lbxType = LbxSwitchEvent;
+	ev->pad = 0;
+	ev->client = proxy->cur_send_id;
+	if (LbxProxyClient(proxy)->swapped) {
+	    swapl(&ev->client, n);
+	}
+    }
+    oco->next = NULL;
+    if (proxy->olast)
+	proxy->olast->next = oco;
+    else
+	proxy->ofirst = oco;
+    proxy->olast = oco;
+    return TRUE;
+}
+
+static int
+LbxClientOutput(client, oc, extraBuf, extraCount, nocompress)
+    ClientPtr client;
+    OsCommPtr oc;
+    char *extraBuf;
+    int extraCount;
+    Bool nocompress;
+{
+    ConnectionOutputPtr oco;
+    int len;
+
+    if (oco = oc->output) {
+	oc->output = NULL;
+	if (!LbxAppendOutput(oc->proxy, client, oco))
+	    return -1;
+    }
+
+    if (extraCount) {
+	NewOutputPending = TRUE;
+	FD_SET(oc->fd, &OutputPending);
+	len = (extraCount + 3) & ~3;
+	if ((oco = FreeOutputs) && (oco->size >= len))
+	    FreeOutputs = oco->next;
+	else {
+	    oco = (ConnectionOutputPtr)xalloc(sizeof(ConnectionOutput));
+	    if (!oco) {
+		MarkClientException(client);
+		return -1;
+	    }
+	    oco->size = len;
+	    if (oco->size < BUFSIZE)
+		oco->size = BUFSIZE;
+	    oco->buf = (unsigned char *) xalloc(oco->size);
+	    if (!oco->buf) {
+		xfree(oco);
+		MarkClientException(client);
+		return -1;
+	    }
+	}
+	oco->count = len;
+	oco->nocompress = nocompress;
+	memmove((char *)oco->buf, extraBuf, extraCount);
+	if (!nocompress && oco->count < oco->size)
+	    oc->output = oco;
+	else if (!LbxAppendOutput(oc->proxy, client, oco))
+	    return -1;
+    }
+    return extraCount;
+}
+
+void
+LbxForceOutput(proxy)
+    LbxProxyPtr proxy;
+{
+    int i;
+    LbxClientPtr lbxClient;
+    OsCommPtr coc;
+    ConnectionOutputPtr oco;
+
+    for (i = proxy->maxIndex; i >= 0; i--) { /* proxy must be last */
+	lbxClient = proxy->lbxClients[i];
+	if (!lbxClient)
+	    continue;
+	coc = (OsCommPtr)lbxClient->client->osPrivate;
+	if (oco = coc->output) {
+	    coc->output = NULL;
+	    LbxAppendOutput(proxy, lbxClient->client, oco);
+	}
+    }
+}
 
 int
 LbxFlushClient(who, oc, extraBuf, extraCount)
     ClientPtr who;
     OsCommPtr oc;
     char *extraBuf;
-    int extraCount; /* do not modify... returned below */
+    int extraCount;
 {
-    ConnectionOutputPtr nextbuf;
-    register ConnectionOutputPtr oco;
-    int retval = extraCount;
+    LbxProxyPtr proxy;
+    ConnectionOutputPtr oco;
+    int n;
+    XtransConnInfo trans_conn;
 
-    if (!oc->ofirst) {
-	return StandardFlushClient(who, oc, extraBuf, extraCount);
-    }
-
-    if (oco = oc->output) {
-	oc->olast->next = oco;
-	oc->olast = oco;
-    }
-
-    oco = oc->ofirst;
-    do {
-	Bool nocomp = oco->nocompress;
-	nextbuf = (oco != oc->olast) ? oco->next : NULL;
-	oc->output = oco;
-	if (nocomp)
-	    (*oc->compressOff)(oc->fd);
-	if (oc->olast == oco) {
-	    StandardFlushClient(who, oc, extraBuf, extraCount);
-	    extraCount = 0;
-	}
-	else
-	    StandardFlushClient(who, oc, (char *)NULL, 0);
-	if (nocomp)
-	    (*oc->compressOn)(oc->fd);
-	if (oc->output != (ConnectionOutputPtr) NULL) {
-	    oc->output = (ConnectionOutputPtr) NULL;
+    if (extraBuf)
+	return LbxClientOutput(who, oc, extraBuf, extraCount, FALSE);
+    proxy = oc->proxy;
+    if (!proxy->lbxClients[0])
+	return 0;
+    LbxForceOutput(proxy);
+    if (!proxy->compHandle)
+	trans_conn = ((OsCommPtr)LbxProxyClient(proxy)->osPrivate)->trans_conn;
+    while (oco = proxy->ofirst) {
+	/* XXX bundle up into writev someday */
+	if (proxy->compHandle) {
+	    if (oco->nocompress)
+		(*proxy->streamOpts.streamCompOff)(proxy->fd);
+	    n = LbxWrite(NULL, proxy, (char *)oco->buf, oco->count);
+	    if (oco->nocompress)
+		(*proxy->streamOpts.streamCompOn)(proxy->fd);
+	} else
+	    n = LbxWrite(trans_conn, proxy, (char *)oco->buf, oco->count);
+	if (n < 0) {
+	    ClientPtr pclient = LbxProxyClient(proxy);
+	    if (proxy->compHandle)
+		trans_conn = ((OsCommPtr)pclient->osPrivate)->trans_conn;
+	    _XSERVTransDisconnect(trans_conn);
+	    _XSERVTransClose(trans_conn);
+	    ((OsCommPtr)pclient->osPrivate)->trans_conn = NULL;
+	    MarkClientException(pclient);
+	    return 0;
+	} else if (n == oco->count) {
+	    proxy->ofirst = oco->next;
+	    if (!proxy->ofirst)
+		proxy->olast = NULL;
+	    if (oco->size > BUFWATERMARK)
+	    {
+		xfree(oco->buf);
+		xfree(oco);
+	    }
+	    else
+	    {
+		oco->next = FreeOutputs;
+		oco->count = 0;
+		FreeOutputs = oco;
+	    }
+	} else {
+	    if (n) {
+		oco->count -= n;
+		memmove((char *)oco->buf, (char *)oco->buf + n, oco->count);
+	    }
 	    break;
 	}
-    } while (oco = nextbuf);
-    oc->ofirst = oco;
-
-    /*
-     * If we didn't get a chance to flush the extraBuf above, then
-     * we need to buffer it here.
-     */
-    if (extraCount) {
-	int newlen = oco->count + extraCount + padlength[extraCount & 3];
-	oco = oc->olast;
-	if (ExpandOutputBuffer(oco, newlen) < 0) {
-	    _XSERVTransClose(oc->trans_conn);
-	    oc->trans_conn = NULL;
-	    MarkClientException(who);
-	    return(-1);
-	}
-	bcopy(extraBuf, (char *)oco->buf + oco->count, extraCount);
-	oco->count = newlen;
     }
-
-    return retval;
+    if ((proxy->compHandle &&
+	 (*proxy->streamOpts.streamCompFlush)(proxy->fd)) ||
+	proxy->ofirst) {
+	FD_SET(proxy->fd, &ClientsWriteBlocked);
+	AnyClientsWriteBlocked = TRUE;
+    }
+    return 0;
 }
 
 int
-UncompressWriteToClient (who, count, buf)
+UncompressedWriteToClient (who, count, buf)
     ClientPtr who;
     char *buf;
     int count;
 {
-    OsCommPtr oc = (OsCommPtr)who->osPrivate;
-    register ConnectionOutputPtr oco;
-    int paddedLen = count + padlength[count & 3];
-
-    if (!count)
-	return(0);
-
-    if (oco = oc->output) {
-	/*
-	 * we're currently filling a buffer, and it must be compressible,
-	 * so put it on the queue
-	 */
-	if (oc->ofirst) {
-	    oc->olast->next = oco;
-	    oc->olast = oco;
-	}
-	else {
-	    oc->ofirst = oc->olast = oco;
-	}
-	oco = oc->output = (ConnectionOutputPtr)NULL;
-    }
-    else if (oc->ofirst) {
-	oco = oc->olast;
-	if (!oco->nocompress || ((oco->count + paddedLen) > oco->size))
-	    oco = (ConnectionOutputPtr)NULL;
-    }
-
-    if (!oco) {
-	if (!(oco = AllocateUncompBuffer(paddedLen))) {
-	    _XSERVTransClose(oc->trans_conn);
-	    oc->trans_conn = NULL;
-	    MarkClientException(who);
-	    return -1;
-	}
-    }
-    bcopy(buf, (char *)oco->buf + oco->count, count);
-    oco->count += paddedLen;
-
-    if (oc->ofirst) {
-	oc->olast->next = oco;
-	oc->olast = oco;
-    }
-    else {
-	oc->ofirst = oc->olast = oco;
-    }
-
-    NewOutputPending = TRUE;
-    BITSET(OutputPending, oc->fd);
-    return(count);
+    return LbxClientOutput(who, (OsCommPtr)who->osPrivate, buf, count, TRUE);
 }
 
-static ConnectionOutputPtr
-AllocateUncompBuffer(count)
-    int count;
+LbxFreeOsBuffers(proxy)
+    LbxProxyPtr proxy;
 {
-    register ConnectionOutputPtr oco;
-    int len = (count > BUFSIZE) ? count : BUFSIZE;
+    ConnectionOutputPtr oco;
 
-    oco = (ConnectionOutputPtr)xalloc(sizeof(ConnectionOutput));
-    if (!oco)
-	return (ConnectionOutputPtr)NULL;
-    oco->buf = (unsigned char *) xalloc(len);
-    if (!oco->buf)
-    {
+    while (oco = proxy->ofirst) {
+	proxy->ofirst = oco->next;
+	xfree(oco->buf);
 	xfree(oco);
-	return (ConnectionOutputPtr)NULL;
     }
-    oco->size = len;
-    oco->count = 0;
-    oco->nocompress = TRUE;
-    return oco;
+}
+
+Bool
+AllocateLargeReqBuffer(client, size)
+    ClientPtr client;
+    int size;
+{
+    OsCommPtr oc = (OsCommPtr)client->osPrivate;
+    register ConnectionInputPtr oci;
+
+    if (!(oci = oc->largereq)) {
+	if (oci = FreeInputs)
+	    FreeInputs = oci->next;
+	else {
+	    oci = (ConnectionInputPtr)xalloc(sizeof(ConnectionInput));
+	    if (!oci)
+		return FALSE;
+	    oci->buffer = NULL;
+	    oci->size = 0;
+	}
+    }
+    if (oci->size < size) {
+	char *ibuf;
+
+	oci->size = size;
+	if (size < BUFSIZE)
+	    oci->size = BUFSIZE;
+	if (!(ibuf = (char *)xrealloc(oci->buffer, oci->size)))
+	{
+	    xfree(oci->buffer);
+	    xfree(oci);
+	    oc->largereq = NULL;
+	    return FALSE;
+	}
+	oci->buffer = ibuf;
+    }
+    oci->bufptr = oci->buffer;
+    oci->bufcnt = 0;
+    oci->lenLastReq = size;
+    oc->largereq = oci;
+    return TRUE;
+}
+
+Bool
+AddToLargeReqBuffer(client, data, size)
+    ClientPtr client;
+    char *data;
+    int size;
+{
+    OsCommPtr oc = (OsCommPtr)client->osPrivate;
+    register ConnectionInputPtr oci = oc->largereq;
+
+    if (!oci || (oci->bufcnt + size > oci->lenLastReq))
+	return FALSE;
+    memcpy(oci->buffer + oci->bufcnt, data, size);
+    oci->bufcnt += size;
+    return TRUE;
+}
+
+static OsCommRec lbxAvailableInput;
+
+int
+PrepareLargeReqBuffer(client)
+    ClientPtr client;
+{
+    OsCommPtr oc = (OsCommPtr)client->osPrivate;
+    register ConnectionInputPtr oci = oc->largereq;
+
+    if (!oci)
+	return client->req_len << 2;
+    oc->largereq = NULL;
+    if (oci->bufcnt != oci->lenLastReq) {
+	xfree(oci->buffer);
+	xfree(oci);
+	return client->req_len << 2;
+    }
+    client->requestBuffer = oci->buffer;
+    client->req_len = oci->lenLastReq >> 2;
+    oci->bufcnt = 0;
+    oci->lenLastReq = 0;
+    if (AvailableInput)
+    {
+	register ConnectionInputPtr aci = AvailableInput->input;
+	if (aci->size > BUFWATERMARK)
+	{
+	    xfree(aci->buffer);
+	    xfree(aci);
+	}
+	else
+	{
+	    aci->next = FreeInputs;
+	    FreeInputs = aci;
+	}
+	AvailableInput->input = (ConnectionInputPtr)NULL;
+    }
+    lbxAvailableInput.input = oci;
+    AvailableInput = &lbxAvailableInput;
+    return client->req_len << 2;
 }

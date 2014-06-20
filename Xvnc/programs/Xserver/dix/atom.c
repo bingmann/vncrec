@@ -47,11 +47,13 @@ SOFTWARE.
 ******************************************************************/
 
 /* $XConsortium: atom.c,v 1.30 94/04/17 20:26:16 dpw Exp $ */
+/* $XFree86: xc/programs/Xserver/dix/atom.c,v 3.0 1996/04/15 11:19:31 dawes Exp $ */
 
 #include "X.h"
 #include "Xatom.h"
 #include "misc.h"
 #include "resource.h"
+#include "dix.h"
 
 #define InitialTableSize 100
 

@@ -31,6 +31,7 @@ Author: Keith Packard
 
 */
 /* $XConsortium: cfbblt.c,v 1.13 94/04/17 20:28:44 dpw Exp $ */
+/* $XFree86: xc/programs/Xserver/cfb/cfbblt.c,v 3.1 1996/12/09 11:50:52 dawes Exp $ */
 
 #include	"X.h"
 #include	"Xmd.h"
@@ -103,6 +104,11 @@ MROP_NAME(cfbDoBitblt)(pSrc, pDst, alu, prgnDst, pptSrc, planemask)
 				   overflows into the next word? */
     int careful;
     int tmpSrc;
+#if PSZ == 24
+#ifdef DO_MEMCPY
+    int w2;
+#endif
+#endif
 
     MROP_INITIALIZE(alu,planemask);
 
@@ -223,6 +229,11 @@ MROP_NAME(cfbDoBitblt)(pSrc, pDst, alu, prgnDst, pptSrc, planemask)
 	w = pbox->x2 - pbox->x1;
 	h = pbox->y2 - pbox->y1;
 
+#if PSZ == 24
+#ifdef DO_MEMCPY
+	w2 = w * 3;
+#endif
+#endif
 	if (ydir == -1) /* start at last scanline of rectangle */
 	{
 	    psrcLine = psrcBase + ((pptSrc->y+h-1) * -widthSrc);
@@ -233,7 +244,11 @@ MROP_NAME(cfbDoBitblt)(pSrc, pDst, alu, prgnDst, pptSrc, planemask)
 	    psrcLine = psrcBase + (pptSrc->y * widthSrc);
 	    pdstLine = pdstBase + (pbox->y1 * widthDst);
 	}
+#if PSZ == 24
+	if (w == 1 && ((pbox->x1 & 3) == 0  ||  (pbox->x1 & 3) == 3))
+#else
 	if ((pbox->x1 & PIM) + w <= PPW)
+#endif
 	{
 	    maskpartialbits (pbox->x1, w, endmask);
 	    startmask = 0;
@@ -250,22 +265,38 @@ MROP_NAME(cfbDoBitblt)(pSrc, pDst, alu, prgnDst, pptSrc, planemask)
 	if ((xdir == 1) || (pptSrc->y != pbox->y1)
 		|| (pptSrc->x + w <= pbox->x1))
 	{
+#if PSZ == 24
+	    char *psrc = (char *) psrcLine + (pptSrc->x * 3);
+	    char *pdst = (char *) pdstLine + (pbox->x1 * 3);
+#else
 	    char *psrc = (char *) psrcLine + pptSrc->x;
 	    char *pdst = (char *) pdstLine + pbox->x1;
+#endif
 	    while (h--)
 	    {
+#if PSZ == 24
+	    	memcpy(pdst, psrc, w2);
+#else
 	    	memcpy(pdst, psrc, w);
-		pdst += widthDst << 2;
-		psrc += widthSrc << 2;
+#endif
+		pdst += widthDst << PWSH;
+		psrc += widthSrc << PWSH;
 	    }
 	}
 #else /* ! DO_MEMCPY */
 	if (xdir == 1)
 	{
+#if PSZ == 24
+	    xoffSrc = (4 - pptSrc->x) & 3;
+	    xoffDst = (4 - pbox->x1) & 3;
+	    pdstLine += (pbox->x1 * 3) >> 2;
+	    psrcLine += (pptSrc->x * 3) >> 2;
+#else
 	    xoffSrc = pptSrc->x & PIM;
 	    xoffDst = pbox->x1 & PIM;
 	    pdstLine += (pbox->x1 >> PWSH);
 	    psrcLine += (pptSrc->x >> PWSH);
+#endif
 #ifdef DO_UNALIGNED_BITBLT
 	    nl = xoffSrc - xoffDst;
 	    psrcLine = (unsigned long *)
@@ -348,20 +379,28 @@ psrc += UNROLL;
 	    {
 		if (xoffSrc > xoffDst)
 		{
+#if PSZ == 24
+		    leftShift = (xoffSrc - xoffDst) << 3;
+#else
 #if PGSZ == 32
 		    leftShift = (xoffSrc - xoffDst) << (5 - PWSH);
 #else /* PGSZ == 64 */
 		    leftShift = (xoffSrc - xoffDst) << (6 - PWSH);
 #endif /* PGSZ */
+#endif
 		    rightShift = PGSZ - leftShift;
 		}
 		else
 		{
+#if PSZ == 24
+		    rightShift = (xoffDst - xoffSrc) << 3;
+#else
 #if PGSZ == 32
 		    rightShift = (xoffDst - xoffSrc) << (5 - PWSH);
 #else /* PGSZ == 64 */
 		    rightShift = (xoffDst - xoffSrc) << (6 - PWSH);
 #endif /* PGSZ */
+#endif
 		    leftShift = PGSZ - rightShift;
 		}
 		while (h--)
@@ -451,12 +490,23 @@ pdst++;
 #endif /* ! DO_MEMCPY */
 	else	/* xdir == -1 */
 	{
+#if PSZ == 24
+	    xoffSrc = (pptSrc->x + w) & 3;
+	    xoffDst = pbox->x2 & 3;
+	    pdstLine += ((pbox->x2 * 3 - 1) >> 2) + 1;
+	    psrcLine += (((pptSrc->x+w) * 3 - 1) >> 2) + 1;
+#else
 	    xoffSrc = (pptSrc->x + w - 1) & PIM;
 	    xoffDst = (pbox->x2 - 1) & PIM;
 	    pdstLine += ((pbox->x2-1) >> PWSH) + 1;
 	    psrcLine += ((pptSrc->x+w - 1) >> PWSH) + 1;
+#endif
 #ifdef DO_UNALIGNED_BITBLT
+#if PSZ == 24
+	    nl = xoffDst - xoffSrc;
+#else
 	    nl = xoffSrc - xoffDst;
+#endif
 	    psrcLine = (unsigned long *)
 			(((unsigned char *) psrcLine) + nl);
 #else
@@ -521,21 +571,31 @@ psrc -= UNROLL;
 	    {
 		if (xoffDst > xoffSrc)
 		{
+#if PSZ == 24
+		    leftShift = (xoffDst - xoffSrc) << 3;
+		    rightShift = PGSZ - leftShift;
+#else
 #if PGSZ == 32
 		    rightShift = (xoffDst - xoffSrc) << (5 - PWSH);
 #else /* PGSZ == 64 */
 		    rightShift = (xoffDst - xoffSrc) << (6 - PWSH);
 #endif /* PGSZ */
 		    leftShift = PGSZ - rightShift;
+#endif
 		}
 		else
 		{
+#if PSZ == 24
+		    rightShift = (xoffSrc - xoffDst) << 3;
+		    leftShift = PGSZ - rightShift;
+#else
 #if PGSZ == 32
 		    leftShift = (xoffSrc - xoffDst) << (5 - PWSH);
 #else /* PGSZ == 64 */
 		    leftShift = (xoffSrc - xoffDst) << (6 - PWSH);
 #endif /* PGSZ */
 		    rightShift = PGSZ - leftShift;
+#endif
 		}
 		while (h--)
 		{
@@ -544,7 +604,11 @@ psrc -= UNROLL;
 		    pdstLine += widthDst;
 		    psrcLine += widthSrc;
 		    bits = 0;
+#if PSZ == 24
+		    if (xoffSrc > xoffDst)
+#else
 		    if (xoffDst > xoffSrc)
+#endif
 			bits = *--psrc;
 		    if (endmask)
 		    {

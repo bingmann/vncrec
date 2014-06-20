@@ -1,4 +1,5 @@
 /* $XConsortium: cfbgetsp.c,v 5.14 94/04/17 20:28:50 dpw Exp $ */
+/* $XFree86: xc/programs/Xserver/cfb/cfbgetsp.c,v 3.0.4.1 1997/07/13 14:44:57 dawes Exp $ */
 /***********************************************************
 
 Copyright (c) 1987  X Consortium
@@ -89,6 +90,10 @@ cfbGetSpans(pDrawable, wMax, ppt, pwidth, nspans, pchardstStart)
     int			nlMiddle, nl, srcBit;
     int			w;
     PixelGroup		*pdstNext;
+#if PSZ == 24
+    register char *psrcb, *pdstb;
+    register int xIndex = 0;
+#endif
 
     switch (pDrawable->bitsPerPixel) {
 	case 1:
@@ -104,6 +109,7 @@ cfbGetSpans(pDrawable, wMax, ppt, pwidth, nspans, pchardstStart)
     cfbGetLongWidthAndPointer (pDrawable, widthSrc, psrcBase)
 
 #ifdef PIXEL_ADDR
+# if PSZ != 24
     if ((nspans == 1) && (*pwidth == 1))
     {
 	tmpSrc = *((PixelType *)(psrcBase + (ppt->y * widthSrc))
@@ -114,17 +120,45 @@ cfbGetSpans(pDrawable, wMax, ppt, pwidth, nspans, pchardstStart)
 	*pdstStart = tmpSrc;
 	return;
     }
+# endif /* PSZ != 24 */
 #endif
     pdst = pdstStart;
     pptLast = ppt + nspans;
     while(ppt < pptLast)
     {
-	xEnd = min(ppt->x + *pwidth, widthSrc << PWSH);
-	psrc = psrcBase + ppt->y * widthSrc + (ppt->x >> PWSH); 
+#if PSZ == 24
+	xEnd = min(ppt->x + *pwidth, widthSrc * sizeof(long) / 3);
 	w = xEnd - ppt->x;
+	psrc = psrcBase + ppt->y * widthSrc;
+	srcBit = ppt->x;
+	psrcb = (char *)psrc + (ppt->x * 3);
+	xIndex = 0;
+	pdstb = (char *)pdst;
+    	pdstNext = pdst + ((w * 3 + 3) >> 2);
+#else
+	xEnd = min(ppt->x + *pwidth, widthSrc << PWSH);
+	w = xEnd - ppt->x;
+	psrc = psrcBase + ppt->y * widthSrc + (ppt->x >> PWSH); 
 	srcBit = ppt->x & PIM;
     	pdstNext = pdst + ((w + PPW - 1) >> PWSH);
+#endif
 
+#if PSZ == 24
+	if (w < 0)
+	  FatalError("cfb24GetSpans: Internal error (w < 0)\n");
+	nl = w;
+	while (nl--){ 
+	  psrc = (PixelGroup *)((unsigned long)psrcb & ~0x03);
+	  getbits24(psrc, tmpSrc, srcBit);
+	  pdst = (PixelGroup *)((unsigned long)pdstb & ~0x03);
+	  putbits24(tmpSrc, nstart, PPW, pdst, ~((unsigned long)0), xIndex);
+	  srcBit++;
+	  psrcb += 3;
+	  xIndex++;
+	  pdstb += 3;
+	} 
+	pdst = pdstNext;
+#else /* PSZ == 24 */
 	if (srcBit + w <= PPW) 
 	{ 
 	    getbits(psrc, srcBit, w, tmpSrc);
@@ -159,6 +193,7 @@ cfbGetSpans(pDrawable, wMax, ppt, pwidth, nspans, pchardstStart)
 	    } 
 	    pdst = pdstNext;
 	} 
+#endif /* PSZ == 24 */
         ppt++;
 	pwidth++;
     }

@@ -1,4 +1,5 @@
-/* $XConsortium: dixfont.h,v 1.20 94/04/17 20:25:38 dpw Exp $ */
+/* $XConsortium: dixfont.h /main/21 1996/09/28 17:14:16 rws $ */
+/* $XFree86: xc/programs/Xserver/include/dixfont.h,v 3.1 1996/12/23 07:09:25 dawes Exp $ */
 /***********************************************************
 Copyright 1987 by Digital Equipment Corporation, Maynard, Massachusetts.
 
@@ -101,6 +102,14 @@ extern int ListFonts(
 #endif
 );
 
+int
+doListFontsWithInfo(
+#if NeedFunctionPrototypes
+    ClientPtr /*client*/,
+    LFWIclosurePtr /*c*/
+#endif
+);
+
 extern int doPolyText(
 #if NeedFunctionPrototypes
     ClientPtr /*client*/,
@@ -193,32 +202,136 @@ extern int GetDefaultPointSize(
 #endif
 );
 
-extern struct resolution *GetClientResolutions(
+extern FontResolutionPtr GetClientResolutions(
 #if NeedFunctionPrototypes
     int * /*num*/
 #endif
 );
 
-/* XXX leave these unprototyped for now -- need to do groundwork in 
- * fonts/include/fontstruct.h before we do these
+/* This is related to 'struct _FPEFunctions' in fonts/include/fontstruct.h
  */
 extern int RegisterFPEFunctions(
 #if NeedFunctionPrototypes
-    Bool (* /*name_func*/)(),
-    int (* /*init_func*/)(),
-    int (* /*free_func*/)(),
-    int (* /*reset_func*/)(),
-    int (* /*open_func*/)(),
-    int (* /*close_func*/)(),
-    int (* /*list_func*/)(),
-    int (* /*start_lfwi_func*/)(),
-    int (* /*next_lfwi_func*/)(),
-    int (* /*wakeup_func*/)(),
-    int (* /*client_died*/)(),
-    int (* /*load_glyphs*/)(),
-    int (* /*start_list_alias_func*/)(),
-    int (* /*next_list_alias_func*/)(),
-    void (* /* set_path_func*/) ()
+    int (* /*name_func*/)(
+#if NeedNestedPrototypes
+		char* /* name */
+#endif
+		),
+    int (* /*init_func*/)(
+#if NeedNestedPrototypes
+		FontPathElementPtr /* fpe */
+#endif
+		),
+    int (* /*free_func*/)(
+#if NeedNestedPrototypes
+		FontPathElementPtr /* fpe */
+#endif
+		),
+    int (* /*reset_func*/)(
+#if NeedNestedPrototypes
+		FontPathElementPtr /* fpe */
+#endif
+		),
+    int (* /*open_func*/)(
+#if NeedNestedPrototypes
+		pointer /* client */,
+		FontPathElementPtr /* fpe */,
+		int /* flags */,
+		char* /* name */,
+		int /* namelen */,
+		fsBitmapFormat /* format */,
+		fsBitmapFormatMask /* fmask */,
+		unsigned long /* id (type XID or FSID) */,
+		FontPtr* /* pFont */,
+		char** /* aliasName */,
+		FontPtr /* non_cachable_font */
+#endif
+		),
+    int (* /*close_func*/)(
+#if NeedNestedPrototypes
+		FontPathElementPtr /* fpe */,
+		FontPtr /* pFont */
+#endif
+		),
+    int (* /*list_func*/)(
+#if NeedNestedPrototypes
+		pointer /* client */,
+		FontPathElementPtr /* fpe */,
+		char* /* pat */,
+		int /* len */,
+		int /* max */,
+		FontNamesPtr /* names */
+#endif
+		),
+    int (* /*start_lfwi_func*/)(
+#if NeedNestedPrototypes
+		pointer /* client */,
+		FontPathElementPtr /* fpe */,
+		char* /* pat */,
+		int /* patlen */,
+		int /* maxnames */,
+		pointer* /* privatep */
+#endif
+		),
+    int (* /*next_lfwi_func*/)(
+#if NeedNestedPrototypes
+		pointer /* client */,
+		FontPathElementPtr /* fpe */,
+		char** /* name */,
+		int* /* namelen */,
+		FontInfoPtr* /* info */,
+		int* /* numFonts */,
+		pointer /* private */
+#endif
+		),
+    int (* /*wakeup_func*/)(
+#if NeedNestedPrototypes
+		FontPathElementPtr /* fpe */,
+		unsigned long* /* LastSelectMask */
+#endif
+		),
+    int (* /*client_died*/)(
+#if NeedNestedPrototypes
+		pointer /* client */,
+		FontPathElementPtr /* fpe */
+#endif
+		),
+    int (* /*load_glyphs*/)(
+#if NeedNestedPrototypes
+		pointer /* client */,
+		FontPtr /* pfont */,
+		Bool /* range_flag */,
+		unsigned int /* nchars */,
+		int /* item_size */,
+		unsigned char* /* data */
+#endif
+		),
+    int (* /*start_list_alias_func*/)(
+#if NeedNestedPrototypes
+		pointer /* client */,
+		FontPathElementPtr /* fpe */,
+		char* /* pat */,
+		int /* len */,
+		int /* max */,
+		pointer* /* privatep */
+#endif
+		),
+    int (* /*next_list_alias_func*/)(
+#if NeedNestedPrototypes
+		pointer /* client */,
+		FontPathElementPtr /* fpe */,
+		char** /* namep */,
+		int* /* namelenp */,
+		char** /* resolvedp */,
+		int* /* resolvedlenp */,
+		pointer /* private */
+#endif
+		),
+    void (* /* set_path_func*/)(
+#if NeedFunctionPrototypes
+		void
+#endif
+		)
 #endif
 );
 

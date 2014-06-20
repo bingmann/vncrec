@@ -1,4 +1,5 @@
 /* $XConsortium: transport.c,v 1.6 94/04/17 20:23:07 mor Exp $ */
+/* $XFree86: xc/lib/xtrans/transport.c,v 3.3 1996/05/06 05:55:14 dawes Exp $ */
 /*
 
 Copyright (c) 1993, 1994  X Consortium
@@ -52,6 +53,18 @@ from the X Consortium.
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#ifdef XSERV_t
+#include "os.h"
+#else
+#ifndef X_NOT_STDC_ENV
+#include <stdlib.h>
+#endif
+#define xalloc(_size)		malloc(_size)
+#define xcalloc(_num,_size)	calloc(_num,_size)
+#define xrealloc(_ptr,_size)	realloc(_ptr,_size)
+#define xfree(_ptr)		free(_ptr)
+#endif
+
 #include "Xtransint.h"
 
 #ifdef DNETCONN
@@ -59,6 +72,9 @@ from the X Consortium.
 #endif
 #ifdef LOCALCONN
 #include "Xtranslcl.c"
+#endif
+#ifdef OS2PIPECONN
+#include "Xtransos2.c"
 #endif
 #if defined(TCPCONN) || defined(UNIXCONN)
 #include "Xtranssock.c"
@@ -68,6 +84,9 @@ from the X Consortium.
 #endif
 #if defined(AMRPCCONN) || defined(AMTCPCONN)
 #include "Xtransam.c"
+#endif
+#if defined(MNX_TCPCONN)
+#include "Xtransmnx.c"
 #endif
 #include "Xtrans.c"
 #include "Xtransutil.c"

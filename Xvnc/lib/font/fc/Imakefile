@@ -1,10 +1,10 @@
-XCOMM $XConsortium: Imakefile,v 1.18 94/03/31 17:48:38 mor Exp $
+XCOMM $XConsortium: Imakefile /main/20 1995/12/13 18:07:57 kaleb $
 XCOMM
 XCOMM Make file for font handling routines
 XCOMM
 #include <Server.tmpl>
 
-        INCLUDES = -I$(FONTINCSRC) -I$(TOP)/include -I../include
+        INCLUDES = -I$(FONTINCSRC) -I../include
          HEADERS = 
             SRCS = fsconvert.c fserve.c fsio.c transport.c
             OBJS = fsconvert.o fserve.o fsio.o transport.o

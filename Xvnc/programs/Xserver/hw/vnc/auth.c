@@ -26,7 +26,6 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-#include <netinet/in.h>
 #include "windowstr.h"
 #include "rfb.h"
 
@@ -64,7 +63,7 @@ rfbAuthNewClient(cl)
     }
 
     if (WriteExact(cl->sock, buf, len) < 0) {
-	perror("rfbAuthNewClient: write");
+	rfbLogPerror("rfbAuthNewClient: write");
 	rfbCloseSock(cl->sock);
 	return;
     }
@@ -87,10 +86,8 @@ rfbAuthProcessClientMessage(cl)
     CARD32 authResult;
 
     if ((n = ReadExact(cl->sock, (char *)response, CHALLENGESIZE)) <= 0) {
-	if (n == 0)
-	    fprintf(stderr,"rfbAuthProcessClientMessage: client gone\n");
-	else
-	    perror("rfbAuthProcessClientMessage: read");
+	if (n != 0)
+	    rfbLogPerror("rfbAuthProcessClientMessage: read");
 	rfbCloseSock(cl->sock);
 	return;
     }
@@ -98,13 +95,13 @@ rfbAuthProcessClientMessage(cl)
     passwd = vncDecryptPasswdFromFile(rfbAuthPasswdFile);
 
     if (passwd == NULL) {
-	fprintf(stderr,"%s: could not get password from %s.\n",
-		"rfbAuthProcessClientMessage",rfbAuthPasswdFile);
+	rfbLog("rfbAuthProcessClientMessage: could not get password from %s\n",
+	       rfbAuthPasswdFile);
 
 	authResult = Swap32IfLE(rfbVncAuthFailed);
 
 	if (WriteExact(cl->sock, (char *)&authResult, 4) < 0) {
-	    perror("rfbAuthProcessClientMessage: write");
+	    rfbLogPerror("rfbAuthProcessClientMessage: write");
 	}
 	rfbCloseSock(cl->sock);
 	return;
@@ -120,16 +117,13 @@ rfbAuthProcessClientMessage(cl)
     free((char *)passwd);
 
     if (memcmp(cl->authChallenge, response, CHALLENGESIZE) != 0) {
-	struct sockaddr_in addr;
-	int addrlen = sizeof(struct sockaddr_in);
-	getpeername(cl->sock, (struct sockaddr *)&addr, &addrlen);
-	fprintf(stderr,"%s: authentication failed from %s\n",
-		"rfbAuthProcessClientMessage",inet_ntoa(addr.sin_addr));
+	rfbLog("rfbAuthProcessClientMessage: authentication failed from %s\n",
+	       cl->host);
 
 	authResult = Swap32IfLE(rfbVncAuthFailed);
 
 	if (WriteExact(cl->sock, (char *)&authResult, 4) < 0) {
-	    perror("rfbAuthProcessClientMessage: write");
+	    rfbLogPerror("rfbAuthProcessClientMessage: write");
 	}
 	rfbCloseSock(cl->sock);
 	return;
@@ -138,7 +132,7 @@ rfbAuthProcessClientMessage(cl)
     authResult = Swap32IfLE(rfbVncAuthOK);
 
     if (WriteExact(cl->sock, (char *)&authResult, 4) < 0) {
-	perror("rfbAuthProcessClientMessage: write");
+	rfbLogPerror("rfbAuthProcessClientMessage: write");
 	rfbCloseSock(cl->sock);
 	return;
     }

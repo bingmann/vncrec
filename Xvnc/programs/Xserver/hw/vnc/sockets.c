@@ -13,6 +13,9 @@
  * "rfb" are specific to sockets using the RFB protocol.  Those without the
  * "rfb" prefix are more general socket routines (which are used by the http
  * code).
+ *
+ * Thanks to Karl Hakimian for pointing out that some platforms return EAGAIN
+ * not EWOULDBLOCK.
  */
 
 /*
@@ -80,10 +83,10 @@ rfbInitSockets()
 	rfbPort = 5900 + atoi(display);
     }
 
-    fprintf(stderr,"rfbInitSockets: listening on TCP port %d\n", rfbPort);
+    rfbLog("Listening for VNC connections on TCP port %d\n", rfbPort);
 
     if ((rfbListenSock = ListenOnTCPPort(rfbPort)) < 0) {
-	perror("ListenOnTCPPort");
+	rfbLogPerror("ListenOnTCPPort");
 	exit(1);
     }
 
@@ -94,11 +97,10 @@ rfbInitSockets()
     maxFd = rfbListenSock;
 
     if (udpPort != 0) {
-	fprintf(stderr,"rfbInitSockets: listening for input on UDP port %d\n",
-		udpPort);
+	rfbLog("rfbInitSockets: listening for input on UDP port %d\n",udpPort);
 
 	if ((udpSock = ListenOnUDPPort(udpPort)) < 0) {
-	    perror("ListenOnUDPPort");
+	    rfbLogPerror("ListenOnUDPPort");
 	    exit(1);
 	}
 	AddEnabledDevice(udpSock);
@@ -135,7 +137,7 @@ rfbCheckFds()
 	return;
     }
     if (nfds < 0) {
-	perror("rfbCheckFds: select");
+	rfbLogPerror("rfbCheckFds: select");
 	return;
     }
 
@@ -143,24 +145,26 @@ rfbCheckFds()
 
 	if ((sock = accept(rfbListenSock,
 			   (struct sockaddr *)&addr, &addrlen)) < 0) {
-	    perror("rfbCheckFds: accept");
+	    rfbLogPerror("rfbCheckFds: accept");
 	    return;
 	}
 
 	if (fcntl(sock, F_SETFL, O_NONBLOCK) < 0) {
-	    perror("rfbCheckFds: fcntl");
+	    rfbLogPerror("rfbCheckFds: fcntl");
 	    close(sock);
 	    return;
 	}
 
 	if (setsockopt(sock, IPPROTO_TCP, TCP_NODELAY,
 		       (char *)&one, sizeof(one)) < 0) {
-	    perror("rfbCheckFds: setsockopt");
+	    rfbLogPerror("rfbCheckFds: setsockopt");
 	    close(sock);
 	    return;
 	}
 
-	fprintf(stderr,"rfbCheckFds: got connection\n");
+	fprintf(stderr,"\n");
+	rfbLog("Got connection from client %s\n", inet_ntoa(addr.sin_addr));
+
 	AddEnabledDevice(sock);
 	FD_SET(sock, &allFds);
 	maxFd = max(sock,maxFd);
@@ -177,7 +181,7 @@ rfbCheckFds()
 	if (recvfrom(udpSock, buf, 1, MSG_PEEK,
 		     (struct sockaddr *)&addr, &addrlen) < 0) {
 
-	    perror("rfbCheckFds: UDP: recvfrom");
+	    rfbLogPerror("rfbCheckFds: UDP: recvfrom");
 	    rfbDisconnectUDPSock();
 
 	} else {
@@ -186,14 +190,14 @@ rfbCheckFds()
 		(memcmp(&addr, &udpRemoteAddr, addrlen) != 0))
 	    {
 		/* new remote end */
-		fprintf(stderr,"rfbCheckFds: UDP: got connection\n");
+		rfbLog("rfbCheckFds: UDP: got connection\n");
 
 		memcpy(&udpRemoteAddr, &addr, addrlen);
 		udpSockConnected = TRUE;
 
 		if (connect(udpSock,
 			    (struct sockaddr *)&addr, addrlen) < 0) {
-		    perror("rfbCheckFds: UDP: connect");
+		    rfbLogPerror("rfbCheckFds: UDP: connect");
 		    rfbDisconnectUDPSock();
 		    return;
 		}
@@ -255,7 +259,7 @@ rfbWaitForClient(sock)
     tv.tv_usec = (rfbMaxClientWait % 1000) * 1000;
     n = select(sock+1, &fds, NULL, NULL, &tv);
     if (n < 0) {
-	perror("rfbWaitForClient: select");
+	rfbLogPerror("rfbWaitForClient: select");
 	exit(1);
     }
     if (n == 0) {
@@ -279,6 +283,10 @@ rfbConnect(host, port)
     int sock;
     int one = 1;
 
+    fprintf(stderr,"\n");
+    rfbLog("Making connection to client on host %s port %d\n",
+	   host,port);
+
     if ((sock = ConnectToTcpAddr(host, port)) < 0)
 	return -1;
 
@@ -293,7 +301,6 @@ rfbConnect(host, port)
 	return -1;
     }
 
-    fprintf(stderr,"rfbConnect: made connection\n");
     AddEnabledDevice(sock);
     FD_SET(sock, &allFds);
     maxFd = max(sock,maxFd);
@@ -333,7 +340,7 @@ ReadExact(sock, buf, len)
 	    return 0;
 
 	} else {
-	    if (errno != EWOULDBLOCK) {
+	    if (errno != EWOULDBLOCK && errno != EAGAIN) {
 		return n;
 	    }
 
@@ -343,7 +350,7 @@ ReadExact(sock, buf, len)
 	    tv.tv_usec = (rfbMaxClientWait % 1000) * 1000;
 	    n = select(sock+1, &fds, NULL, NULL, &tv);
 	    if (n < 0) {
-		perror("ReadExact: select");
+		rfbLogPerror("ReadExact: select");
 		return n;
 	    }
 	    if (n == 0) {
@@ -385,11 +392,11 @@ WriteExact(sock, buf, len)
 
 	} else if (n == 0) {
 
-	    fprintf(stderr,"WriteExact: write returned 0?\n");
+	    rfbLog("WriteExact: write returned 0?\n");
 	    exit(1);
 
 	} else {
-	    if (errno != EWOULDBLOCK) {
+	    if (errno != EWOULDBLOCK && errno != EAGAIN) {
 		return n;
 	    }
 
@@ -403,7 +410,7 @@ WriteExact(sock, buf, len)
 	    tv.tv_usec = 0;
 	    n = select(sock+1, NULL, &fds, NULL, &tv);
 	    if (n < 0) {
-		perror("WriteExact: select");
+		rfbLogPerror("WriteExact: select");
 		return n;
 	    }
 	    if (n == 0) {

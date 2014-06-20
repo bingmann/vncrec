@@ -28,6 +28,7 @@ Author:  Bob Scheifler, MIT X Consortium
 ********************************************************/
 
 /* $XConsortium: mifillarc.c,v 5.18 95/01/10 20:59:49 kaleb Exp $ */
+/* $XFree86: xc/programs/Xserver/mi/mifillarc.c,v 3.2 1995/01/28 16:15:52 dawes Exp $ */
 
 #include <math.h>
 #include "X.h"

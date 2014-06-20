@@ -1,4 +1,4 @@
-/* $XConsortium: fservestr.h,v 1.12 94/02/04 09:15:58 gildea Exp $ */
+/* $XConsortium: fservestr.h,v 1.13 95/06/09 22:16:29 gildea Exp $ */
 /*
  * Copyright 1990 Network Computing Devices
  *
@@ -142,7 +142,7 @@ typedef struct _fs_reconnect {
 } FSReconnectRec, *FSReconnectPtr;
 
 
-#if (__STDC__ && !defined(UNIXCPP)) || defined(ANSICPP)
+#if (defined(__STDC__) && !defined(UNIXCPP)) || defined(ANSICPP)
 #define fsCat(x,y) x##_##y
 #else
 #define fsCat(x,y) x/**/_/**/y

@@ -1,4 +1,4 @@
-/* $XConsortium: mibstore.c,v 5.62 94/04/17 20:27:23 dpw Exp $ */
+/* $XConsortium: mibstore.c,v 5.63 94/10/21 20:25:08 dpw Exp $ */
 /***********************************************************
 
 Copyright (c) 1987  X Consortium
@@ -838,7 +838,7 @@ miBSCreateGCPrivate (pGC)
     pPriv->pBackingGC = NULL;
     pPriv->guarantee = GuaranteeNothing;
     pPriv->serialNumber = 0;
-    pPriv->stateChanges = (1 << GCLastBit + 1) - 1;
+    pPriv->stateChanges = (1 << (GCLastBit + 1)) - 1;
     pPriv->wrapOps = pGC->ops;
     pPriv->wrapFuncs = pGC->funcs;
     pGC->funcs = &miBSGCFuncs;
@@ -2147,6 +2147,10 @@ miBSPushPixels(pGC, pBitMap, pDst, w, h, x, y)
     PROLOGUE(pGC);
 
     (* pGC->ops->PushPixels)(pGC, pBitMap, pDst, w, h, x, y);
+    if (pGC->miTranslate) {
+ 	x -= pDst->x;
+ 	y -= pDst->y;
+    }
     (* pBackingGC->ops->PushPixels)(pBackingGC, pBitMap,
 			       pBackingDrawable, w, h,
 			       x - pBackingStore->x, y - pBackingStore->y);

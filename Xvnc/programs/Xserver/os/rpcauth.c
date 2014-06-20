@@ -1,4 +1,5 @@
 /* $XConsortium: rpcauth.c,v 1.9 94/04/17 20:27:06 gildea Exp $ */
+/* $XFree86: xc/programs/Xserver/os/rpcauth.c,v 3.0 1995/07/07 15:46:07 dawes Exp $ */
 /*
 
 Copyright (c) 1991  X Consortium
@@ -106,7 +107,7 @@ int  len;
     return (((struct authdes_cred *) r.rq_clntcred)->adc_fullname.name); 
 
 bad2:
-    Xfree(r.rq_clntcred);
+    xfree(r.rq_clntcred);
 bad1:
     return ((char *)0); /* ((struct authdes_cred *) NULL); */
 }

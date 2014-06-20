@@ -1,4 +1,4 @@
-/* $XConsortium: miwideline.c,v 1.57 94/07/25 13:45:31 kaleb Exp $ */
+/* $XConsortium: miwideline.c /main/58 1996/08/12 21:51:21 dpw $ */
 /*
 
 Copyright (c) 1988  X Consortium
@@ -28,6 +28,7 @@ other dealings in this Software without prior written authorization
 from the X Consortium.
 
 */
+/* $XFree86: xc/programs/Xserver/mi/miwideline.c,v 1.1.1.3.2.2 1998/02/01 22:08:22 robin Exp $ */
 
 /* Author:  Keith Packard, MIT X Consortium */
 
@@ -250,7 +251,7 @@ miFillRectPolyHelper (pDrawable, pGC, pixel, spanData, x, y, w, h)
     }
 }
 
-static int
+int
 miPolyBuildEdge (x0, y0, k, dx, dy, xi, yi, left, edge)
     double	x0, y0;
     double	k;  /* x0 * dy - y0 * dx */
@@ -309,7 +310,7 @@ miPolyBuildEdge (x0, y0, k, dx, dy, xi, yi, left, edge)
 
 #define StepAround(v, incr, max) (((v) + (incr) < 0) ? (max - 1) : ((v) + (incr) == max) ? 0 : ((v) + (incr)))
 
-static int
+int
 miPolyBuildPoly (vertices, slopes, count, xi, yi, left, right, pnleft, pnright, h)
     register PolyVertexPtr vertices;
     register PolySlopePtr  slopes;
@@ -462,7 +463,7 @@ miLineJoin (pDrawable, pGC, pixel, spanData, pLeft, pRight)
     register LineFacePtr pLeft, pRight;
 {
     double	    mx, my;
-    int		    denom;
+    double	    denom;
     PolyVertexRec   vertices[4];
     PolySlopeRec    slopes[4];
     int		    edgecount;
@@ -478,7 +479,7 @@ miLineJoin (pDrawable, pGC, pixel, spanData, pLeft, pRight)
 	if (pLeft->dx >= 0 == pRight->dx <= 0)
 	    return;
 	if (joinStyle != JoinRound) {
-    	    denom = - pLeft->dx * pRight->dy + pRight->dx * pLeft->dy;
+    	    denom = - pLeft->dx * (double)pRight->dy + pRight->dx * (double)pLeft->dy;
     	    if (denom == 0)
 	    	return;	/* no join to draw */
 	}
@@ -494,8 +495,8 @@ miLineJoin (pDrawable, pGC, pixel, spanData, pLeft, pRight)
 		      (double)0.0, (double)0.0, TRUE);
 	    return;
     	}
-    	denom = - pLeft->dx * pRight->dy + pRight->dx * pLeft->dy;
-    	if (denom == 0)
+    	denom = - pLeft->dx * (double)pRight->dy + pRight->dx * (double)pLeft->dy;
+    	if (denom == 0.0)
 	    return;	/* no join to draw */
     }
 
@@ -535,7 +536,7 @@ miLineJoin (pDrawable, pGC, pixel, spanData, pLeft, pRight)
     {
     	my = (pLeft->dy  * (pRight->xa * pRight->dy - pRight->ya * pRight->dx) -
               pRight->dy * (pLeft->xa  * pLeft->dy  - pLeft->ya  * pLeft->dx )) /
-	      (double) denom;
+	      denom;
     	if (pLeft->dy != 0)
     	{
 	    mx = pLeft->xa + (my - pLeft->ya) *
@@ -910,9 +911,9 @@ miRoundJoinClip (pLeft, pRight, edge1, edge2, y1, y2, left1, left2)
     int		*y1, *y2;
     Bool	*left1, *left2;
 {
-    int	denom;
+    double	denom;
 
-    denom = - pLeft->dx * pRight->dy + pRight->dx * pLeft->dy;
+    denom = - pLeft->dx * (double)pRight->dy + pRight->dx * (double)pLeft->dy;
 
     if (denom >= 0)
     {

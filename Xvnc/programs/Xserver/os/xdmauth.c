@@ -1,4 +1,4 @@
-/* $XConsortium: xdmauth.c,v 1.13 94/04/17 20:27:08 gildea Exp $ */
+/* $XConsortium: xdmauth.c,v 1.14 95/07/10 21:18:07 gildea Exp $ */
 /*
 
 Copyright (c) 1988  X Consortium
@@ -37,7 +37,9 @@ from the X Consortium.
  */
 
 #include "X.h"
+#include "Xtrans.h"
 #include "os.h"
+#include "osdep.h"
 #include "dixstruct.h"
 
 #ifdef HASXDMAUTH
@@ -145,7 +147,7 @@ XdmAuthenticationInit (cookie, cookie_len)
     {
 	if (cookie_len > 2 + 2 * 8)
 	    cookie_len = 2 + 2 * 8;
-	HexToBinary (cookie + 2, privateKey.data, cookie_len - 2);
+	HexToBinary (cookie + 2, (char *)privateKey.data, cookie_len - 2);
     }
     else
     {
@@ -186,6 +188,7 @@ static long	    clockOffset;
 static Bool	    gotClock;
 
 #define TwentyMinutes	(20 * 60)
+#define TwentyFiveMinutes (25 * 60)
 
 static Bool
 XdmClientAuthCompare (a, b)
@@ -237,7 +240,7 @@ XdmClientAuthTimeout (now)
     for (client = xdmClients; client; client=next)
     {
 	next = client->next;
-	if (abs (now - client->time) > TwentyMinutes)
+	if (abs (now - client->time) > TwentyFiveMinutes)
 	{
 	    if (prev)
 		prev->next = next;
@@ -251,14 +254,16 @@ XdmClientAuthTimeout (now)
 }
 
 static XdmClientAuthPtr
-XdmAuthorizationValidate (plain, length, rho, reason)
-    char		*plain;
+XdmAuthorizationValidate (plain, length, rho, xclient, reason)
+    unsigned char	*plain;
     int			length;
     XdmAuthKeyPtr	rho;
+    ClientPtr		xclient;
     char		**reason;
 {
     XdmClientAuthPtr	client, existing;
     long		now;
+    int			i;
 
     if (length != (192 / 8)) {
 	if (reason)
@@ -275,6 +280,34 @@ XdmAuthorizationValidate (plain, length, rho, reason)
 	if (reason)
 	    *reason = "Invalid XDM-AUTHORIZATION-1 key value";
 	return NULL;
+    }
+    for (i = 18; i < 24; i++)
+	if (plain[i] != 0) {
+	    xfree (client);
+	    if (reason)
+		*reason = "Invalid XDM-AUTHORIZATION-1 key value";
+	    return NULL;
+	}
+    if (xclient) {
+	int family, addr_len;
+	Xtransaddr *addr;
+
+	if (_XSERVTransGetPeerAddr(((OsCommPtr)xclient->osPrivate)->trans_conn,
+				   &family, &addr_len, &addr) == 0
+	    && _XSERVTransConvertAddress(&family, &addr_len, &addr) == 0) {
+#ifdef TCPCONN
+	    if (family == FamilyInternet &&
+		memcmp((char *)addr, client->client, 4) != 0) {
+		xfree (client);
+		xfree (addr);
+		if (reason)
+		    *reason = "Invalid XDM-AUTHORIZATION-1 key value";
+		return NULL;
+
+	    }
+#endif
+	    xfree (addr);
+	}
     }
     now = time(0);
     if (!gotClock)
@@ -360,17 +393,17 @@ XdmCheckCookie (cookie_length, cookie, xclient, reason)
 {
     XdmAuthorizationPtr	auth;
     XdmClientAuthPtr	client;
-    char		*plain;
+    unsigned char	*plain;
 
     /* Auth packets must be a multiple of 8 bytes long */
     if (cookie_length & 7)
 	return (XID) -1;
-    plain = (char *) xalloc (cookie_length);
+    plain = (unsigned char *) xalloc (cookie_length);
     if (!plain)
 	return (XID) -1;
     for (auth = xdmAuth; auth; auth=auth->next) {
 	XdmcpUnwrap (cookie, &auth->key, plain, cookie_length);
-	if (client = XdmAuthorizationValidate (plain, cookie_length, &auth->rho, reason))
+	if (client = XdmAuthorizationValidate (plain, cookie_length, &auth->rho, xclient, reason))
 	{
 	    client->next = xdmClients;
 	    xdmClients = client;
@@ -410,14 +443,14 @@ char	*cookie;
 {
     XdmAuthorizationPtr	auth;
     XdmClientAuthPtr	client;
-    char		*plain;
+    unsigned char	*plain;
 
-    plain = (char *) xalloc (cookie_length);
+    plain = (unsigned char *) xalloc (cookie_length);
     if (!plain)
 	return (XID) -1;
     for (auth = xdmAuth; auth; auth=auth->next) {
 	XdmcpUnwrap (cookie, &auth->key, plain, cookie_length);
-	if (client = XdmAuthorizationValidate (plain, cookie_length, &auth->rho, NULL))
+	if (client = XdmAuthorizationValidate (plain, cookie_length, &auth->rho, NULL, NULL))
 	{
 	    xfree (client);
 	    xfree (cookie);

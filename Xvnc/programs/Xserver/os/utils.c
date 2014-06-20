@@ -1,4 +1,4 @@
-/* $XConsortium: utils.c,v 1.147 94/08/16 14:03:23 dpw Exp $ */
+/* $TOG: utils.c /main/128 1997/06/01 13:50:39 sekhar $ */
 /*
 
 Copyright (c) 1987  X Consortium
@@ -51,10 +51,13 @@ OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE
 OR PERFORMANCE OF THIS SOFTWARE.
 
 */
+/* $XFree86: xc/programs/Xserver/os/utils.c,v 3.27.2.6 1998/02/20 15:13:58 robin Exp $ */
 
+#ifdef WIN32
+#include <X11/Xwinsock.h>
+#endif
 #include "Xos.h"
 #include <stdio.h>
-#include <netdb.h>
 #include "misc.h"
 #include "X.h"
 #include "input.h"
@@ -72,7 +75,7 @@ OR PERFORMANCE OF THIS SOFTWARE.
 #undef _POSIX_SOURCE
 #endif
 #endif
-#ifndef SYSV
+#if !defined(SYSV) && !defined(AMOEBA) && !defined(_MINIX) && !defined(WIN32) && !defined(Lynx)
 #include <sys/resource.h>
 #endif
 #include <time.h>
@@ -80,6 +83,25 @@ OR PERFORMANCE OF THIS SOFTWARE.
 #include <ctype.h>    /* for isspace */
 #if NeedVarargsPrototypes
 #include <stdarg.h>
+#endif
+
+#ifdef AMOEBA
+#include "osdep.h"
+#include <amoeba.h>
+#include <module/mutex.h>
+
+static mutex print_lock;
+#endif
+
+#if defined(__STDC__) || defined(AMOEBA)
+/* DHD: SVR4.0 has a prototype for abs() in stdlib.h */
+/* DHD: might be better to move this include higher up? */
+#ifdef abs
+#undef abs
+#endif
+#ifndef NOSTDHDRS
+#include <stdlib.h>	/* for malloc() */
+#endif
 #endif
 
 extern char *display;
@@ -107,16 +129,14 @@ extern int defaultColorVisualClass;
 extern Bool permitOldBugs;
 extern int monitorResolution;
 extern Bool defeatAccessControl;
+#ifdef SERVER_LOCK
+static Bool nolock = FALSE;
+#endif
+
+extern char* protNoListen;
 
 Bool CoreDump;
 Bool noTestExtensions;
-
-Bool noXkbExtension = 
-#ifdef XKB
-    FALSE;
-#else
-    TRUE;
-#endif
 
 int auditTrailLevel = 1;
 
@@ -126,7 +146,6 @@ void VErrorF(char*, va_list);
 #endif
 
 #ifdef AIXV3
-#define AIXFILE "/tmp/aixfile"
 FILE *aixfd;
 int SyncOn  = 0;
 extern int SelectWaitTime;
@@ -141,7 +160,9 @@ extern int SelectWaitTime;
 #ifdef MEMBUG
 #define MEM_FAIL_SCALE 100000
 long Memory_fail = 0;
-
+#ifdef linux
+#include <stdlib.h>  /* for random() */
+#endif
 #endif
 
 #ifdef sgi
@@ -172,6 +193,216 @@ OsSignal(sig, handler)
 #endif
 }
 
+#include <errno.h>
+extern int errno;
+
+#ifdef SERVER_LOCK
+/*
+ * Explicit support for a server lock file like the ones used for UUCP.
+ * For architectures with virtual terminals that can run more than one
+ * server at a time.  This keeps the servers from stomping on each other
+ * if the user forgets to give them different display numbers.
+ */
+#ifndef __EMX__
+#define LOCK_DIR "/tmp"
+#define LOCK_TMP_PREFIX "/.tX"
+#define LOCK_PREFIX "/.X"
+#define LOCK_SUFFIX "-lock"
+#else
+#define LOCK_TMP_PREFIX "/xf86$"
+#define LOCK_PREFIX "/xf86_"
+#define LOCK_SUFFIX ".lck"
+#endif
+
+#ifdef _MINIX
+#include <limits.h>	/* For PATH_MAX */
+#endif
+
+#ifdef __EMX__
+#define link rename
+#endif
+
+#ifndef PATH_MAX
+#ifndef Lynx
+#include <sys/param.h>
+#else
+#include <param.h>
+#endif
+#ifndef PATH_MAX
+#ifdef MAXPATHLEN
+#define PATH_MAX MAXPATHLEN
+#else
+#define PATH_MAX 1024
+#endif
+#endif
+#endif
+
+static Bool StillLocking = FALSE;
+static char LockFile[PATH_MAX];
+
+/*
+ * LockServer --
+ *      Check if the server lock file exists.  If so, check if the PID
+ *      contained inside is valid.  If so, then die.  Otherwise, create
+ *      the lock file containing the PID.
+ */
+void
+LockServer()
+{
+#ifndef AMOEBA
+  char tmp[PATH_MAX], pid_str[12];
+  int lfd, i, haslock, l_pid, t;
+  char *tmppath = NULL;
+  int len;
+
+  if (nolock) return;
+  /*
+   * Path names
+   */
+#ifndef __EMX__
+  tmppath = LOCK_DIR;
+#else
+  /* OS/2 uses TMP directory, must also prepare for 8.3 names */
+  tmppath = getenv("TMP");
+  if (!tmppath)
+    FatalError("No TMP dir found\n");
+#endif
+
+  len = strlen(LOCK_PREFIX) > strlen(LOCK_TMP_PREFIX) ? strlen(LOCK_PREFIX) :
+						strlen(LOCK_TMP_PREFIX);
+  len += strlen(tmppath) + strlen(display) + strlen(LOCK_SUFFIX) + 1;
+  if (len > sizeof(LockFile))
+    FatalError("Display name `%s' is too long\n");
+  (void)sprintf(tmp, "%s" LOCK_TMP_PREFIX "%s" LOCK_SUFFIX, tmppath, display);
+  (void)sprintf(LockFile, "%s" LOCK_PREFIX "%s" LOCK_SUFFIX, tmppath, display);
+
+  /*
+   * Create a temporary file containing our PID.  Attempt three times
+   * to create the file.
+   */
+  StillLocking = TRUE;
+  i = 0;
+  do {
+    i++;
+    lfd = open(tmp, O_CREAT | O_EXCL | O_WRONLY, 0644);
+    if (lfd < 0)
+       sleep(2);
+    else
+       break;
+  } while (i < 3);
+  if (lfd < 0) {
+    unlink(tmp);
+    i = 0;
+    do {
+      i++;
+      lfd = open(tmp, O_CREAT | O_EXCL | O_WRONLY, 0644);
+      if (lfd < 0)
+         sleep(2);
+      else
+         break;
+    } while (i < 3);
+  }
+  if (lfd < 0)
+    FatalError("Could not create lock file in %s\n", tmp);
+  (void) sprintf(pid_str, "%10d\n", getpid());
+  (void) write(lfd, pid_str, 11);
+#ifndef __EMX__
+#ifndef USE_CHMOD
+  (void) fchmod(lfd, 0444);
+#else
+  (void) chmod(tmp, 0444);
+#endif
+#endif
+  (void) close(lfd);
+
+  /*
+   * OK.  Now the tmp file exists.  Try three times to move it in place
+   * for the lock.
+   */
+  i = 0;
+  haslock = 0;
+  while ((!haslock) && (i++ < 3)) {
+    haslock = (link(tmp,LockFile) == 0);
+    if (haslock) {
+      /*
+       * We're done.
+       */
+      break;
+    }
+    else {
+      /*
+       * Read the pid from the existing file
+       */
+      lfd = open(LockFile, O_RDONLY);
+      if (lfd < 0) {
+        unlink(tmp);
+        FatalError("Can't read lock file %s\n", LockFile);
+      }
+      pid_str[0] = '\0';
+      if (read(lfd, pid_str, 11) != 11) {
+        /*
+         * Bogus lock file.
+         */
+        unlink(LockFile);
+        close(lfd);
+        continue;
+      }
+      pid_str[11] = '\0';
+      sscanf(pid_str, "%d", &l_pid);
+      close(lfd);
+
+      /*
+       * Now try to kill the PID to see if it exists.
+       */
+      errno = 0;
+      t = kill(l_pid, 0);
+      if ((t< 0) && (errno == ESRCH)) {
+        /*
+         * Stale lock file.
+         */
+        unlink(LockFile);
+        continue;
+      }
+      else if (((t < 0) && (errno == EPERM)) || (t == 0)) {
+        /*
+         * Process is still active.
+         */
+        unlink(tmp);
+	FatalError("Server is already active for display %s\n%s %s\n%s\n",
+		   display, "\tIf this server is no longer running, remove",
+		   LockFile, "\tand start again.");
+      }
+    }
+  }
+  unlink(tmp);
+  if (!haslock)
+    FatalError("Could not create server lock file: %s\n", LockFile);
+  StillLocking = FALSE;
+#endif /* !AMOEBA */
+}
+
+/*
+ * UnlockServer --
+ *      Remove the server lock file.
+ */
+void
+UnlockServer()
+{
+#ifndef AMOEBA
+  if (nolock) return;
+
+  if (!StillLocking){
+
+#ifdef __EMX__
+  (void) chmod(LockFile,S_IREAD|S_IWRITE);
+#endif /* __EMX__ */
+  (void) unlink(LockFile);
+  }
+#endif
+
+}
+#endif /* SERVER_LOCK */
+
 /* Force connections to close on SIGHUP from init */
 
 /*ARGSUSED*/
@@ -188,6 +419,9 @@ AutoResetServer (sig)
 #if defined(SYSV) && defined(X_NOT_POSIX)
     OsSignal (SIGHUP, AutoResetServer);
 #endif
+#ifdef AMOEBA
+    WakeUpMainThread();
+#endif
 }
 
 /* Force connections to close and then exit on SIGTERM, SIGINT */
@@ -203,16 +437,26 @@ GiveUp(sig)
     if (sig)
 	OsSignal(sig, SIG_IGN);
 #endif
+#ifdef AMOEBA
+    WakeUpMainThread();
+#endif
 }
 
+#if __GNUC__
+static void AbortServer() __attribute__((noreturn));
+#endif
 
 static void
 AbortServer()
 {
     extern void AbortDDX();
 
+    OsCleanup();
     AbortDDX();
     fflush(stderr);
+#ifdef AMOEBA
+    IOPCleanUp();
+#endif
     if (CoreDump)
 	abort();
     exit (1);
@@ -222,17 +466,27 @@ void
 Error(str)
     char *str;
 {
+#ifdef AMOEBA
+    mu_lock(&print_lock);
+#endif
     perror(str);
+#ifdef AMOEBA
+    mu_unlock(&print_lock);
+#endif
 }
 
 #ifndef DDXTIME
 CARD32
 GetTimeInMillis()
 {
+#ifndef AMOEBA
     struct timeval  tp;
 
     X_GETTIMEOFDAY(&tp);
     return(tp.tv_sec * 1000) + (tp.tv_usec / 1000);
+#else
+    return sys_milli();
+#endif
 }
 #endif
 
@@ -264,23 +518,33 @@ AdjustWaitForDelay (waitTime, newdelay)
 void UseMsg()
 {
 #if !defined(AIXrt) && !defined(AIX386)
+#ifndef AMOEBA
     ErrorF("use: X [:<display>] [option]\n");
+#else
+    ErrorF("use: X [[<host>]:<display>] [option]\n");
+#endif
     ErrorF("-a #                   mouse acceleration (pixels)\n");
     ErrorF("-ac                    disable access control restrictions\n");
 #ifdef MEMBUG
     ErrorF("-alloc int             chance alloc should fail\n");
 #endif
     ErrorF("-audit int             set audit trail level\n");	
-    ErrorF("-auth string           select authorization file\n");	
+    ErrorF("-auth file             select authorization file\n");	
     ErrorF("bc                     enable bug compatibility\n");
     ErrorF("-bs                    disable any backing store support\n");
     ErrorF("-c                     turns off key-click\n");
     ErrorF("c #                    key-click volume (0-100)\n");
     ErrorF("-cc int                default color visual class\n");
-    ErrorF("-co string             color database file\n");
-    ErrorF("-config string         read options from file\n");
+    ErrorF("-co file               color database file\n");
+#if 0
+    ErrorF("-config file           read options from file\n");
+#endif
     ErrorF("-core                  generate core dump on fatal error\n");
     ErrorF("-dpi int               screen resolution in dots per inch\n");
+#ifdef DPMSExtension
+    ErrorF("dpms                   enables VESA DPMS monitor control\n");
+    ErrorF("-dpms                  disables VESA DPMS monitor control\n");
+#endif
     ErrorF("-deferglyphs [none|all|16] defer loading of [no|all|16-bit] glyphs\n");
     ErrorF("-f #                   bell base (0-100)\n");
     ErrorF("-fc string             cursor font\n");
@@ -288,10 +552,6 @@ void UseMsg()
     ErrorF("-fp string             default font path\n");
     ErrorF("-help                  prints message with these options\n");
     ErrorF("-I                     ignore all remaining arguments\n");
-    ErrorF("-kb                    disable XKB extension\n");
-#ifdef XKB
-    XkbUseMsg();
-#endif
 #ifdef RLIMIT_DATA
     ErrorF("-ld int                limit data space to N Kb\n");
 #endif
@@ -301,15 +561,23 @@ void UseMsg()
 #ifdef RLIMIT_STACK
     ErrorF("-ls int                limit stack space to N Kb\n");
 #endif
+#ifdef SERVER_LOCK
+    ErrorF("-nolock                disable the locking mechanism\n");
+#endif
 #ifndef NOLOGOHACK
     ErrorF("-logo                  enable logo in screen saver\n");
     ErrorF("nologo                 disable logo in screen saver\n");
 #endif
+    ErrorF("-nolisten string       don't listen on protocol\n");
     ErrorF("-p #                   screen-saver pattern duration (minutes)\n");
     ErrorF("-pn                    accept failure to listen on all ports\n");
+    ErrorF("-nopn                  reject failure to listen on all ports\n");
     ErrorF("-r                     turns off auto-repeat\n");
     ErrorF("r                      turns on auto-repeat \n");
     ErrorF("-s #                   screen-saver timeout (minutes)\n");
+#ifdef XCSECURITY
+    ErrorF("-sp file               security policy file\n");
+#endif
     ErrorF("-su                    disable any save under support\n");
     ErrorF("-t #                   mouse threshold (pixels)\n");
     ErrorF("-terminate             terminate at server reset\n");
@@ -320,10 +588,16 @@ void UseMsg()
     ErrorF("-v                     screen-saver without video blanking\n");
     ErrorF("-wm                    WhenMapped default backing-store\n");
     ErrorF("-x string              loads named extension at init time \n");
+#ifdef AMOEBA
+    ErrorF("-tcp capability        specify TCP/IP server capability\n");
+#endif
 #ifdef XDMCP
     XdmcpUseMsg();
 #endif
 #endif /* !AIXrt && ! AIX386 */
+#ifdef XKB
+    XkbUseMsg();
+#endif
     ddxUseMsg();
 }
 
@@ -340,7 +614,15 @@ char	*argv[];
 {
     int i, skip;
 
+#ifdef AMOEBA
+    mu_init(&print_lock);
+#endif
+
     defaultKeyboardControl.autoRepeat = TRUE;
+
+#ifdef PART_NET
+	PartialNetwork = TRUE;
+#endif
 
 #ifdef AIXV3
     OpenDebug();
@@ -358,6 +640,22 @@ char	*argv[];
 	    display = argv[i];
 	    display++;
 	}
+#ifdef AMOEBA
+        else if (strchr(argv[i], ':') != NULL) {
+            char *p;
+
+            XServerHostName = argv[i];
+            if ((p = strchr(argv[i], ':')) != NULL) {
+                *p++ = '\0';
+                display = p;
+            }
+        } else if (strcmp( argv[i], "-tcp") == 0) {
+            if (++i < argc)
+                XTcpServerName = argv[i];
+            else
+                UseMsg();
+        }
+#endif /* AMOEBA */
 	else if ( strcmp( argv[i], "-a") == 0)
 	{
 	    if(++i < argc)
@@ -430,6 +728,12 @@ char	*argv[];
 	    else
 		UseMsg();
 	}
+#ifdef DPMSExtension
+	else if ( strcmp( argv[i], "dpms") == 0)
+	    DPMSEnabledSwitch = TRUE;
+	else if ( strcmp( argv[i], "-dpms") == 0)
+	    DPMSDisabledSwitch = TRUE;
+#endif
 	else if ( strcmp( argv[i], "-deferglyphs") == 0)
 	{
 	    if(++i >= argc || !ParseGlyphCachingMode(argv[i]))
@@ -473,12 +777,6 @@ char	*argv[];
 	    UseMsg();
 	    exit(0);
 	}
-	else if ( strcmp( argv[i], "-kb") == 0)
-	{
-#ifdef XKB
-	    noXkbExtension = TRUE;
-#endif
-	}
 #ifdef XKB
         else if ( (skip=XkbProcessArguments(argc,argv,i))!=0 ) {
 	    if (skip>0)
@@ -521,6 +819,12 @@ char	*argv[];
 		UseMsg();
 	}
 #endif
+#ifdef SERVER_LOCK
+	else if ( strcmp ( argv[i], "-nolock") == 0)
+	{
+	    nolock = TRUE;
+	}
+#endif
 #ifndef NOLOGOHACK
 	else if ( strcmp( argv[i], "-logo") == 0)
 	{
@@ -531,6 +835,13 @@ char	*argv[];
 	    logoScreenSaver = 0;
 	}
 #endif
+	else if ( strcmp( argv[i], "-nolisten") == 0)
+	{
+            if(++i < argc)
+	        protNoListen = argv[i];
+	    else
+		UseMsg();
+	}
 	else if ( strcmp( argv[i], "-p") == 0)
 	{
 	    if(++i < argc)
@@ -541,6 +852,8 @@ char	*argv[];
 	}
 	else if ( strcmp( argv[i], "-pn") == 0)
 	    PartialNetwork = TRUE;
+	else if ( strcmp( argv[i], "-nopn") == 0)
+	    PartialNetwork = FALSE;
 	else if ( strcmp( argv[i], "r") == 0)
 	    defaultKeyboardControl.autoRepeat = TRUE;
 	else if ( strcmp( argv[i], "-r") == 0)
@@ -571,7 +884,7 @@ char	*argv[];
 	else if ( strcmp( argv[i], "-to") == 0)
 	{
 	    if(++i < argc)
-		TimeOutValue = ((long)atoi(argv[i])) * MILLI_PER_SECOND;
+		TimeOutValue = ((CARD32)atoi(argv[i])) * MILLI_PER_SECOND;
 	    else
 		UseMsg();
 	}
@@ -609,6 +922,18 @@ char	*argv[];
 	    i = skip - 1;
 	}
 #endif
+#ifdef XPRINT
+	else if ((skip = XprintOptions(argc, argv, i)) != i)
+	{
+	    i = skip - 1;
+	}
+#endif
+#ifdef XCSECURITY
+	else if ((skip = XSecurityOptions(argc, argv, i)) != i)
+	{
+	    i = skip - 1;
+	}
+#endif
 #ifdef AIXV3
         else if ( strcmp( argv[i], "-timeout") == 0)
         {
@@ -624,12 +949,14 @@ char	*argv[];
 #endif
  	else
  	{
+	    ErrorF("Unrecognized option: %s\n", argv[i]);
 	    UseMsg();
 	    exit (1);
         }
     }
 }
 
+#if 0
 static void
 InsertFileIntoCommandLine(resargc, resargv, prefix_argc, prefix_argv,
 			  filename, suffix_argc, suffix_argv)
@@ -724,6 +1051,7 @@ ExpandCommandLine(pargc, pargv)
     char ***pargv;
 {
     int i;
+
     for (i = 1; i < *pargc; i++)
     {
 	if ( (0 == strcmp((*pargv)[i], "-config")) && (i < (*pargc - 1)) )
@@ -736,6 +1064,13 @@ ExpandCommandLine(pargc, pargv)
 	}
     }
 } /* end ExpandCommandLine */
+#endif
+
+#if defined(TCPCONN) || defined(STREAMSCONN)
+#ifndef WIN32
+#include <netdb.h>
+#endif
+#endif
 
 /* Implement a simple-minded font authorization scheme.  The authorization
    name is "hp-hostname-1", the contents are simply the host name. */
@@ -783,7 +1118,7 @@ pointer client;
 }
 
 /* XALLOC -- X's internal memory allocator.  Why does it return unsigned
- * int * instead of the more common char *?  Well, if you read K&R you'll
+ * long * instead of the more common char *?  Well, if you read K&R you'll
  * see they say that alloc must return a pointer "suitable for conversion"
  * to whatever type you really want.  In a full-blown generic allocator
  * there's no way to solve the alignment problems without potentially
@@ -794,15 +1129,20 @@ pointer client;
  * expectations of malloc, but this makes lint happier.
  */
 
+#ifndef INTERNAL_MALLOC
+
 unsigned long * 
 Xalloc (amount)
     unsigned long amount;
 {
+#if !defined(__STDC__) && !defined(AMOEBA)
     char		*malloc();
+#endif
     register pointer  ptr;
 	
-    if ((long)amount <= 0)
+    if ((long)amount <= 0) {
 	return (unsigned long *)NULL;
+    }
     /* aligned extra on long word boundary */
     amount = (amount + (sizeof(long) - 1)) & ~(sizeof(long) - 1);
 #ifdef MEMBUG
@@ -810,8 +1150,9 @@ Xalloc (amount)
 	((random() % MEM_FAIL_SCALE) < Memory_fail))
 	return (unsigned long *)NULL;
 #endif
-    if (ptr = (pointer)malloc(amount))
+    if (ptr = (pointer)malloc(amount)) {
 	return (unsigned long *)ptr;
+    }
     if (Must_have_memory)
 	FatalError("Out of memory");
     return (unsigned long *)NULL;
@@ -826,7 +1167,9 @@ unsigned long *
 XNFalloc (amount)
     unsigned long amount;
 {
+#if !defined(__STDC__) && !defined(AMOEBA)
     char             *malloc();
+#endif
     register pointer ptr;
 
     if ((long)amount <= 0)
@@ -834,7 +1177,7 @@ XNFalloc (amount)
         return (unsigned long *)NULL;
     }
     /* aligned extra on long word boundary */
-    amount = (amount + 3) & ~3;
+    amount = (amount + (sizeof(long) - 1)) & ~(sizeof(long) - 1);
     ptr = (pointer)malloc(amount);
     if (!ptr)
     {
@@ -868,8 +1211,10 @@ Xrealloc (ptr, amount)
     register pointer ptr;
     unsigned long amount;
 {
+#if !defined(__STDC__) && !defined(AMOEBA)
     char *malloc();
     char *realloc();
+#endif
 
 #ifdef MEMBUG
     if (!Must_have_memory && Memory_fail &&
@@ -882,7 +1227,7 @@ Xrealloc (ptr, amount)
 	    free(ptr);
 	return (unsigned long *)NULL;
     }
-    amount = (amount + 3) & ~3;
+    amount = (amount + (sizeof(long) - 1)) & ~(sizeof(long) - 1);
     if (ptr)
         ptr = (pointer)realloc((char *)ptr, amount);
     else
@@ -924,6 +1269,7 @@ Xfree(ptr)
 	free((char *)ptr); 
 }
 
+void
 OsInitAllocator ()
 {
 #ifdef MEMBUG
@@ -936,17 +1282,11 @@ OsInitAllocator ()
 	been_here = 1;
 #endif
 }
-
-/*VARARGS1*/
-void
-AuditF(
-#if NeedVarargsPrototypes
-    char * f, ...)
-#else
- f, s0, s1, s2, s3, s4, s5, s6, s7, s8, s9) /* limit of ten args */
-    char *f;
-    char *s0, *s1, *s2, *s3, *s4, *s5, *s6, *s7, *s8, *s9;
 #endif
+
+void
+AuditPrefix(f)
+    char *f;
 {
 #ifdef X_NOT_STDC_ENV
     long tm;
@@ -954,10 +1294,6 @@ AuditF(
     time_t tm;
 #endif
     char *autime, *s;
-#if NeedVarargsPrototypes
-    va_list args;
-#endif
-
     if (*f != ' ')
     {
 	time(&tm);
@@ -970,6 +1306,25 @@ AuditF(
 	    s = argvGlobal[0];
 	ErrorF("AUDIT: %s: %d %s: ", autime, getpid(), s);
     }
+}
+
+/*VARARGS1*/
+void
+AuditF(
+#if NeedVarargsPrototypes
+    char * f, ...)
+#else
+    f, s0, s1, s2, s3, s4, s5, s6, s7, s8, s9) /* limit of ten args */
+    char *f;
+    char *s0, *s1, *s2, *s3, *s4, *s5, *s6, *s7, *s8, *s9;
+#endif
+{
+#if NeedVarargsPrototypes
+    va_list args;
+#endif
+
+    AuditPrefix(f);
+
 #if NeedVarargsPrototypes
     va_start(args, f);
     VErrorF(f, args);
@@ -1002,6 +1357,9 @@ f, s0, s1, s2, s3, s4, s5, s6, s7, s8, s9) /* limit of ten args */
     ErrorF(f, s0, s1, s2, s3, s4, s5, s6, s7, s8, s9);
 #endif
     ErrorF("\n");
+#ifdef DDXOSFATALERROR
+    OsVendorFatalError();
+#endif
     AbortServer();
     /*NOTREACHED*/
 }
@@ -1046,7 +1404,13 @@ ErrorF(
     if (SyncOn)
         sync();
 #else /* not AIXV3 */
+#ifdef AMOEBA
+    mu_lock(&print_lock);
+#endif
     fprintf( stderr, f, s0, s1, s2, s3, s4, s5, s6, s7, s8, s9);
+#ifdef AMOEBA
+    mu_unlock(&print_lock);
+#endif
 #endif /* AIXV3 */
 #endif
 }
@@ -1054,11 +1418,183 @@ ErrorF(
 #ifdef AIXV3
 OpenDebug()
 {
-        if((aixfd = fopen(AIXFILE,"w")) == NULL )
+    char aixlogfile[100];
+    struct stat aixfilebuf;
+
+        sprintf(aixlogfile,"/tmp/xlogfile%d",getpid());
+
+        /* if the logfile already exists & is a symlink, fopen() overwrites
+         * it without unlinking the file. It is necessary to unlink the
+         * logfile to avoid a security breach & possible exploitation.
+         */
+        if (stat((const char *)aixlogfile,&aixfilebuf) == 0)
+                unlink(aixlogfile);
+        if((aixfd = fopen(aixlogfile,"w")) == NULL )
         {
-                fprintf(stderr,"open aixfile failed\n");
+                fprintf(stderr,"open %s failed\n",aixlogfile);
                 exit(-1);
         }
-        chmod(AIXFILE,00777);
+        chmod(aixlogfile,00644);
 }
 #endif
+
+#if !defined(WIN32) && !defined(__EMX__)
+/*
+ * "safer" versions of system(3), popen(3) and pclose(3) which give up
+ * all privs before running a command.
+ *
+ * This is based on the code in FreeBSD 2.2 libc.
+ */
+
+int
+System(command)
+    char *command;
+{
+    int pid, p;
+    void (*csig)();
+    int status;
+
+    if (!command)
+	return(1);
+
+#ifdef SIGCHLD
+    csig = signal(SIGCHLD, SIG_DFL);
+#endif
+
+    ErrorF("System: `%s'\n", command);
+
+    switch (pid = fork()) {
+    case -1:	/* error */
+	p = -1;
+    case 0:	/* child */
+	setgid(getgid());
+	setuid(getuid());
+	execl("/bin/sh", "sh", "-c", command, (char *)NULL);
+	_exit(127);
+    default:	/* parent */
+	do {
+	    p = waitpid(pid, &status, 0);
+	} while (p == -1 && errno == EINTR);
+	
+    }
+
+#ifdef SIGCHLD
+    signal(SIGCHLD, csig);
+#endif
+
+    return p == -1 ? -1 : status;
+}
+
+static struct pid {
+    struct pid *next;
+    FILE *fp;
+    int pid;
+} *pidlist;
+
+pointer
+Popen(command, type)
+    char *command;
+    char *type;
+{
+    struct pid *cur;
+    FILE *iop;
+    int pdes[2], pid;
+    void (*csig)();
+
+    if (command == NULL || type == NULL)
+	return NULL;
+
+    if ((*type != 'r' && *type != 'w') || type[1])
+	return NULL;
+
+    if ((cur = (struct pid *)xalloc(sizeof(struct pid))) == NULL)
+	return NULL;
+
+    if (pipe(pdes) < 0) {
+	xfree(cur);
+	return NULL;
+    }
+
+    switch (pid = fork()) {
+    case -1: 	/* error */
+	close(pdes[0]);
+	close(pdes[1]);
+	xfree(cur);
+	return NULL;
+    case 0:	/* child */
+	setgid(getgid());
+	setuid(getuid());
+	if (*type == 'r') {
+	    if (pdes[1] != 1) {
+		/* stdout */
+		dup2(pdes[1], 1);
+		close(pdes[1]);
+	    }
+	    close(pdes[0]);
+	} else {
+	    if (pdes[0] != 0) {
+		/* stdin */
+		dup2(pdes[0], 0);
+		close(pdes[0]);
+	    }
+	    close(pdes[1]);
+	}
+	execl("/bin/sh", "sh", "-c", command, (char *)NULL);
+	_exit(127);
+    }
+
+    /* parent */
+    if (*type == 'r') {
+	iop = fdopen(pdes[0], type);
+	close(pdes[1]);
+    } else {
+	iop = fdopen(pdes[1], type);
+	close(pdes[0]);
+    }
+
+    cur->fp = iop;
+    cur->pid = pid;
+    cur->next = pidlist;
+    pidlist = cur;
+
+#if 0
+    ErrorF("Popen: `%s', fp = %p\n", command, iop);
+#endif
+
+    return iop;
+}
+
+int
+Pclose(iop)
+    pointer iop;
+{
+    struct pid *cur, *last;
+    int omask;
+    int pstat;
+    int pid;
+
+#if 0
+    ErrorF("Pclose: fp = %p\n", iop);
+#endif
+
+    fclose(iop);
+
+    for (last = NULL, cur = pidlist; cur; last = cur, cur = cur->next)
+	if (cur->fp = iop)
+	    break;
+    if (cur == NULL)
+	return -1;
+
+    do {
+	pid = waitpid(cur->pid, &pstat, 0);
+    } while (pid == -1 && errno == EINTR);
+
+    if (last == NULL)
+	pidlist = cur->next;
+    else
+	last->next = cur->next;
+    xfree(cur);
+
+    return pid == -1 ? -1 : pstat;
+}
+#endif /* !WIN32 && !__EMX__ */

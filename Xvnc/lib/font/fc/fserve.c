@@ -1,4 +1,4 @@
-/* $XConsortium: fserve.c,v 1.43 94/04/17 20:17:39 mor Exp $ */
+/* $TOG: fserve.c /main/49 1997/06/10 11:23:56 barstow $ */
 /*
 
 Copyright (c) 1990  X Consortium
@@ -25,6 +25,7 @@ used in advertising or otherwise to promote the sale, use or other dealings
 in this Software without prior written authorization from the X Consortium.
 
 */
+/* $XFree86: xc/lib/font/fc/fserve.c,v 3.4.2.2 1997/06/11 12:08:41 dawes Exp $ */
 
 /*
  * Copyright 1990 Network Computing Devices
@@ -57,14 +58,14 @@ in this Software without prior written authorization from the X Consortium.
 #endif
 #include	<X11/X.h>
 #include	<X11/Xos.h>
+#include	"X11/Xpoll.h"
 #include	"FS.h"
 #include	"FSproto.h"
 #include	"fontmisc.h"
 #include	"fontstruct.h"
 #include	"fservestr.h"
-#include	"fslibos.h"
 #include	<errno.h>
-#ifdef X_NOT_STDC_ENV
+#if defined(X_NOT_STDC_ENV) && !defined(__EMX__)
 extern int errno;
 #define Time_t long
 extern Time_t time ();
@@ -101,7 +102,7 @@ static int  fs_read_list();
 static int  fs_read_list_info();
 
 static int  fs_font_type;
-extern unsigned long _fs_fd_mask[];
+extern fd_set _fs_fd_mask;
 
 static void fs_block_handler();
 static int  fs_wakeup();
@@ -163,8 +164,15 @@ static Bool
 fs_name_check(name)
     char       *name;
 {
+#ifdef __EMX__
+    /* OS/2 uses D:/XFree86/.... as fontfile pathnames, so check that
+     * there is not only a protocol/ prefix, but also that the first chars
+     * are not a drive letter
+     */
+    if (name && isalpha(*name) && name[1] == ':')
+      return FALSE;
+#endif
     /* Just make sure there is a protocol/ prefix */
-
     return (name && *name != '/' && strchr(name, '/'));
 }
 
@@ -174,7 +182,7 @@ _fs_client_resolution(conn)
 {
     fsSetResolutionReq srreq;
     int         num_res;
-    fsResolution *res, *GetClientResolutions();
+    FontResolutionPtr res;
 
     res = GetClientResolutions(&num_res);
 
@@ -210,8 +218,7 @@ fs_send_init_packets(conn)
                *sp,
                *end;
     int         num_res;
-    fsResolution *res;
-    extern fsResolution *GetClientResolutions();
+    FontResolutionPtr res;
     int         err = Successful;
 
 #define	CATALOGUE_SEP	'+'
@@ -338,12 +345,10 @@ fs_close_conn(conn)
 
     /* XXX - hack.  The right fix is to remember that the font server
        has gone away when we first discovered it. */
-    if (!conn->trans_conn)
-	return;
+    if (conn->trans_conn)
+        (void) _FontTransClose (conn->trans_conn);
 
-    (void) _FontTransClose (conn->trans_conn);
-
-    _fs_bit_clear(_fs_fd_mask, conn->fs_fd);
+    FD_CLR(conn->fs_fd, &_fs_fd_mask);
 
     for (client = conn->clients; client; client = nclient) 
     {
@@ -391,7 +396,7 @@ fs_init_fpe(fpe)
 	}
 	if (init_fs_handlers(fpe, fs_block_handler) != Successful)
 	    return AllocError;
-	_fs_set_bit(_fs_fd_mask, conn->fs_fd);
+	FD_SET(conn->fs_fd, &_fs_fd_mask);
 	conn->attemptReconnect = TRUE;
 
 #ifdef NCD
@@ -446,7 +451,7 @@ fs_free_fpe(fpe)
     fs_close_conn(conn);
 
     remove_fs_handlers(fpe, fs_block_handler,
-		       !_fs_any_bit_set(_fs_fd_mask) && !awaiting_reconnect);
+		       !XFD_ANYSET(&_fs_fd_mask) && !awaiting_reconnect);
 
     xfree(conn->alts);
     xfree(conn->servername);
@@ -1169,14 +1174,14 @@ static void
 fs_block_handler(data, wt, LastSelectMask)
     pointer     data;
     struct timeval **wt;
-    long       *LastSelectMask;
+    fd_set*      LastSelectMask;
 {
     static struct timeval recon_timeout;
     Time_t      now,
                 soonest;
     FSFpePtr    recon;
 
-    _fs_or_bits(LastSelectMask, LastSelectMask, _fs_fd_mask);
+    XFD_ORSET(LastSelectMask, LastSelectMask, &_fs_fd_mask);
     if (recon = awaiting_reconnect) {
 	now = time((Time_t *) 0);
 	soonest = recon->time_to_try;
@@ -1218,7 +1223,7 @@ fs_handle_unexpected(conn, rep)
 static int
 fs_wakeup(fpe, LastSelectMask)
     FontPathElementPtr fpe;
-    unsigned long *LastSelectMask;
+    fd_set* LastSelectMask;
 {
     FSBlockDataPtr blockrec,
                 br;
@@ -1227,13 +1232,21 @@ fs_wakeup(fpe, LastSelectMask)
     fsGenericReply rep;
 
     /* see if there's any data to be read */
-    if (_fs_is_bit_set(LastSelectMask, conn->fs_fd)) {
 
-#ifdef NOTDEF			/* bogus - doesn't deal with EOF very well,
+    /* 
+     * Don't continue if the fd is -1 (which will be true when the
+     * font server terminates
+     */
+    if (conn->fs_fd == -1)
+	return FALSE;
+
+    if (FD_ISSET(conn->fs_fd, LastSelectMask)) {
+
+#if defined(NOTDEF) || defined(__EMX__)		/* bogus - doesn't deal with EOF very well,
 				 * now does it ... */
 	/*
 	 * make sure it isn't spurious - mouse events seem to trigger extra
-	 * problems
+	 * problems. Under OS/2, this is especially true ...
 	 */
 	if (_fs_data_ready(conn) <= 0) {
 	    return FALSE;
@@ -1247,7 +1260,8 @@ fs_wakeup(fpe, LastSelectMask)
 	/* find the matching block record */
 
 	for (br = (FSBlockDataPtr) conn->blocked_requests; br; br = br->next) {
-	    if (br->sequence_number == (rep.sequenceNumber - 1))
+	    if ((CARD16)(br->sequence_number & 0xffff) ==
+		(CARD16)(rep.sequenceNumber - 1))
 		break;
 	}
 	if (!br) {
@@ -1319,7 +1333,7 @@ _fs_restart_connection(conn)
     FSBlockDataPtr block;
 
     conn->current_seq = 0;
-    _fs_set_bit(_fs_fd_mask, conn->fs_fd);
+    FD_SET(conn->fs_fd, &_fs_fd_mask);
     if (!fs_send_init_packets(conn))
 	return FALSE;
     while (block = (FSBlockDataPtr) conn->blocked_requests) {
@@ -1993,7 +2007,7 @@ fs_load_all_glyphs(pfont)
     while ((err = _fs_load_glyphs(serverClient, pfont, TRUE, 0, 0, NULL)) ==
 	   Suspended)
     {
-	FdSet TempSelectMask;
+	fd_set TempSelectMask;
 	if (_fs_wait_for_readable(conn) == -1)
 	{
 	    /* We lost our connection.  Don't wait to reestablish it;
@@ -2005,13 +2019,8 @@ fs_load_all_glyphs(pfont)
 
 	    return BadCharRange;	/* As good an error as any other */
 	}
-#ifdef WIN32
-	_fs_set_bit(&TempSelectMask, conn->fs_fd);
+	FD_SET(conn->fs_fd, &TempSelectMask);
 	fs_wakeup(pfont->fpe, &TempSelectMask);
-#else
-	_fs_set_bit(TempSelectMask, conn->fs_fd);
-	fs_wakeup(pfont->fpe, TempSelectMask);
-#endif
     }
 
     return err;
@@ -2430,7 +2439,7 @@ fs_read_list_info(fpe, blockrec)
     binfo->status = FS_LFWI_REPLY;
     binfo->errcode = Suspended;
     /* disable this font server until we've processed this response */
-    _fs_bit_clear(_fs_fd_mask, conn->fs_fd);
+    FD_CLR(conn->fs_fd, &_fs_fd_mask);
 
     return Successful;
 
@@ -2536,7 +2545,7 @@ fs_next_list_with_info(client, fpe, namep, namelenp, pFontInfo, numFonts,
     *namelenp = blockedinfo->namelen;
     *pFontInfo = blockedinfo->pfi;
     *numFonts = blockedinfo->remaining;
-    _fs_set_bit(_fs_fd_mask, conn->fs_fd);
+    FD_SET(conn->fs_fd, &_fs_fd_mask);
     if (blockedinfo->status == FS_LFWI_FINISHED) {
 	int         err = blockedinfo->errcode;
 
@@ -2593,7 +2602,7 @@ fs_client_died(client, fpe)
 	FSBlockedListInfoPtr binfo;
 	binfo = (FSBlockedListInfoPtr) blockrec->data;
 	if (binfo->status == FS_LFWI_REPLY)
-	    _fs_set_bit(_fs_fd_mask, conn->fs_fd);
+	    FD_SET(conn->fs_fd, &_fs_fd_mask);
     	if (binfo->name)
 	{
 	    xfree(binfo->name);
@@ -2714,6 +2723,94 @@ fs_register_fpe_functions()
 					fs_list_fonts,
 					fs_start_list_with_info,
 					fs_next_list_with_info,
+					fs_wakeup,
+					fs_client_died,
+					_fs_load_glyphs,
+					(int (*))0,
+					(int (*))0,
+					(void (*))0);
+}
+
+static int
+check_fs_open_font(client, fpe, flags, name, namelen, format, fmask, id, ppfont,
+	     alias, non_cachable_font)
+    pointer     client;
+    FontPathElementPtr fpe;
+    Mask        flags;
+    char       *name;
+    fsBitmapFormat format;
+    fsBitmapFormatMask fmask;
+    int         namelen;
+    XID         id;
+    FontPtr    *ppfont;
+    char      **alias;
+    FontPtr     non_cachable_font;	/* Not used in this FPE */
+{
+    if (XpClientIsBitmapClient(client))
+	return (fs_open_font(client, fpe, flags, name, namelen, format, 
+			fmask, id, ppfont, alias, non_cachable_font) );
+    return BadFontName;
+}
+
+static int
+check_fs_list_fonts(client, fpe, pattern, patlen, maxnames, newnames)
+    pointer     client;
+    FontPathElementPtr fpe;
+    char       *pattern;
+    int         patlen;
+    int         maxnames;
+    FontNamesPtr newnames;
+{
+    if (XpClientIsBitmapClient(client))
+	return (fs_list_fonts(client, fpe, pattern, patlen, maxnames, 
+		newnames));
+    return BadFontName;
+}
+
+static int
+check_fs_start_list_with_info(client, fpe, pattern, len, maxnames, pdata)
+    pointer     client;
+    FontPathElementPtr fpe;
+    char       *pattern;
+    int         len;
+    int         maxnames;
+    pointer    *pdata;
+{
+    if (XpClientIsBitmapClient(client))
+	return (fs_start_list_with_info(client, fpe, pattern, len, maxnames,
+		pdata));
+    return BadFontName;
+}
+
+static int
+check_fs_next_list_with_info(client, fpe, namep, namelenp, pFontInfo, numFonts,
+		       private)
+    pointer     client;
+    FontPathElementPtr fpe;
+    char      **namep;
+    int        *namelenp;
+    FontInfoPtr *pFontInfo;
+    int        *numFonts;
+    pointer     private;
+{
+    if (XpClientIsBitmapClient(client))
+	return (fs_next_list_with_info(client, fpe, namep, namelenp, pFontInfo, 
+		numFonts,private));
+    return BadFontName;
+}
+
+void
+check_fs_register_fpe_functions()
+{
+    fs_font_type = RegisterFPEFunctions(fs_name_check,
+					fs_init_fpe,
+					fs_free_fpe,
+					fs_reset_fpe,
+					check_fs_open_font,
+					fs_close_font,
+					check_fs_list_fonts,
+					check_fs_start_list_with_info,
+					check_fs_next_list_with_info,
 					fs_wakeup,
 					fs_client_died,
 					_fs_load_glyphs,

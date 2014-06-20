@@ -1,4 +1,5 @@
 /* $XConsortium: cbrt.c,v 1.2 94/04/17 20:27:10 dpw Exp $ */
+/* $XFree86: xc/programs/Xserver/mi/cbrt.c,v 3.0 1994/04/29 14:11:16 dawes Exp $ */
 /*
 
 Copyright (c) 1990  X Consortium
@@ -37,5 +38,8 @@ double
 cbrt(x)
     double x;
 {
-    return pow(x, 1.0/3.0);
+    if (x > 0.0)
+	return pow(x, 1.0/3.0);
+    else
+	return -pow(-x, 1.0/3.0);
 }

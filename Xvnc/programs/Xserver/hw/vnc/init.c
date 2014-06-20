@@ -54,6 +54,7 @@ from the X Consortium.
 /* Use ``#define CORBA'' to enable CORBA control interface */
 
 #include <stdio.h>
+#include <stdarg.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -94,25 +95,28 @@ static Bool initOutputCalled = FALSE;
 static Bool noCursor = FALSE;
 char *desktopName = "x11";
 
+char rfbThisHost[256];
 
-static long alwaysCheckForInput[2] = { 0, 1 };
-static long *mieqCheckForInput[2];
+Atom VNC_LAST_CLIENT_ID;
+
+static HWEventQueueType alwaysCheckForInput[2] = { 0, 1 };
+static HWEventQueueType *mieqCheckForInput[2];
 
 static char primaryOrder[4] = "";
 static int redBits, greenBits, blueBits;
 
 
-static Bool rfbScreenInit _((int index, ScreenPtr pScreen, int argc,
-			     char **argv));
-static int rfbKeybdProc _((DeviceIntPtr pDevice, int onoff));
-static int rfbMouseProc _((DeviceIntPtr pDevice, int onoff));
+static Bool rfbScreenInit(int index, ScreenPtr pScreen, int argc,
+			  char **argv);
+static int rfbKeybdProc(DeviceIntPtr pDevice, int onoff);
+static int rfbMouseProc(DeviceIntPtr pDevice, int onoff);
 
 static Bool rfbAlwaysTrue();
-static char *rfbAllocateFramebufferMemory _((rfbScreenInfoPtr prfb));
-static Bool rfbCursorOffScreen _((ScreenPtr *ppScreen, int *x, int *y));
-static void rfbCrossScreen _((ScreenPtr pScreen, Bool entering));
-static void rfbClientStateChange _((CallbackListPtr *, pointer myData,
-				    pointer client));
+static char *rfbAllocateFramebufferMemory(rfbScreenInfoPtr prfb);
+static Bool rfbCursorOffScreen(ScreenPtr *ppScreen, int *x, int *y);
+static void rfbCrossScreen(ScreenPtr pScreen, Bool entering);
+static void rfbClientStateChange(CallbackListPtr *, pointer myData,
+				 pointer client);
 
 static miPointerScreenFuncRec rfbPointerCursorFuncs = {
     rfbCursorOffScreen,
@@ -142,6 +146,7 @@ ddxProcessArgument (argc, argv, i)
 	rfbScreen.blackPixel = RFB_DEFAULT_BLACKPIXEL;
 	rfbScreen.whitePixel = RFB_DEFAULT_WHITEPIXEL;
 	rfbScreen.pfbMemory = NULL;
+	gethostname(rfbThisHost, 255);
         firstTime = FALSE;
     }
 
@@ -243,15 +248,14 @@ ddxProcessArgument (argc, argv, i)
 	return 2;
     }
 
+    if (strcmp(argv[i], "-economictranslate") == 0) {
+	rfbEconomicTranslate = TRUE;
+	return 1;
+    }
+
     if (strcmp(argv[i], "-desktop") == 0) {	/* -desktop desktop-name */
 	if (i + 1 >= argc) UseMsg();
 	desktopName = argv[i+1];
-	
-	if (strcmp(desktopName, "default")==0) {
-	  ErrorF("Cannot create a desktop called ``%s''.\n", desktopName);
-	  exit(1);
-	}
-
 	return 2;
     }
 
@@ -273,6 +277,16 @@ InitOutput(screenInfo, argc, argv)
 {
     initOutputCalled = TRUE;
 
+    rfbLog("Xvnc version %d.%d.%s\n", rfbProtocolMajorVersion,
+	   rfbProtocolMinorVersion,XVNCRELEASE);
+    rfbLog("Copyright (C) 1997-8 Olivetti & Oracle Research Laboratory\n");
+    rfbLog("See http://www.orl.co.uk/vnc for information about VNC\n");
+    rfbLog("Desktop name '%s' (%s:%s)\n",desktopName,rfbThisHost,display);
+    rfbLog("Protocol version supported %d.%d\n", rfbProtocolMajorVersion,
+	   rfbProtocolMinorVersion);
+
+    VNC_LAST_CLIENT_ID = MakeAtom("VNC_LAST_CLIENT_ID",
+				  strlen("VNC_LAST_CLIENT_ID"), TRUE);
     rfbInitSockets();
     httpInitSockets();
 
@@ -302,7 +316,7 @@ InitOutput(screenInfo, argc, argv)
     }
 
     if (!AddCallback(&ClientStateCallback, rfbClientStateChange, NULL)) {
-	fprintf(stderr,"InitOutput: AddCallback failed\n");
+	rfbLog("InitOutput: AddCallback failed\n");
 	return;
     }
 
@@ -326,6 +340,12 @@ rfbScreenInit(index, pScreen, argc, argv)
     int ret;
     char *pbits;
     VisualPtr vis;
+    extern int monitorResolution;
+
+    if (monitorResolution != 0) {
+	dpix = monitorResolution;
+	dpiy = monitorResolution;
+    }
 
     prfb->paddedWidthInBytes = PixmapBytePad(prfb->width, prfb->depth);
     prfb->bitsPerPixel = rfbBitsPerPixel(prfb->depth);
@@ -409,7 +429,7 @@ rfbScreenInit(index, pScreen, argc, argv)
 	;
 
     if (!vis) {
-	fprintf(stderr,"rfbScreenInit: couldn't find root visual\n");
+	rfbLog("rfbScreenInit: couldn't find root visual\n");
 	exit(1);
     }
 
@@ -421,7 +441,7 @@ rfbScreenInit(index, pScreen, argc, argv)
 	vis->offsetRed = vis->offsetGreen + greenBits;
 	vis->redMask = ((1 << redBits) - 1) << vis->offsetRed;
     } else if (strcasecmp(primaryOrder, "bgr") == 0) {
-	fprintf(stderr,"BGR format %d %d %d\n", blueBits, greenBits, redBits);
+	rfbLog("BGR format %d %d %d\n", blueBits, greenBits, redBits);
 	vis->offsetRed = 0;
 	vis->redMask = (1 << redBits) - 1;
 	vis->offsetGreen = redBits;
@@ -473,7 +493,7 @@ InitInput(argc, argv)
     int argc;
     char *argv[];
 {
-    DevicePtr p, k;
+    DeviceIntPtr p, k;
     k = AddInputDevice(rfbKeybdProc, TRUE);
     p = AddInputDevice(rfbMouseProc, TRUE);
     RegisterKeyboardDevice(k);
@@ -664,6 +684,22 @@ OsVendorInit()
 }
 
 void
+OsVendorFatalError()
+{
+}
+
+#ifdef DDXTIME /* from ServerOSDefines */
+CARD32
+GetTimeInMillis()
+{
+    struct timeval  tp;
+
+    X_GETTIMEOFDAY(&tp);
+    return(tp.tv_sec * 1000) + (tp.tv_usec / 1000);
+}
+#endif
+
+void
 ddxUseMsg()
 {
     ErrorF("-geometry WxH          set framebuffer width & height\n");
@@ -676,8 +712,36 @@ ddxUseMsg()
     ErrorF("-rfbauth passwd-file   use authentication on RFB protocol\n");
     ErrorF("-httpd dir             serve files via HTTP from here\n");
     ErrorF("-httpport port         port for HTTP\n");
-#ifdef CORBA
+    ErrorF("-economictranslate     less memory-hungry translation\n");
     ErrorF("-desktop name          VNC desktop name (default x11)\n");
-#endif
     exit(1);
+}
+
+
+/*
+ * rfbLog prints a time-stamped message to the log file (stderr).
+ */
+
+void rfbLog(char *format, ...)
+{
+    va_list args;
+    char buf[256];
+    time_t clock;
+
+    va_start(args, format);
+
+    time(&clock);
+    strftime(buf, 255, "%d/%m/%y %T ", localtime(&clock));
+    fprintf(stderr, buf);
+
+    vfprintf(stderr, format, args);
+    fflush(stderr);
+
+    va_end(args);
+}
+
+void rfbLogPerror(char *str)
+{
+    rfbLog("");
+    perror(str);
 }

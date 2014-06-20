@@ -1,4 +1,5 @@
 /* $XConsortium: mi.h,v 1.17 94/04/17 20:27:10 dpw Exp $ */
+/* $XFree86: xc/programs/Xserver/mi/mi.h,v 3.1 1997/01/14 22:22:51 dawes Exp $ */
 /***********************************************************
 
 Copyright (c) 1987  X Consortium
@@ -149,7 +150,13 @@ extern void miPutImage(
 
 extern void miClipNotify(
 #if NeedFunctionPrototypes
-    void (* /*func*/)()
+    void (* /*func*/)(
+#if NeedNestedPrototypes
+	WindowPtr /* pWin */,
+	int /* dx */,
+	int /* dy */
+#endif
+	)
 #endif
 );
 
@@ -555,6 +562,12 @@ extern Bool miScreenInit(
     int /*numVisuals*/,
     VisualPtr /*visuals*/,
     miBSFuncPtr /*bsfuncs*/
+#endif
+);
+
+extern int miAllocateGCPrivateIndex(
+#if NeedFunctionPrototypes
+    void
 #endif
 );
 

@@ -1,4 +1,4 @@
-/* $XConsortium: extension.h,v 1.8 94/04/17 20:25:41 dpw Exp $ */
+/* $XConsortium: extension.h /main/9 1995/09/22 10:23:04 dpw $ */
 /***********************************************************
 
 Copyright (c) 1987  X Consortium
@@ -49,46 +49,7 @@ SOFTWARE.
 #ifndef EXTENSION_H
 #define EXTENSION_H 
 
-#define GetGCAndDrawableAndValidate(gcID, pGC, drawID, pDraw, client)\
-    if ((client->lastDrawableID != drawID) || (client->lastGCID != gcID))\
-    {\
-        if (client->lastDrawableID != drawID)\
-    	    pDraw = (DrawablePtr)LookupIDByClass(drawID, RC_DRAWABLE);\
-        else\
-	    pDraw = client->lastDrawable;\
-        if (client->lastGCID != gcID)\
-	    pGC = (GC *)LookupIDByType(gcID, RT_GC);\
-        else\
-            pGC = client->lastGC;\
-	if (pDraw && pGC)\
-	{\
-	    if ((pDraw->type == UNDRAWABLE_WINDOW) ||\
-		(pGC->depth != pDraw->depth) ||\
-		(pGC->pScreen != pDraw->pScreen))\
-		return (BadMatch);\
-	    client->lastDrawable = pDraw;\
-	    client->lastDrawableID = drawID;\
-            client->lastGC = pGC;\
-            client->lastGCID = gcID;\
-	}\
-    }\
-    else\
-    {\
-        pGC = client->lastGC;\
-        pDraw = client->lastDrawable;\
-    }\
-    if (!pDraw)\
-    {\
-        client->errorValue = drawID; \
-	return (BadDrawable);\
-    }\
-    if (!pGC)\
-    {\
-        client->errorValue = gcID;\
-        return (BadGC);\
-    }\
-    if (pGC->serialNumber != pDraw->serialNumber)\
-	ValidateGC(pDraw, pGC);
+_XFUNCPROTOBEGIN
 
 extern unsigned short StandardMinorOpcode(
 #if NeedFunctionPrototypes
@@ -114,5 +75,7 @@ extern void CloseDownExtensions(
     void
 #endif
 );
+
+_XFUNCPROTOEND
 
 #endif /* EXTENSION_H */

@@ -41,12 +41,12 @@ static int rreAfterBufSize = 0;
 static char *rreAfterBuf = NULL;
 static int rreAfterBufLen;
 
-static int subrectEncode8 _((CARD8 *data, int w, int h));
-static int subrectEncode16 _((CARD16 *data, int w, int h));
-static int subrectEncode32 _((CARD32 *data, int w, int h));
-static CARD32 getBgColour _((char *data, int size, int bpp));
-static Bool rfbSendSmallRectEncodingCoRRE _((rfbClientPtr cl, int x, int y,
-					    int w, int h));
+static int subrectEncode8(CARD8 *data, int w, int h);
+static int subrectEncode16(CARD16 *data, int w, int h);
+static int subrectEncode32(CARD32 *data, int w, int h);
+static CARD32 getBgColour(char *data, int size, int bpp);
+static Bool rfbSendSmallRectEncodingCoRRE(rfbClientPtr cl, int x, int y,
+					  int w, int h);
 
 
 /*
@@ -114,8 +114,9 @@ rfbSendSmallRectEncodingCoRRE(cl, x, y, w, h)
 	    rreAfterBuf = (char *)xrealloc(rreAfterBuf, rreAfterBufSize);
     }
 
-    (*cl->translateFn)(cl, fbptr, rreBeforeBuf, rfbScreen.paddedWidthInBytes,
-		       w * (cl->format.bitsPerPixel / 8), h);
+    (*cl->translateFn)(cl->translateLookupTable, &rfbServerFormat,
+		       &cl->format, fbptr, rreBeforeBuf,
+		       rfbScreen.paddedWidthInBytes, w, h);
 
     switch (cl->format.bitsPerPixel) {
     case 8:
@@ -128,7 +129,7 @@ rfbSendSmallRectEncodingCoRRE(cl, x, y, w, h)
 	nSubrects = subrectEncode32((CARD32 *)rreBeforeBuf, w, h);
 	break;
     default:
-	fprintf(stderr,"getBgColour: bpp %d?\n",cl->format.bitsPerPixel);
+	rfbLog("getBgColour: bpp %d?\n",cl->format.bitsPerPixel);
 	exit(1);
     }
 	
@@ -139,9 +140,9 @@ rfbSendSmallRectEncodingCoRRE(cl, x, y, w, h)
 	return rfbSendRectEncodingRaw(cl, x, y, w, h);
     }
 
-    rfbRectanglesSent[rfbEncodingCoRRE]++;
-    rfbBytesSent[rfbEncodingCoRRE] += (sz_rfbFramebufferUpdateRectHeader
-				     + sz_rfbRREHeader + rreAfterBufLen);
+    cl->rfbRectanglesSent[rfbEncodingCoRRE]++;
+    cl->rfbBytesSent[rfbEncodingCoRRE] += (sz_rfbFramebufferUpdateRectHeader
+					   + sz_rfbRREHeader + rreAfterBufLen);
 
     if (ublen + sz_rfbFramebufferUpdateRectHeader + sz_rfbRREHeader
 	> UPDATE_BUF_SIZE)
@@ -324,7 +325,7 @@ getBgColour(data,size,bpp)
     } else if (bpp == 32) {
       return ((CARD32 *)data)[0];
     } else {
-      fprintf(stderr,"getBgColour: bpp %d?\n",bpp);
+      rfbLog("getBgColour: bpp %d?\n",bpp);
       exit(1);
     }
   }
@@ -336,7 +337,7 @@ getBgColour(data,size,bpp)
   for (j=0; j<size; j++) {
     k = (int)(((CARD8 *)data)[j]);
     if (k >= NUMCLRS) {
-      fprintf(stderr, "%s: unusual colour = %d\n", "getBgColour",k);
+      rfbLog("getBgColour: unusual colour = %d\n", k);
       exit(1);
     }
     counts[k] += 1;

@@ -1,4 +1,4 @@
-/* $XConsortium: do_char.c,v 1.4 94/02/10 10:18:21 gildea Exp $ */
+/* $XConsortium: do_char.c /main/5 1995/10/24 11:22:28 gildea $ */
 
 /*
 
@@ -799,7 +799,7 @@ return TRUE;
 FUNCTION static ufix8 FONTFAR *sp_get_char_org(char_index, top_level)
 GDECL
 ufix16   char_index;   /* Index of character to be accessed */
-boolean  top_level;    /* Not a compound character element
+boolean  top_level;    /* Not a compound character element */
 /*
  * Called by sp_get_char_id(), sp_get_char_width(), sp_make_char() and
  * sp_make_comp_char() to get a pointer to the start of the character data
@@ -867,7 +867,7 @@ return pchar_data->org;               /* Return pointer into character data buff
 FUNCTION static ufix8 FONTFAR *sp_get_char_org(char_index, top_level)
 GDECL
 ufix16   char_index;   /* Index of character to be accessed */
-boolean  top_level;    /* Not a compound character element
+boolean  top_level;    /* Not a compound character element */
 /*
  * Called by sp_get_char_id(), sp_get_char_width(), sp_make_char() and
  * sp_make_comp_char() to get a pointer to the start of the character data

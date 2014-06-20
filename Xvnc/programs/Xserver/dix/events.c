@@ -47,7 +47,8 @@ SOFTWARE.
 ********************************************************/
 
 
-/* $XConsortium: events.c,v 5.76 94/08/16 13:45:06 dpw Exp $ */
+/* $XConsortium: events.c /main/187 1996/09/25 00:47:41 dpw $ */
+/* $XFree86: xc/programs/Xserver/dix/events.c,v 3.11 1996/12/24 02:23:45 dawes Exp $ */
 
 #include "X.h"
 #include "misc.h"
@@ -66,10 +67,20 @@ SOFTWARE.
 #include "XKBsrv.h"
 #endif
 
-extern WindowPtr *WindowTable;
+#ifdef XCSECURITY
+#define _SECURITY_SERVER
+#include "extensions/security.h"
+#endif
 
-extern void (* EventSwapVector[128]) ();
-extern void (* ReplySwapVector[256]) ();
+#include "XIproto.h"
+#include "exevents.h"
+#include "extnsionst.h"
+
+#include "dixevents.h"
+#include "dixgrabs.h"
+#include "dispatch.h"
+
+extern WindowPtr *WindowTable;
 
 #define EXTENSION_EVENT_BASE  64
 
@@ -106,6 +117,7 @@ extern void (* ReplySwapVector[256]) ();
 #define rClient(obj) (clients[CLIENT_ID((obj)->resource)])
 
 CallbackListPtr EventCallback;
+CallbackListPtr DeviceEventCallback;
 
 #define DNPMCOUNT 8
 
@@ -167,18 +179,6 @@ static WindowPtr XYToWindow(
     int /*y*/
 #endif
 );
-
-void DeliverFocusedEvent();
-int DeliverDeviceEvents();
-void DoFocusEvents();
-Mask EventMaskForClient();
-Bool CheckDeviceGrabs();
-void EnqueueEvent();
-
-extern GrabPtr CreateGrab();		/* Defined in grabs.c */
-extern Bool GrabMatchesSecond();
-extern Bool DeletePassiveGrabFromList();
-extern int AddPassiveGrabToList();
 
 extern Bool permitOldBugs;
 extern Bool Must_have_memory;
@@ -261,8 +261,12 @@ SetCriticalEvent(event)
 }
 
 static void
+#if NeedFunctionPrototypes
+SyntheticMotion(int x, int y)
+#else
 SyntheticMotion(x, y)
     int x, y;
+#endif
 {
     xEvent xE;
 
@@ -278,9 +282,13 @@ SyntheticMotion(x, y)
 
 #ifdef SHAPE
 static void
+#if NeedFunctionPrototypes
+ConfineToShape(RegionPtr shape, int *px, int *py)
+#else
 ConfineToShape(shape, px, py)
     RegionPtr shape;
     int *px, *py;
+#endif
 {
     BoxRec box;
     int x = *px, y = *py;
@@ -317,11 +325,19 @@ ConfineToShape(shape, px, py)
 #endif
 
 static void
+#if NeedFunctionPrototypes
+CheckPhysLimits(
+    CursorPtr cursor,
+    Bool generateEvents,
+    Bool confineToScreen,
+    ScreenPtr pScreen)
+#else
 CheckPhysLimits(cursor, generateEvents, confineToScreen, pScreen)
     CursorPtr cursor;
     Bool generateEvents;
     Bool confineToScreen;
     ScreenPtr pScreen;
+#endif
 {
     HotSpot new;
 
@@ -362,9 +378,15 @@ CheckPhysLimits(cursor, generateEvents, confineToScreen, pScreen)
 }
 
 static void
+#if NeedFunctionPrototypes
+CheckVirtualMotion(
+    register QdEventPtr qe,
+    register WindowPtr pWin)
+#else
 CheckVirtualMotion(qe, pWin)
     register QdEventPtr qe;
     register WindowPtr pWin;
+#endif
 {
 
     if (qe)
@@ -407,7 +429,7 @@ CheckVirtualMotion(qe, pWin)
     ROOT = WindowTable[sprite.hot.pScreen->myNum];
 }
 
-static void
+void
 ConfineCursorToWindow(pWin, generateEvents, confineToScreen)
     WindowPtr pWin;
     Bool generateEvents;
@@ -439,8 +461,12 @@ PointerConfinedToScreen()
 }
 
 static void
+#if NeedFunctionPrototypes
+ChangeToCursor(CursorPtr cursor)
+#else
 ChangeToCursor(cursor)
     CursorPtr cursor;
+#endif
 {
     if (cursor != sprite.current)
     {
@@ -465,7 +491,11 @@ IsParent(a, b)
 }
 
 static void
+#if NeedFunctionPrototypes
+PostNewCursor(void)
+#else
 PostNewCursor()
+#endif
 {
     register    WindowPtr win;
     register    GrabPtr grab = inputInfo.pointer->grab;
@@ -523,8 +553,12 @@ GetSpritePosition(px, py)
 #define TIMESLOP (5 * 60 * 1000) /* 5 minutes */
 
 static void
+#if NeedFunctionPrototypes
+MonthChangedOrBadTime(register xEvent *xE)
+#else
 MonthChangedOrBadTime(xE)
     register xEvent *xE;
+#endif
 {
     /* If the ddx/OS is careless about not processing timestamped events from
      * different sources in sorted order, then it's possible for time to go
@@ -564,7 +598,26 @@ EnqueueEvent(xE, device, count)
     register QdEventPtr qe;
     xEvent		*qxE;
 
-    NoticeTime(xE)
+    NoticeTime(xE);
+    if (DeviceEventCallback)
+    {
+	DeviceEventInfoRec eventinfo;
+	/*  The RECORD spec says that the root window field of motion events
+	 *  must be valid.  At this point, it hasn't been filled in yet, so
+	 *  we do it here.  The long expression below is necessary to get
+	 *  the current root window; the apparently reasonable alternative
+	 *  GetCurrentRootWindow()->drawable.id doesn't give you the right
+	 *  answer on the first motion event after a screen change because
+	 *  the data that GetCurrentRootWindow relies on hasn't been
+	 *  updated yet.
+	 */
+	if (xE->u.u.type == MotionNotify)
+	    xE->u.keyButtonPointer.root =
+		WindowTable[sprite.hotPhys.pScreen->myNum]->drawable.id;
+	eventinfo.events = xE;
+	eventinfo.count = count;
+	CallCallbacks(&DeviceEventCallback, (pointer)&eventinfo);
+    }
     if (xE->u.u.type == MotionNotify)
     {
 	sprite.hotPhys.x = xE->u.keyButtonPointer.rootX;
@@ -598,7 +651,11 @@ EnqueueEvent(xE, device, count)
 }
 
 static void
+#if NeedFunctionPrototypes
+PlayReleasedEvents(void)
+#else
 PlayReleasedEvents()
+#endif
 {
     register QdEventPtr *prev, qe;
     register DeviceIntPtr dev;
@@ -632,9 +689,13 @@ PlayReleasedEvents()
 }
 
 static void
+#if NeedFunctionPrototypes
+FreezeThaw(register DeviceIntPtr dev, Bool frozen)
+#else
 FreezeThaw(dev, frozen)
     register DeviceIntPtr dev;
     Bool frozen;
+#endif
 {
     dev->sync.frozen = frozen;
     if (frozen)
@@ -1083,7 +1144,8 @@ TryClientEvents (client, pEvents, count, mask, filter, grab)
 	else
 	{
 	    if ((type == DeviceMotionNotify) &&
-		MaybeSendDeviceMotionNotifyHint (pEvents, mask) != 0)
+		MaybeSendDeviceMotionNotifyHint
+			((deviceKeyButtonPointer*)pEvents, mask) != 0)
 		return 1;
 	}
 #endif
@@ -1201,8 +1263,9 @@ DeliverEventsToWindow(pWin, pEvents, count, filter, grab, mskidx)
     {
 	if (((type == DeviceMotionNotify) || (type == DeviceButtonPress)) &&
 	    deliveries)
-	    CheckDeviceGrabAndHintWindow (pWin, type, pEvents, grab, client, 
-					  deliveryMask);
+	    CheckDeviceGrabAndHintWindow (pWin, type,
+					  (deviceKeyButtonPointer*) pEvents,
+					  grab, client, deliveryMask);
     }
 #endif
     if (deliveries)
@@ -1246,11 +1309,19 @@ MaybeDeliverEventsToClient(pWin, pEvents, count, filter, dontClient)
 }
 
 static void
+#if NeedFunctionPrototypes
+FixUpEventFromWindow(
+    xEvent *xE,
+    WindowPtr pWin,
+    Window child,
+    Bool calcChild)
+#else
 FixUpEventFromWindow(xE, pWin, child, calcChild)
     xEvent *xE;
     WindowPtr pWin;
     Window child;
     Bool calcChild;
+#endif
 {
     if (calcChild)
     {
@@ -1404,8 +1475,12 @@ DeliverEvents(pWin, xE, count, otherParent)
 }
 
 static WindowPtr 
+#if NeedFunctionPrototypes
+XYToWindow(int x, int y)
+#else
 XYToWindow(x, y)
 	int x, y;
+#endif
 {
     register WindowPtr  pWin;
 #ifdef SHAPE
@@ -1452,8 +1527,12 @@ XYToWindow(x, y)
 }
 
 static Bool
+#if NeedFunctionPrototypes
+CheckMotion(xEvent *xE)
+#else
 CheckMotion(xE)
     xEvent *xE;
+#endif
 {
     WindowPtr prevSpriteWin = sprite.win;
 
@@ -1579,7 +1658,7 @@ ProcWarpPointer(client)
     REQUEST_SIZE_MATCH(xWarpPointerReq);
     if (stuff->dstWid != None)
     {
-	dest = LookupWindow(stuff->dstWid, client);
+	dest = SecurityLookupWindow(stuff->dstWid, client, SecurityReadAccess);
 	if (!dest)
 	    return BadWindow;
     }
@@ -1588,7 +1667,8 @@ ProcWarpPointer(client)
     if (stuff->srcWid != None)
     {
 	int     winX, winY;
-        WindowPtr source = LookupWindow(stuff->srcWid, client);
+        WindowPtr source = SecurityLookupWindow(stuff->srcWid, client,
+						SecurityReadAccess);
 	if (!source)
 	    return BadWindow;
 	winX = source->drawable.x;
@@ -1649,11 +1729,19 @@ ProcWarpPointer(client)
 	passive grab set on the window to be activated. */
 
 static Bool
+#if NeedFunctionPrototypes
+CheckPassiveGrabsOnWindow(
+    WindowPtr pWin,
+    register DeviceIntPtr device,
+    register xEvent *xE,
+    int count)
+#else
 CheckPassiveGrabsOnWindow(pWin, device, xE, count)
     WindowPtr pWin;
     register DeviceIntPtr device;
     register xEvent *xE;
     int count;
+#endif
 {
     register GrabPtr grab = wPassiveGrabs(pWin);
     GrabRec tempGrab;
@@ -1669,6 +1757,13 @@ CheckPassiveGrabsOnWindow(pWin, device, xE, count)
     tempGrab.modifiersDetail.pMask = NULL;
     for (; grab; grab = grab->next)
     {
+#ifdef XKB
+	DeviceIntPtr	gdev;
+	XkbSrvInfoPtr	xkbi;
+
+	gdev= grab->modifierDevice;
+	xkbi= gdev->key->xkbInfo;
+#endif
 	tempGrab.modifierDevice = grab->modifierDevice;
 	if (device == grab->modifierDevice &&
 	    (xE->u.u.type == KeyPress
@@ -1677,13 +1772,15 @@ CheckPassiveGrabsOnWindow(pWin, device, xE, count)
 #endif
 	     ))
 	    tempGrab.modifiersDetail.exact =
+#ifdef XKB
+		(noXkbExtension?gdev->key->prev_state:xkbi->state.grab_mods);
+#else
 		grab->modifierDevice->key->prev_state;
+#endif
 	else
 	    tempGrab.modifiersDetail.exact =
 #ifdef XKB
-		noXkbExtension ?
-		    grab->modifierDevice->key->state :
-		    grab->modifierDevice->key->xkbInfo->grabState;
+		(noXkbExtension ? gdev->key->state : xkbi->state.grab_mods);
 #else
 		grab->modifierDevice->key->state;
 #endif
@@ -1693,12 +1790,15 @@ CheckPassiveGrabsOnWindow(pWin, device, xE, count)
 	      REGION_NOTEMPTY( grab->confineTo->drawable.pScreen, 
 		&grab->confineTo->borderSize))))
 	{
+#ifdef XCSECURITY
+	    if (!SecurityCheckDeviceAccess(wClient(pWin), device, FALSE))
+		return FALSE;
+#endif
 #ifdef XKB
-	    if (!noXkbExtension)
-	    {
+	    if (!noXkbExtension) {
 		xE->u.keyButtonPointer.state &= 0x1f00;
 		xE->u.keyButtonPointer.state |=
-		    grab->modifierDevice->key->xkbInfo->grabState & 0xe0ff;
+				tempGrab.modifiersDetail.exact&(~0x1f00);
 	    }
 #endif
 	    (*device->ActivateGrab)(device, grab, currentTime, TRUE);
@@ -1927,7 +2027,16 @@ ProcessKeyboardEvent (xE, keybd, count)
     register KeyClassPtr keyc = keybd->key;
 
     if (!syncEvents.playingEvents)
-	NoticeTime(xE)
+    {
+	NoticeTime(xE);
+	if (DeviceEventCallback)
+	{
+	    DeviceEventInfoRec eventinfo;
+	    eventinfo.events = xE;
+	    eventinfo.count = count;
+	    CallCallbacks(&DeviceEventCallback, (pointer)&eventinfo);
+	}
+    }
     xE->u.keyButtonPointer.state = (keyc->state |
 				    inputInfo.pointer->button->state);
     xE->u.keyButtonPointer.rootX = sprite.hot.x;
@@ -1936,6 +2045,13 @@ ProcessKeyboardEvent (xE, keybd, count)
     kptr = &keyc->down[key >> 3];
     bit = 1 << (key & 7);
     modifiers = keyc->modifierMap[key];
+#ifdef DEBUG
+    if ((xkbDebugFlags&0x4)&&
+	((xE->u.u.type==KeyPress)||(xE->u.u.type==KeyRelease))) {
+	ErrorF("CoreProcessKbdEvent: Key %d %s\n",key,
+			(xE->u.u.type==KeyPress?"down":"up"));
+    }
+#endif
     switch (xE->u.u.type)
     {
 	case KeyPress: 
@@ -2014,18 +2130,35 @@ ProcessPointerEvent (xE, mouse, count)
     register GrabPtr	grab = mouse->grab;
     Bool                deactivateGrab = FALSE;
     register ButtonClassPtr butc = mouse->button;
+#ifdef XKB
+    XkbSrvInfoPtr xkbi= inputInfo.keyboard->key->xkbInfo;
+#endif
 
     if (!syncEvents.playingEvents)
 	NoticeTime(xE)
-    xE->u.keyButtonPointer.state = (butc->state |
+    xE->u.keyButtonPointer.state = (butc->state | (
 #ifdef XKB
-				(noXkbExtension ?
-				   inputInfo.keyboard->key->state :
-				   inputInfo.keyboard->key->xkbInfo->grabState)
+			(noXkbExtension ?
+				inputInfo.keyboard->key->state :
+				xkbi->state.grab_mods)
 #else
-				    inputInfo.keyboard->key->state
+			inputInfo.keyboard->key->state
 #endif
-				    );
+				    ));
+    {
+	NoticeTime(xE);
+	if (DeviceEventCallback)
+	{
+	    DeviceEventInfoRec eventinfo;
+	    /* see comment in EnqueueEvents regarding the next three lines */
+	    if (xE->u.u.type == MotionNotify)
+		xE->u.keyButtonPointer.root =
+		    WindowTable[sprite.hotPhys.pScreen->myNum]->drawable.id;
+	    eventinfo.events = xE;
+	    eventinfo.count = count;
+	    CallCallbacks(&DeviceEventCallback, (pointer)&eventinfo);
+	}
+    }
     if (xE->u.u.type != MotionNotify)
     {
 	register int  key;
@@ -2187,7 +2320,12 @@ EventSelectForWindow(pWin, client, mask)
     if (wClient (pWin) == client)
     {
 	check = pWin->eventMask;
+#if SGIMISC
+	pWin->eventMask =
+	    (mask & ~SGIMiscSpecialDestroyMask) | (pWin->eventMask & SGIMiscSpecialDestroyMask);
+#else
 	pWin->eventMask = mask;
+#endif
     }
     else
     {
@@ -2196,6 +2334,9 @@ EventSelectForWindow(pWin, client, mask)
 	    if (SameClient(others, client))
 	    {
 		check = others->mask;
+#if SGIMISC
+		mask = (mask & ~SGIMiscSpecialDestroyMask) | (others->mask & SGIMiscSpecialDestroyMask);
+#endif
 		if (mask == 0)
 		{
 		    FreeResource(others->resource, RT_NONE);
@@ -2290,8 +2431,14 @@ EventSuppressForWindow(pWin, client, mask, checkOptional)
 }
 
 static WindowPtr 
+#if NeedFunctionPrototypes
+CommonAncestor(
+    register WindowPtr a,
+    register WindowPtr b)
+#else
 CommonAncestor(a, b)
     register WindowPtr a, b;
+#endif
 {
     for (b = b->parent; b; b = b->parent)
 	if (IsParent(b, a)) return b;
@@ -2299,10 +2446,19 @@ CommonAncestor(a, b)
 }
 
 static void
+#if NeedFunctionPrototypes
+EnterLeaveEvent(
+    int type,
+    int mode,
+    int detail,
+    register WindowPtr pWin,
+    Window child)
+#else
 EnterLeaveEvent(type, mode, detail, pWin, child)
     int type, mode, detail;
     register WindowPtr pWin;
     Window child;
+#endif
 {
     xEvent		event;
     register DeviceIntPtr keybd = inputInfo.keyboard;
@@ -2338,12 +2494,11 @@ EnterLeaveEvent(type, mode, detail, pWin, child)
 	event.u.enterLeave.flags = event.u.keyButtonPointer.sameScreen ?
 					    ELFlagSameScreen : 0;
 #ifdef XKB
-	if (!noXkbExtension)
-	{
+	if (!noXkbExtension) {
 	    event.u.enterLeave.state = mouse->button->state & 0x1f00;
-	    event.u.enterLeave.state |= (keybd->key->xkbInfo->grabState & 0xe0ff);
-	}
-	else
+	    event.u.enterLeave.state |= 
+			XkbGrabStateFromRec(&keybd->key->xkbInfo->state);
+	} else
 #endif
 	event.u.enterLeave.state = keybd->key->state | mouse->button->state;
 	event.u.enterLeave.mode = mode;
@@ -2362,8 +2517,18 @@ EnterLeaveEvent(type, mode, detail, pWin, child)
     if ((type == EnterNotify) && (mask & KeymapStateMask))
     {
 	xKeymapEvent ke;
-	ke.type = KeymapNotify;
+
+#ifdef XCSECURITY
+	ClientPtr client = grab ? rClient(grab)
+				: clients[CLIENT_ID(pWin->drawable.id)];
+	if (!SecurityCheckDeviceAccess(client, keybd, FALSE))
+	{
+	    bzero((char *)&ke.map[0], 31);
+	}
+	else
+#endif
 	memmove((char *)&ke.map[0], (char *)&keybd->key->down[1], 31);
+	ke.type = KeymapNotify;
 	if (grab)
 	    (void)TryClientEvents(rClient(grab), (xEvent *)&ke, 1, mask,
 				  KeymapStateMask, grab);
@@ -2374,9 +2539,13 @@ EnterLeaveEvent(type, mode, detail, pWin, child)
 }
 
 static void
+#if NeedFunctionPrototypes
+EnterNotifies(WindowPtr ancestor, WindowPtr child, int mode, int detail)
+#else
 EnterNotifies(ancestor, child, mode, detail)
     WindowPtr ancestor, child;
     int mode, detail;
+#endif
 {
     WindowPtr	parent = child->parent;
 
@@ -2387,9 +2556,13 @@ EnterNotifies(ancestor, child, mode, detail)
 }
 
 static void
+#if NeedFunctionPrototypes
+LeaveNotifies(WindowPtr child, WindowPtr ancestor, int mode, int detail)
+#else
 LeaveNotifies(child, ancestor, mode, detail)
     WindowPtr child, ancestor;
     int detail, mode;
+#endif
 {
     register WindowPtr  pWin;
 
@@ -2403,9 +2576,13 @@ LeaveNotifies(child, ancestor, mode, detail)
 }
 
 static void
+#if NeedFunctionPrototypes
+DoEnterLeaveEvents(WindowPtr fromWin, WindowPtr toWin, int mode)
+#else
 DoEnterLeaveEvents(fromWin, toWin, mode)
     WindowPtr fromWin, toWin;
     int mode;
+#endif
 {
     if (fromWin == toWin)
 	return;
@@ -2433,10 +2610,14 @@ DoEnterLeaveEvents(fromWin, toWin, mode)
 }
 
 static void
+#if NeedFunctionPrototypes
+FocusEvent(DeviceIntPtr dev, int type, int mode, int detail, register WindowPtr pWin)
+#else
 FocusEvent(dev, type, mode, detail, pWin)
     DeviceIntPtr dev;
     int type, mode, detail;
     register WindowPtr pWin;
+#endif
 {
     xEvent event;
 
@@ -2457,8 +2638,16 @@ FocusEvent(dev, type, mode, detail, pWin)
 	((pWin->eventMask | wOtherEventMasks(pWin)) & KeymapStateMask))
     {
 	xKeymapEvent ke;
-	ke.type = KeymapNotify;
+#ifdef XCSECURITY
+	ClientPtr client = clients[CLIENT_ID(pWin->drawable.id)];
+	if (!SecurityCheckDeviceAccess(client, dev, FALSE))
+	{
+	    bzero((char *)&ke.map[0], 31);
+	}
+	else
+#endif
 	memmove((char *)&ke.map[0], (char *)&dev->key->down[1], 31);
+	ke.type = KeymapNotify;
 	(void)DeliverEventsToWindow(pWin, (xEvent *)&ke, 1,
 				    KeymapStateMask, NullGrab, 0);
     }
@@ -2469,11 +2658,19 @@ FocusEvent(dev, type, mode, detail, pWin)
   * no-op if child not descended from ancestor
   */
 static Bool
+#if NeedFunctionPrototypes
+FocusInEvents(
+    DeviceIntPtr dev,
+    WindowPtr ancestor, WindowPtr child, WindowPtr skipChild,
+    int mode, int detail,
+    Bool doAncestor)
+#else
 FocusInEvents(dev, ancestor, child, skipChild, mode, detail, doAncestor)
     DeviceIntPtr dev;
     WindowPtr ancestor, child, skipChild;
     int mode, detail;
     Bool doAncestor;
+#endif
 {
     if (child == NullWindow)
 	return ancestor == NullWindow;
@@ -2495,12 +2692,20 @@ FocusInEvents(dev, ancestor, child, skipChild, mode, detail, doAncestor)
 
 /* dies horribly if ancestor is not an ancestor of child */
 static void
+#if NeedFunctionPrototypes
+FocusOutEvents(
+    DeviceIntPtr dev,
+    WindowPtr child, WindowPtr ancestor,
+    int mode, int detail,
+    Bool doAncestor)
+#else
 FocusOutEvents(dev, child, ancestor, mode, detail, doAncestor)
     DeviceIntPtr dev;
     WindowPtr child, ancestor;
     int mode;
     int detail;
     Bool doAncestor;
+#endif
 {
     register WindowPtr  pWin;
 
@@ -2625,6 +2830,15 @@ DoFocusEvents(dev, fromWin, toWin, mode)
 }
 
 int
+#if NeedFunctionPrototypes
+SetInputFocus(
+    ClientPtr client,
+    DeviceIntPtr dev,
+    Window focusID,
+    CARD8 revertTo,
+    Time ctime,
+    Bool followOK)
+#else
 SetInputFocus(client, dev, focusID, revertTo, ctime, followOK)
     ClientPtr client;
     DeviceIntPtr dev;
@@ -2632,6 +2846,7 @@ SetInputFocus(client, dev, focusID, revertTo, ctime, followOK)
     CARD8 revertTo;
     Time ctime;
     Bool followOK;
+#endif
 {
     register FocusClassPtr focus;
     register WindowPtr focusWin;
@@ -2652,7 +2867,8 @@ SetInputFocus(client, dev, focusID, revertTo, ctime, followOK)
 	focusWin = (WindowPtr)focusID;
     else if ((focusID == FollowKeyboard) && followOK)
 	focusWin = inputInfo.keyboard->focus->win;
-    else if (!(focusWin = LookupWindow(focusID, client)))
+    else if (!(focusWin = SecurityLookupWindow(focusID, client,
+					       SecurityReadAccess)))
 	return BadWindow;
     else
     {
@@ -2708,6 +2924,10 @@ ProcSetInputFocus(client)
     REQUEST(xSetInputFocusReq);
 
     REQUEST_SIZE_MATCH(xSetInputFocusReq);
+#ifdef XCSECURITY
+    if (!SecurityCheckDeviceAccess(client, inputInfo.keyboard, TRUE))
+	return Success;
+#endif
     return SetInputFocus(client, inputInfo.keyboard, stuff->focus,
 			 stuff->revertTo, stuff->time, FALSE);
 }
@@ -2717,7 +2937,6 @@ ProcGetInputFocus(client)
     ClientPtr client;
 {
     xGetInputFocusReply rep;
-    REQUEST(xReq);
     FocusClassPtr focus = inputInfo.keyboard->focus;
 
     REQUEST_SIZE_MATCH(xReq);
@@ -2770,14 +2989,15 @@ ProcGrabPointer(client)
 	client->errorValue = stuff->eventMask;
         return BadValue;
     }
-    pWin = LookupWindow(stuff->grabWindow, client);
+    pWin = SecurityLookupWindow(stuff->grabWindow, client, SecurityReadAccess);
     if (!pWin)
 	return BadWindow;
     if (stuff->confineTo == None)
 	confineTo = NullWindow;
     else
     {
-	confineTo = LookupWindow(stuff->confineTo, client);
+	confineTo = SecurityLookupWindow(stuff->confineTo, client,
+					 SecurityReadAccess);
 	if (!confineTo)
 	    return BadWindow;
     }
@@ -2785,7 +3005,8 @@ ProcGrabPointer(client)
 	cursor = NullCursor;
     else
     {
-	cursor = (CursorPtr)LookupIDByType(stuff->cursor, RT_CURSOR);
+	cursor = (CursorPtr)SecurityLookupIDByType(client, stuff->cursor,
+						RT_CURSOR, SecurityReadAccess);
 	if (!cursor)
 	{
 	    client->errorValue = stuff->cursor;
@@ -2861,7 +3082,8 @@ ProcChangeActivePointerGrab(client)
 	newCursor = NullCursor;
     else
     {
-	newCursor = (CursorPtr)LookupIDByType(stuff->cursor, RT_CURSOR);
+	newCursor = (CursorPtr)SecurityLookupIDByType(client, stuff->cursor,
+						RT_CURSOR, SecurityReadAccess);
 	if (!newCursor)
 	{
 	    client->errorValue = stuff->cursor;
@@ -2940,7 +3162,7 @@ GrabDevice(client, dev, this_mode, other_mode, grabWindow, ownerEvents, ctime,
 	client->errorValue = ownerEvents;
         return BadValue;
     }
-    pWin = LookupWindow(grabWindow, client);
+    pWin = SecurityLookupWindow(grabWindow, client, SecurityReadAccess);
     if (!pWin)
 	return BadWindow;
     time = ClientTimeToServerTime(ctime);
@@ -2981,6 +3203,14 @@ ProcGrabKeyboard(client)
     int result;
 
     REQUEST_SIZE_MATCH(xGrabKeyboardReq);
+#ifdef XCSECURITY
+    if (!SecurityCheckDeviceAccess(client, inputInfo.keyboard, TRUE))
+    {
+	result = Success;
+	rep.status = AlreadyGrabbed;
+    }
+    else
+#endif
     result = GrabDevice(client, inputInfo.keyboard, stuff->keyboardMode,
 			stuff->pointerMode, stuff->grabWindow,
 			stuff->ownerEvents, stuff->time,
@@ -3024,7 +3254,7 @@ ProcQueryPointer(client)
     DeviceIntPtr mouse = inputInfo.pointer;
 
     REQUEST_SIZE_MATCH(xResourceReq);
-    pWin = LookupWindow(stuff->id, client);
+    pWin = SecurityLookupWindow(stuff->id, client, SecurityReadAccess);
     if (!pWin)
 	return BadWindow;
     if (mouse->valuator->motionHintWindow)
@@ -3169,7 +3399,8 @@ ProcSendEvent(client)
 	    effectiveFocus = pWin = inputFocus;
     }
     else
-	pWin = LookupWindow(stuff->destination, client);
+	pWin = SecurityLookupWindow(stuff->destination, client,
+				    SecurityReadAccess);
     if (!pWin)
 	return BadWindow;
     if ((stuff->propagate != xFalse) && (stuff->propagate != xTrue))
@@ -3208,7 +3439,7 @@ ProcUngrabKey(client)
     DeviceIntPtr keybd = inputInfo.keyboard;
 
     REQUEST_SIZE_MATCH(xUngrabKeyReq);
-    pWin = LookupWindow(stuff->grabWindow, client);
+    pWin = SecurityLookupWindow(stuff->grabWindow, client, SecurityReadAccess);
     if (!pWin)
 	return BadWindow;
     if (((stuff->key > keybd->key->curKeySyms.maxKeyCode) ||
@@ -3280,7 +3511,7 @@ ProcGrabKey(client)
 	client->errorValue = stuff->modifiers;
 	return BadValue;
     }
-    pWin = LookupWindow(stuff->grabWindow, client);
+    pWin = SecurityLookupWindow(stuff->grabWindow, client, SecurityReadAccess);
     if (!pWin)
 	return BadWindow;
 
@@ -3331,14 +3562,15 @@ ProcGrabButton(client)
 	client->errorValue = stuff->eventMask;
         return BadValue;
     }
-    pWin = LookupWindow(stuff->grabWindow, client);
+    pWin = SecurityLookupWindow(stuff->grabWindow, client, SecurityReadAccess);
     if (!pWin)
 	return BadWindow;
     if (stuff->confineTo == None)
 	confineTo = NullWindow;
     else
     {
-	confineTo = LookupWindow(stuff->confineTo, client);
+	confineTo = SecurityLookupWindow(stuff->confineTo, client,
+					 SecurityReadAccess);
 	if (!confineTo)
 	    return BadWindow;
     }
@@ -3346,7 +3578,8 @@ ProcGrabButton(client)
 	cursor = NullCursor;
     else
     {
-	cursor = (CursorPtr)LookupIDByType(stuff->cursor, RT_CURSOR);
+	cursor = (CursorPtr)SecurityLookupIDByType(client, stuff->cursor,
+						RT_CURSOR, SecurityReadAccess);
 	if (!cursor)
 	{
 	    client->errorValue = stuff->cursor;
@@ -3381,7 +3614,7 @@ ProcUngrabButton(client)
 	client->errorValue = stuff->modifiers;
 	return BadValue;
     }
-    pWin = LookupWindow(stuff->grabWindow, client);
+    pWin = SecurityLookupWindow(stuff->grabWindow, client, SecurityReadAccess);
     if (!pWin)
 	return BadWindow;
 
@@ -3537,7 +3770,8 @@ ProcRecolorCursor(client)
     REQUEST(xRecolorCursorReq);
 
     REQUEST_SIZE_MATCH(xRecolorCursorReq);
-    pCursor = (CursorPtr)LookupIDByType(stuff->cursor, RT_CURSOR);
+    pCursor = (CursorPtr)SecurityLookupIDByType(client, stuff->cursor,
+					RT_CURSOR, SecurityWriteAccess);
     if ( !pCursor) 
     {
 	client->errorValue = stuff->cursor;
@@ -3571,6 +3805,11 @@ WriteEventsToClient(pClient, count, events)
     xEvent    eventTo, *eventFrom;
     int       i;
 
+#ifdef XKB
+    if ((!noXkbExtension)&&(!XkbFilterEvents(pClient, count, events)))
+	return;
+#endif
+
     if (EventCallback)
     {
 	EventInfoRec eventinfo;
@@ -3588,21 +3827,11 @@ WriteEventsToClient(pClient, count, events)
 	       this event was sent with "SendEvent." */
 	    (*EventSwapVector[eventFrom->u.u.type & 0177])
 		(eventFrom, &eventTo);
-#ifdef XKB
-	    if (!noXkbExtension)
-		(void)XkbFilterWriteEvents(pClient, 1, (char *)&eventTo);
-	    else
-#endif
 	    (void)WriteToClient(pClient, sizeof(xEvent), (char *)&eventTo);
 	}
     }
     else
     {
-#ifdef XKB
-	if (!noXkbExtension)
-	    (void)XkbFilterWriteEvents(pClient, count, events);
-	else
-#endif
 	(void)WriteToClient(pClient, count * sizeof(xEvent), (char *) events);
     }
 }

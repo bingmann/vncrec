@@ -99,56 +99,56 @@ extern WindowPtr *WindowTable; /* Why isn't this in a header file? */
    to each client if there is one pending.  If the client is ready for it, we
    simply send the update.  If the client isn't ready we do nothing.  */
 
-#define SEND_FB_UPDATE(pScreen,prfb)			\
-  if (!prfb->dontSendFramebufferUpdate) {		\
-      rfbClientPtr cl;					\
-      for (cl = rfbClientHead; cl; cl = cl->next) {	\
-	  if (FB_UPDATE_PENDING(cl)) {			\
-	      if (cl->ready) {				\
-		  rfbSendFramebufferUpdate(cl);		\
-	      }						\
-	  }						\
-      }							\
+#define SEND_FB_UPDATE(pScreen,prfb)					\
+  if (!prfb->dontSendFramebufferUpdate) {				\
+      rfbClientPtr cl;							\
+      for (cl = rfbClientHead; cl; cl = cl->next) {			\
+	  if (FB_UPDATE_PENDING(cl)) {					\
+	      if (REGION_NOTEMPTY(pScreen,&cl->requestedRegion)) {	\
+		  rfbSendFramebufferUpdate(cl);				\
+	      }								\
+	  }								\
+      }									\
   }
 
 
-static void PrintRegion _((ScreenPtr pScreen, RegionPtr reg));
-static void rfbCopyRegion _((ScreenPtr pScreen, rfbClientPtr cl,
-			     RegionPtr src, RegionPtr dst, int dx, int dy));
+static void PrintRegion(ScreenPtr pScreen, RegionPtr reg);
+static void rfbCopyRegion(ScreenPtr pScreen, rfbClientPtr cl,
+			  RegionPtr src, RegionPtr dst, int dx, int dy);
 
 /* GC funcs */
 
-static void rfbValidateGC _((GCPtr, unsigned long /*changes*/, DrawablePtr));
-static void rfbChangeGC _((GCPtr, unsigned long /*mask*/));
-static void rfbCopyGC _((GCPtr /*src*/, unsigned long /*mask*/, GCPtr /*dst*/));
-static void rfbDestroyGC _((GCPtr));
-static void rfbChangeClip _((GCPtr, int /*type*/, pointer /*pValue*/,
-			     int /*nrects*/));
-static void rfbDestroyClip _((GCPtr));
-static void rfbCopyClip _((GCPtr /*dst*/, GCPtr /*src*/));
+static void rfbValidateGC(GCPtr, unsigned long /*changes*/, DrawablePtr);
+static void rfbChangeGC(GCPtr, unsigned long /*mask*/);
+static void rfbCopyGC(GCPtr /*src*/, unsigned long /*mask*/, GCPtr /*dst*/);
+static void rfbDestroyGC(GCPtr);
+static void rfbChangeClip(GCPtr, int /*type*/, pointer /*pValue*/,
+			  int /*nrects*/);
+static void rfbDestroyClip(GCPtr);
+static void rfbCopyClip(GCPtr /*dst*/, GCPtr /*src*/);
 
 /* GC ops */
 
-static void rfbFillSpans _(());
-static void rfbSetSpans _(());
-static void rfbPutImage _(());
-static RegionPtr rfbCopyArea _(());
-static RegionPtr rfbCopyPlane _(());
-static void rfbPolyPoint _(());
-static void rfbPolylines _(());
-static void rfbPolySegment _(());
-static void rfbPolyRectangle _(());
-static void rfbPolyArc _(());
-static void rfbFillPolygon _(());
-static void rfbPolyFillRect _(());
-static void rfbPolyFillArc _(());
-static int rfbPolyText8 _(());
-static int rfbPolyText16 _(());
-static void rfbImageText8 _(());
-static void rfbImageText16 _(());
-static void rfbImageGlyphBlt _(());
-static void rfbPolyGlyphBlt _(());
-static void rfbPushPixels _(());
+static void rfbFillSpans();
+static void rfbSetSpans();
+static void rfbPutImage();
+static RegionPtr rfbCopyArea();
+static RegionPtr rfbCopyPlane();
+static void rfbPolyPoint();
+static void rfbPolylines();
+static void rfbPolySegment();
+static void rfbPolyRectangle();
+static void rfbPolyArc();
+static void rfbFillPolygon();
+static void rfbPolyFillRect();
+static void rfbPolyFillArc();
+static int rfbPolyText8();
+static int rfbPolyText16();
+static void rfbImageText8();
+static void rfbImageText16();
+static void rfbImageGlyphBlt();
+static void rfbPolyGlyphBlt();
+static void rfbPushPixels();
 
 
 static GCFuncs rfbGCFuncs = {
@@ -1799,17 +1799,17 @@ PrintRegion(pScreen,reg)
     int nrects = REGION_NUM_RECTS(reg);
     int i;
 
-    fprintf(stderr,"Region num rects %d extents %d,%d %d,%d\n",nrects,
-	    (REGION_EXTENTS(pScreen,reg))->x1,
-	    (REGION_EXTENTS(pScreen,reg))->y1,
-	    (REGION_EXTENTS(pScreen,reg))->x2,
-	    (REGION_EXTENTS(pScreen,reg))->y2);
+    rfbLog("Region num rects %d extents %d,%d %d,%d\n",nrects,
+	   (REGION_EXTENTS(pScreen,reg))->x1,
+	   (REGION_EXTENTS(pScreen,reg))->y1,
+	   (REGION_EXTENTS(pScreen,reg))->x2,
+	   (REGION_EXTENTS(pScreen,reg))->y2);
 
     for (i = 0; i < nrects; i++) {
-	fprintf(stderr,"    rect %d,%d %dx%d\n",
-		REGION_RECTS(reg)[i].x1,
-		REGION_RECTS(reg)[i].y1,
-		REGION_RECTS(reg)[i].x2-REGION_RECTS(reg)[i].x1,
-		REGION_RECTS(reg)[i].y2-REGION_RECTS(reg)[i].y1);
+	rfbLog("    rect %d,%d %dx%d\n",
+	       REGION_RECTS(reg)[i].x1,
+	       REGION_RECTS(reg)[i].y1,
+	       REGION_RECTS(reg)[i].x2-REGION_RECTS(reg)[i].x1,
+	       REGION_RECTS(reg)[i].y2-REGION_RECTS(reg)[i].y1);
     }
 }

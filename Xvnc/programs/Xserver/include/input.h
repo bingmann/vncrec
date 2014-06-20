@@ -1,4 +1,5 @@
-/* $XConsortium: input.h,v 1.18 94/08/16 13:44:42 dpw Exp $ */
+/* $XConsortium: input.h /main/22 1996/09/25 00:50:39 dpw $ */
+/* $XFree86: xc/programs/Xserver/include/input.h,v 3.4 1996/12/23 07:09:28 dawes Exp $ */
 /************************************************************
 
 Copyright (c) 1987  X Consortium
@@ -53,6 +54,7 @@ SOFTWARE.
 #include "screenint.h"
 #include "X11/Xmd.h"
 #include "X11/Xproto.h"
+#include "window.h"     /* for WindowPtr */
 
 #define DEVICE_INIT	0
 #define DEVICE_ON	1
@@ -152,7 +154,18 @@ typedef struct {
 extern KeybdCtrl	defaultKeyboardControl;
 extern PtrCtrl		defaultPointerControl;
 
+#undef  AddInputDevice
 extern DevicePtr AddInputDevice(
+#if NeedFunctionPrototypes
+    DeviceProc /*deviceProc*/,
+    Bool /*autoStart*/
+#endif
+);
+
+#define AddInputDevice(deviceProc, autoStart) \
+       _AddInputDevice(deviceProc, autoStart)
+
+extern DeviceIntPtr _AddInputDevice(
 #if NeedFunctionPrototypes
     DeviceProc /*deviceProc*/,
     Bool /*autoStart*/
@@ -183,21 +196,47 @@ extern void CloseDownDevices(
 #endif
 );
 
+extern void RemoveDevice(
+#if NeedFunctionPrototypes
+    DeviceIntPtr /*dev*/
+#endif
+);
+
 extern int NumMotionEvents(
 #if NeedFunctionPrototypes
     void
 #endif
 );
 
+#undef  RegisterPointerDevice
 extern void RegisterPointerDevice(
 #if NeedFunctionPrototypes
     DevicePtr /*device*/
 #endif
 );
 
+#define RegisterPointerDevice(device) \
+       _RegisterPointerDevice(device)
+
+extern void _RegisterPointerDevice(
+#if NeedFunctionPrototypes
+    DeviceIntPtr /*device*/
+#endif
+);
+
+#undef  RegisterKeyboardDevice
 extern void RegisterKeyboardDevice(
 #if NeedFunctionPrototypes
     DevicePtr /*device*/
+#endif
+);
+
+#define RegisterKeyboardDevice(device) \
+       _RegisterKeyboardDevice(device)
+
+extern void _RegisterKeyboardDevice(
+#if NeedFunctionPrototypes
+    DeviceIntPtr /*device*/
 #endif
 );
 
@@ -210,6 +249,12 @@ extern DevicePtr LookupKeyboardDevice(
 extern DevicePtr LookupPointerDevice(
 #if NeedFunctionPrototypes
     void
+#endif
+);
+
+extern DevicePtr LookupDevice(
+#if NeedFunctionPrototypes
+    int /* id */
 #endif
 );
 
@@ -393,7 +438,8 @@ extern void SendMappingNotify(
 #if NeedFunctionPrototypes
     unsigned int /*request*/,
     unsigned int /*firstKeyCode*/,
-    unsigned int /*count*/
+    unsigned int /*count*/,
+    ClientPtr	/* client */
 #endif
 );
 

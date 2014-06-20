@@ -45,7 +45,8 @@ ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS
 SOFTWARE.
 
 ******************************************************************/
-/* $XConsortium: cfbline.c,v 1.23 94/04/17 20:28:53 dpw Exp $ */
+/* $XConsortium: cfbline.c,v 1.24 94/07/28 14:33:33 dpw Exp $ */
+/* $XFree86: xc/programs/Xserver/cfb/cfbline.c,v 3.0 1996/06/29 09:05:38 dawes Exp $ */
 #include "X.h"
 
 #include "gcstruct.h"
@@ -126,6 +127,8 @@ cfbLineSS (pDrawable, pGC, mode, npt, pptInit)
     int e, e1, e2;		/* bresenham error and increments */
     int len;			/* length of segment */
     int axis;			/* major axis */
+    int octant;
+    unsigned int bias = miGetZeroLineBias(pDrawable->pScreen);
 
 				/* a bunch of temporaries */
     int tmp;
@@ -304,18 +307,8 @@ cfbLineSS (pDrawable, pGC, mode, npt, pptInit)
 	}
 	else	/* sloped line */
 	{
-	    signdx = 1;
-	    if ((adx = x2 - x1) < 0)
-	    {
-		adx = -adx;
-		signdx = -1;
-	    }
-	    signdy = 1;
-	    if ((ady = y2 - y1) < 0)
-	    {
-		ady = -ady;
-		signdy = -1;
-	    }
+	    CalcLineDeltas(x1, y1, x2, y2, adx, ady, signdx, signdy,
+			   1, 1, octant);
 
 	    if (adx > ady)
 	    {
@@ -323,7 +316,6 @@ cfbLineSS (pDrawable, pGC, mode, npt, pptInit)
 		e1 = ady << 1;
 		e2 = e1 - (adx << 1);
 		e = e1 - adx;
-		FIXUP_X_MAJOR_ERROR(e, signdx, signdy);
  	    }
 	    else
 	    {
@@ -331,8 +323,10 @@ cfbLineSS (pDrawable, pGC, mode, npt, pptInit)
 		e1 = adx << 1;
 		e2 = e1 - (ady << 1);
 		e = e1 - ady;
-		FIXUP_Y_MAJOR_ERROR(e, signdx, signdy);
+		SetYMajorOctant(octant);
 	    }
+
+	    FIXUP_ERROR(e, octant, bias);
 
 	    /* we have bresenham parameters and two points.
 	       all we have to do now is clip and draw.
@@ -374,8 +368,8 @@ cfbLineSS (pDrawable, pGC, mode, npt, pptInit)
 		    if (miZeroClipLine(pbox->x1, pbox->y1, pbox->x2-1,
 				       pbox->y2-1,
 				       &new_x1, &new_y1, &new_x2, &new_y2,
-				       adx, ady, &clip1, &clip2, axis,
-				       (signdx == signdy), oc1, oc2) == -1)
+				       adx, ady, &clip1, &clip2,
+				       octant, bias, oc1, oc2) == -1)
 		    {
 			pbox++;
 			continue;
@@ -439,8 +433,13 @@ cfbLineSS (pDrawable, pGC, mode, npt, pptInit)
 		unsigned long mask;
 		unsigned long scrbits;
 
+#if PSZ == 24
+		mask = cfbmask[(x2 & 3)<<1];
+		addrl += (y2 * nlwidth) + ((x2*3) >> 2);
+#else
 		mask = cfbmask[x2 & PIM];
 		addrl += (y2 * nlwidth) + (x2 >> PWSH);
+#endif
 		scrbits = *addrl;
 		*addrl = (scrbits & ~mask) |
 			 (DoRRop (scrbits, and, xor) & mask);
@@ -495,6 +494,8 @@ cfbLineSD( pDrawable, pGC, mode, npt, pptInit)
     int e, e1, e2;		/* bresenham error and increments */
     int len;			/* length of segment */
     int axis;			/* major axis */
+    int octant;
+    unsigned int bias = miGetZeroLineBias(pDrawable->pScreen);
     int x1, x2, y1, y2;
     RegionPtr cclip;
     cfbRRopRec	    rrops[2];
@@ -572,8 +573,7 @@ cfbLineSD( pDrawable, pGC, mode, npt, pptInit)
 	y2 = ppt->y + yorg;
 #endif
 
-	AbsDeltaAndSign(x2, x1, adx, signdx);
-	AbsDeltaAndSign(y2, y1, ady, signdy);
+	CalcLineDeltas(x1, y1, x2, y2, adx, ady, signdx, signdy, 1, 1, octant);
 
 	if (adx > ady)
 	{
@@ -582,7 +582,6 @@ cfbLineSD( pDrawable, pGC, mode, npt, pptInit)
 	    e2 = e1 - (adx << 1);
 	    e = e1 - adx;
 	    unclippedlen = adx;
-	    FIXUP_X_MAJOR_ERROR(e, signdx, signdy);
 	}
 	else
 	{
@@ -591,8 +590,10 @@ cfbLineSD( pDrawable, pGC, mode, npt, pptInit)
 	    e2 = e1 - (ady << 1);
 	    e = e1 - ady;
 	    unclippedlen = ady;
-	    FIXUP_Y_MAJOR_ERROR(e, signdx, signdy);
+	    SetYMajorOctant(octant);
 	}
+
+	FIXUP_ERROR(e, octant, bias);
 
 	/* we have bresenham parameters and two points.
 	   all we have to do now is clip and draw.
@@ -643,8 +644,8 @@ cfbLineSD( pDrawable, pGC, mode, npt, pptInit)
 		if (miZeroClipLine(pbox->x1, pbox->y1, pbox->x2-1,
 				   pbox->y2-1,
 				   &new_x1, &new_y1, &new_x2, &new_y2,
-				   adx, ady, &clip1, &clip2, axis,
-				   (signdx == signdy), oc1, oc2) == -1)
+				   adx, ady, &clip1, &clip2,
+				   octant, bias, oc1, oc2) == -1)
 		{
 		    pbox++;
 		    continue;
@@ -736,8 +737,13 @@ dontStep:	;
 		pix = 0;
 		if (dashIndex & 1)
 		    pix = 1;
+#if PSZ == 24
+		mask = cfbmask[(x2 & 3)<<1];
+		addrl += (y2 * nlwidth) + ((x2 *3)>> 2);
+#else
 		mask = cfbmask[x2 & PIM];
 		addrl += (y2 * nlwidth) + (x2 >> PWSH);
+#endif
 		*addrl = DoMaskRRop (*addrl, rrops[pix].and, rrops[pix].xor, mask);
 		break;
 	    }

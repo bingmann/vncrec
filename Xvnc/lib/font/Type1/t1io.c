@@ -1,4 +1,4 @@
-/* $XConsortium: t1io.c,v 1.9 94/04/17 20:17:24 gildea Exp $ */
+/* $XConsortium: t1io.c,v 1.10 95/06/09 22:29:35 gildea Exp $ */
 /* Copyright International Business Machines,Corp. 1991
  * All Rights Reserved
  *
@@ -170,7 +170,7 @@ int T1Close(f)       /* Close the file */
   return close(f->fd);
 } /* end Close */
 
-#if __STDC__
+#ifdef __STDC__
 #define   pointer          void *
 #else
 #define   pointer          char *

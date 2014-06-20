@@ -66,7 +66,8 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE
 OF THIS SOFTWARE.
 
 ******************************************************************/
-/* $XConsortium: misc.h,v 1.68 94/04/17 20:25:48 dpw Exp $ */
+/* $XConsortium: misc.h /main/28 1996/12/02 10:22:01 lehors $ */
+/* $XFree86: xc/programs/Xserver/include/misc.h,v 3.5 1996/12/23 07:09:29 dawes Exp $ */
 #ifndef MISC_H
 #define MISC_H 1
 /*
@@ -124,6 +125,13 @@ typedef struct _Client *ClientPtr; /* also in dix.h */
 #define _XTYPEDEF_CLIENTPTR
 #endif
 
+#ifndef _XTYPEDEF_CALLBACKLISTPTR
+typedef struct _CallbackList *CallbackListPtr; /* also in dix.h */
+#define _XTYPEDEF_CALLBACKLISTPTR
+#endif
+
+typedef struct _xReq *xReqPtr;
+
 #include "os.h" 	/* for ALLOCATE_LOCAL and DEALLOCATE_LOCAL */
 #include <X11/Xfuncs.h> /* for bcopy, bzero, and bcmp */
 
@@ -150,9 +158,16 @@ typedef struct _Client *ClientPtr; /* also in dix.h */
 
 #define min(a, b) (((a) < (b)) ? (a) : (b))
 #define max(a, b) (((a) > (b)) ? (a) : (b))
+#if !defined(AMOEBA) && !defined(__EMX__)
 #ifndef abs
 #define abs(a) ((a) > 0 ? (a) : -(a))
 #endif
+#else /* AMOEBA || __EMX__ */
+/* abs() is a function, not a macro; include the file declaring
+ * it in case we haven't done that yet.
+ */  
+#include <stdlib.h>
+#endif /* AMOEBA */
 #ifndef Fabs
 #define Fabs(a) ((a) > 0.0 ? (a) : -(a))	/* floating absolute value */
 #endif
@@ -168,8 +183,12 @@ typedef struct _Client *ClientPtr; /* also in dix.h */
  */
 #define lowbit(x) ((x) & (~(x) + 1))
 
+#ifndef MAXSHORT
 #define MAXSHORT 32767
+#endif
+#ifndef MINSHORT
 #define MINSHORT -MAXSHORT 
+#endif
 
 
 /* some macros to help swap requests, replies, and events */
@@ -230,7 +249,7 @@ extern void SwapShorts(
 #endif
 );
 
-extern int MakePredeclaredAtoms(
+extern void MakePredeclaredAtoms(
 #if NeedFunctionPrototypes
     void
 #endif

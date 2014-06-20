@@ -1,4 +1,5 @@
 /* $XConsortium: regions.c,v 1.6 94/02/06 16:22:21 gildea Exp $ */
+/* $XFree86: xc/lib/font/Type1/regions.c,v 3.0 1996/08/25 13:58:26 dawes Exp $ */
 /* Copyright International Business Machines, Corp. 1991
  * All Rights Reserved
  * Copyright Lexmark International, Inc. 1991
@@ -305,7 +306,7 @@ if the xvalues are long aligned by ANDing the address with the
 (sizeof(long) - 1)--if non zero, the xvalues are not aligned well.  We
 set 'iy' to the ymin value that would give us good alignment:
 */
-       iy = ymin - (((int) xvalues) & (sizeof(long) - 1)) / sizeof(pel);
+       iy = ymin - (((unsigned long)xvalues) & (sizeof(long)-1)) / sizeof(pel);
  
        r = (struct edgelist *)Allocate(sizeof(struct edgelist), &template,
                              (ymax - iy) * sizeof(pel));

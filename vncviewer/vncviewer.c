@@ -50,8 +50,8 @@ main(int argc, char **argv)
 	exit(1);
     }
 
-    if (!SendFramebufferUpdateRequest(0, 0, si.framebufferWidth,
-				      si.framebufferHeight, False)) {
+    if (!SendFramebufferUpdateRequest(updateRequestX, updateRequestY,
+				      updateRequestW, updateRequestH, False)) {
 	ShutdownX();
 	exit(1);
     }

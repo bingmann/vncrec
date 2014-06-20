@@ -1,4 +1,5 @@
-/* $XConsortium: fslibos.h,v 1.14 94/04/17 20:17:41 mor Exp $ */
+/* $XConsortium: fslibos.h /main/16 1996/11/13 14:45:15 lehors $ */
+/* $XFree86: xc/lib/font/fc/fslibos.h,v 3.3 1996/12/23 06:02:08 dawes Exp $ */
 /*
  * Copyright 1990 Network Computing Devices;
  * Portions Copyright 1987 by Digital Equipment Corporation
@@ -58,15 +59,23 @@ from the X Consortium.
 #endif
 #endif
 #ifndef OPEN_MAX
-#ifdef SVR4
+#if defined(SVR4) || defined(__EMX__)
+#ifdef SCO325
+#define OPEN_MAX sysconf(_SC_OPEN_MAX)
+#else
 #define OPEN_MAX 256
+#endif
 #else
 #include <sys/param.h>
 #ifndef OPEN_MAX
+#ifdef __OSF1__
+#define OPEN_MAX 256
+#else
 #ifdef NOFILE
 #define OPEN_MAX NOFILE
 #else
 #define OPEN_MAX NOFILES_MAX
+#endif
 #endif
 #endif
 #endif
@@ -195,13 +204,7 @@ typedef FdSet FdSetPtr;
 
 #else /* not WIN32 */
 
-#define BOOL wBOOL
-#undef Status
-#define Status wStatus
-#include <winsock.h>
-#undef Status
-#define Status int
-#undef BOOL
+#include <X11/Xwinsock.h>
 #include <X11/Xw32defs.h>
 
 typedef fd_set FdSet;

@@ -21,7 +21,8 @@ SOFTWARE.
 
 ************************************************************************/
 
-/* $XConsortium: dixfonts.c,v 1.50 94/04/17 20:26:30 gildea Exp $ */
+/* $XConsortium: dixfonts.c /main/58 1996/09/28 17:11:55 rws $ */
+/* $XFree86: xc/programs/Xserver/dix/dixfonts.c,v 3.6 1996/12/23 06:29:40 dawes Exp $ */
 
 #define NEED_REPLIES
 #include "X.h"
@@ -77,8 +78,6 @@ static Mask FontFormat =
 
 extern pointer fosNaturalParams;
 extern FontPtr defaultFont;
-
-extern void (*ReplySwapVector[256]) ();
 
 static FontPathElementPtr *font_path_elements = (FontPathElementPtr *) 0;
 static int  num_fpes = 0;
@@ -214,15 +213,23 @@ FontWakeup(data, count, LastSelectMask)
 
 /* XXX -- these two funcs may want to be broken into macros */
 static void
+#if NeedFunctionPrototypes
+UseFPE(FontPathElementPtr fpe)
+#else
 UseFPE(fpe)
     FontPathElementPtr fpe;
+#endif
 {
     fpe->refcount++;
 }
 
 static void
+#if NeedFunctionPrototypes
+FreeFPE (FontPathElementPtr fpe)
+#else
 FreeFPE (fpe)
     FontPathElementPtr	fpe;
+#endif
 {
     fpe->refcount--;
     if (fpe->refcount == 0) {
@@ -233,9 +240,13 @@ FreeFPE (fpe)
 }
 
 static Bool
+#if NeedFunctionPrototypes
+doOpenFont(ClientPtr client, OFclosurePtr c)
+#else
 doOpenFont(client, c)
     ClientPtr   client;
     OFclosurePtr c;
+#endif
 {
     FontPtr     pfont = NullFont;
     FontPathElementPtr fpe;
@@ -294,7 +305,7 @@ doOpenFont(client, c)
 	if (err == Suspended) {
 	    if (!c->slept) {
 		c->slept = TRUE;
-		ClientSleep(client, doOpenFont, (pointer) c);
+		ClientSleep(client, (ClientSleepProcPtr)doOpenFont, (pointer) c);
 	    }
 	    return TRUE;
 	}
@@ -360,6 +371,14 @@ OpenFont(client, fid, flags, lenfname, pfontname)
     int         i;
     FontPtr     cached = (FontPtr)0;
 
+#ifdef FONTDEBUG
+    char *f;
+    f = (char *)xalloc(lenfname + 1);
+    memmove(f, pfontname, lenfname);
+    f[lenfname] = '\0';
+    ErrorF("OpenFont: fontname is \"%s\"\n", f);
+    xfree(f);
+#endif
     if (!lenfname)
 	return BadName;
     if (patternCache)
@@ -480,21 +499,21 @@ CloseFont(value, fid)
 
 void
 QueryFont(pFont, pReply, nProtoCCIStructs)
-    FontPtr     pFont;
+    FontPtr          pFont;
     xQueryFontReply *pReply;	/* caller must allocate this storage */
-    int         nProtoCCIStructs;
+    int              nProtoCCIStructs;
 {
-    FontPropPtr pFP;
-    int         r,
-                c,
-                i;
-    xFontProp  *prFP;
-    xCharInfo  *prCI;
-    xCharInfo  *charInfos[256];
-    char        chars[512];
-    int         ncols;
-    int         ninfos;
-    int         count;
+    FontPropPtr      pFP;
+    int              r,
+                     c,
+                     i;
+    xFontProp       *prFP;
+    xCharInfo       *prCI;
+    xCharInfo       *charInfos[256];
+    unsigned char    chars[512];
+    int              ninfos;
+    unsigned long    ncols;
+    unsigned long    count;
 
     /* pr->length set in dispatch */
     pReply->minCharOrByte2 = pFont->info.firstCol;
@@ -521,7 +540,7 @@ QueryFont(pFont, pReply, nProtoCCIStructs)
     }
 
     ninfos = 0;
-    ncols = pFont->info.lastCol - pFont->info.firstCol + 1;
+    ncols = (unsigned long) (pFont->info.lastCol - pFont->info.firstCol + 1);
     prCI = (xCharInfo *) (prFP);
     for (r = pFont->info.firstRow;
 	    ninfos < nProtoCCIStructs && r <= (int)pFont->info.lastRow;
@@ -534,7 +553,7 @@ QueryFont(pFont, pReply, nProtoCCIStructs)
 	(*pFont->get_metrics) (pFont, ncols, chars, TwoD16Bit,
 			       &count, charInfos);
 	i = 0;
-	for (i = 0; i < count && ninfos < nProtoCCIStructs; i++) {
+	for (i = 0; i < (int) count && ninfos < nProtoCCIStructs; i++) {
 	    *prCI = *charInfos[i];
 	    prCI++;
 	    ninfos++;
@@ -544,18 +563,20 @@ QueryFont(pFont, pReply, nProtoCCIStructs)
 }
 
 static Bool
+#if NeedFunctionPrototypes
+doListFontsAndAliases(ClientPtr client, LFclosurePtr c)
+#else
 doListFontsAndAliases(client, c)
     ClientPtr   client;
     LFclosurePtr c;
+#endif
 {
     FontPathElementPtr fpe;
     int         err = Successful;
     FontNamesPtr names = NULL;
-    char       *name, *resolved;
+    char       *name, *resolved=NULL;
     int         namelen, resolvedlen;
     int		nnames;
-    int         numFonts;
-    int         length;
     int         stringLens;
     int         i;
     xListFontsReply reply;
@@ -593,7 +614,9 @@ doListFontsAndAliases(client, c)
 	    if (err == Suspended) {
 		if (!c->slept) {
 		    c->slept = TRUE;
-		    ClientSleep(client, doListFontsAndAliases, (pointer) c);
+		    ClientSleep(client,
+			(ClientSleepProcPtr)doListFontsAndAliases,
+			(pointer) c);
 		}
 		return TRUE;
 	    }
@@ -618,7 +641,8 @@ doListFontsAndAliases(client, c)
 		     &c->current.private);
 		if (err == Suspended) {
 		    if (!c->slept) {
-			ClientSleep(client, doListFontsAndAliases,
+			ClientSleep(client,
+				    (ClientSleepProcPtr)doListFontsAndAliases,
 				    (pointer) c);
 			c->slept = TRUE;
 		    }
@@ -628,17 +652,25 @@ doListFontsAndAliases(client, c)
 		    c->current.list_started = TRUE;
 	    }
 	    if (err == Successful) {
+		char    *tmpname;
 		name = 0;
 		err = (*fpe_functions[fpe->type].list_next_font_or_alias)
-		    ((pointer) c->client, fpe, &name, &namelen, &resolved,
+		    ((pointer) c->client, fpe, &name, &namelen, &tmpname,
 		     &resolvedlen, c->current.private);
 		if (err == Suspended) {
 		    if (!c->slept) {
-			ClientSleep(client, doListFontsAndAliases,
+			ClientSleep(client,
+				    (ClientSleepProcPtr)doListFontsAndAliases,
 				    (pointer) c);
 			c->slept = TRUE;
 		    }
 		    return TRUE;
+		}
+		if (err == FontNameAlias) {
+		    if (resolved) xfree(resolved);
+		    resolved = (char *) xalloc(resolvedlen + 1);
+		    if (resolved)
+			memmove(resolved, tmpname, resolvedlen + 1);
 		}
 	    }
 
@@ -661,6 +693,7 @@ doListFontsAndAliases(client, c)
 	     * old state
 	     */
 	    else if (err == FontNameAlias) {
+		char	tmp_pattern[256];
 		/*
 		 * when an alias recurses, we need to give
 		 * the last FPE a chance to clean up; so we call
@@ -668,6 +701,7 @@ doListFontsAndAliases(client, c)
 		 * is BadFontName, indicating the alias resolution
 		 * is complete.
 		 */
+		memmove(tmp_pattern, resolved, resolvedlen);
 		if (c->haveSaved)
 		{
 		    char    *tmpname;
@@ -695,7 +729,7 @@ doListFontsAndAliases(client, c)
 		    c->savedNameLen = namelen;
 		    aliascount = 20;
 		}
-		c->current.pattern = resolved;
+		memmove(c->current.pattern, tmp_pattern, resolvedlen);
 		c->current.patlen = resolvedlen;
 		c->current.max_names = c->names->nnames + 1;
 		c->current.current_fpe = -1;
@@ -715,20 +749,6 @@ doListFontsAndAliases(client, c)
 	    err = Successful;
 	    if (c->haveSaved)
 	    {
-		/* If we're searching for an alias, limit the search to
-		   FPE's of the same type as the one the alias came
-		   from.  This is unnecessarily restrictive, but if we
-		   have both fontfile and fs FPE's, this restriction can
-		   drastically reduce network traffic to the fs -- else
-		   we could poll the fs for *every* local alias found;
-		   on a typical system enabling FILE_NAMES_ALIASES, this
-		   is significant.  */
-
-		while (c->current.current_fpe < c->num_fpes &&
-		       c->fpe_list[c->current.current_fpe]->type !=
-		       c->fpe_list[c->saved.current_fpe]->type)
-		c->current.current_fpe++;
-
 		if (c->names->nnames == c->current.max_names ||
 			c->current.current_fpe == c->num_fpes) {
 		    c->haveSaved = FALSE;
@@ -799,8 +819,8 @@ bail:
     xfree(c->fpe_list);
     if (c->savedName) xfree(c->savedName);
     FreeFontNames(names);
-    xfree(c->current.pattern);
     xfree(c);
+    if (resolved) xfree(resolved);
     return TRUE;
 }
 
@@ -816,14 +836,9 @@ ListFonts(client, pattern, length, max_names)
 
     if (!(c = (LFclosurePtr) xalloc(sizeof *c)))
 	return BadAlloc;
-    if (!(c->current.pattern = (char *) xalloc(length)) && length) {
-	xfree(c);
-	return BadAlloc;
-    }
     c->fpe_list = (FontPathElementPtr *)
 	xalloc(sizeof(FontPathElementPtr) * num_fpes);
     if (!c->fpe_list) {
-	xfree(c->current.pattern);
 	xfree(c);
 	return BadAlloc;
     }
@@ -831,7 +846,6 @@ ListFonts(client, pattern, length, max_names)
     if (!c->names)
     {
 	xfree(c->fpe_list);
-	xfree(c->current.pattern);
 	xfree(c);
 	return BadAlloc;
     }
@@ -899,7 +913,7 @@ doListFontsWithInfo(client, c)
  	    {
 		if (!c->slept)
  		{
-		    ClientSleep(client, doListFontsWithInfo, c);
+		    ClientSleep(client, (ClientSleepProcPtr)doListFontsWithInfo, c);
 		    c->slept = TRUE;
 		}
 		return TRUE;
@@ -918,7 +932,9 @@ doListFontsWithInfo(client, c)
  	    {
 		if (!c->slept)
  		{
-		    ClientSleep(client, doListFontsWithInfo, c);
+		    ClientSleep(client,
+		    	     (ClientSleepProcPtr)doListFontsWithInfo,
+			     c);
 		    c->slept = TRUE;
 		}
 		return TRUE;
@@ -963,7 +979,7 @@ doListFontsWithInfo(client, c)
 		c->savedName = (char *) pFontInfo;
 		aliascount = 20;
 	    }
-	    c->current.pattern = name;
+	    memmove(c->current.pattern, name, namelen);
 	    c->current.patlen = namelen;
 	    c->current.max_names = 1;
 	    c->current.current_fpe = 0;
@@ -992,7 +1008,7 @@ doListFontsWithInfo(client, c)
 		    c->current = c->saved;
 		}
 	    }
-	    if (c->current.max_names == 0)
+	    else if (c->current.max_names == 0)
 		break;
 	}
  	else if (err == Successful)
@@ -1067,7 +1083,6 @@ bail:
 	FreeFPE(c->fpe_list[i]);
     xfree(c->reply);
     xfree(c->fpe_list);
-    xfree(c->current.pattern);
     xfree(c);
     return TRUE;
 }
@@ -1084,16 +1099,10 @@ StartListFontsWithInfo(client, length, pattern, max_names)
 
     if (!(c = (LFWIclosurePtr) xalloc(sizeof *c)))
 	goto badAlloc;
-    if (!(c->current.pattern = (char *) xalloc(length)) && length)
-    {
-	xfree(c);
-	goto badAlloc;
-    }
     c->fpe_list = (FontPathElementPtr *)
 	xalloc(sizeof(FontPathElementPtr) * num_fpes);
     if (!c->fpe_list)
     {
-	xfree(c->current.pattern);
 	xfree(c);
 	goto badAlloc;
     }
@@ -1136,6 +1145,7 @@ doPolyText(client, c)
     int err = Success, lgerr;	/* err is in X error, not font error, space */
     enum { NEVER_SLEPT, START_SLEEP, SLEEPING } client_state;
     FontPathElementPtr fpe;
+    GC *origGC;
 
     if (client->clientGone)
     {
@@ -1161,7 +1171,8 @@ doPolyText(client, c)
     /* Make sure our drawable hasn't disappeared while we slept. */
     if (c->slept &&
 	c->pDraw &&
-	c->pDraw != (DrawablePtr)LookupIDByClass(c->did, RC_DRAWABLE))
+	c->pDraw != (DrawablePtr)SecurityLookupIDByClass(client, c->did,
+					RC_DRAWABLE, SecurityWriteAccess))
     {
 	/* Our drawable has disappeared.  Treat like client died... ask
 	   the FPE code to clean up after client and avoid further
@@ -1190,7 +1201,8 @@ doPolyText(client, c)
 		 | ((Font)*(c->pElt+3)) << 8
 		 | ((Font)*(c->pElt+2)) << 16
 		 | ((Font)*(c->pElt+1)) << 24;
-	    pFont = (FontPtr)LookupIDByType(fid, RT_FONT);
+	    pFont = (FontPtr)SecurityLookupIDByType(client, fid, RT_FONT,
+						    SecurityReadAccess);
 	    if (!pFont)
 	    {
 		client->errorValue = fid;
@@ -1220,9 +1232,9 @@ doPolyText(client, c)
 		    ChangeGC( c->pGC, GCFont, &fid);
 		    ValidateGC(c->pDraw, c->pGC);
 		    if (c->reqType == X_PolyText8)
-			c->polyText = c->pGC->ops->PolyText8;
+			c->polyText = (PolyTextPtr) c->pGC->ops->PolyText8;
 		    else
-			c->polyText = c->pGC->ops->PolyText16;
+			c->polyText = (PolyTextPtr) c->pGC->ops->PolyText16;
 		}
 
 		/* Undo the refcnt++ we performed when going to sleep */
@@ -1323,11 +1335,14 @@ doPolyText(client, c)
 			err = BadAlloc;
 			goto bail;
 		    }
+		    origGC = c->pGC;
 		    c->pGC = pGC;
 		    ValidateGC(c->pDraw, c->pGC);
 		    
 		    c->slept = TRUE;
-		    ClientSleep(client, doPolyText, (pointer) c);
+		    ClientSleep(client,
+		    	     (ClientSleepProcPtr)doPolyText,
+			     (pointer) c);
 
 		    /* Set up to perform steps 3 and 4 */
 		    client_state = START_SLEEP;
@@ -1355,10 +1370,10 @@ bail:
     if (client_state == START_SLEEP)
     {
 	/* Step 4 */
-	if (pFont != c->pGC->font)
+	if (pFont != origGC->font)
 	{
-	    ChangeGC(c->pGC, GCFont, &fid);
-	    ValidateGC(c->pDraw, c->pGC);
+	    ChangeGC(origGC, GCFont, &fid);
+	    ValidateGC(c->pDraw, origGC);
 	}
 
 	/* restore pElt pointer for execution of remainder of the request */
@@ -1408,12 +1423,12 @@ PolyText(client, pDraw, pGC, pElt, endReq, xorg, yorg, reqType, did)
     local_closure.yorg = yorg;
     if ((local_closure.reqType = reqType) == X_PolyText8)
     {
-	local_closure.polyText = pGC->ops->PolyText8;
+	local_closure.polyText = (PolyTextPtr) pGC->ops->PolyText8;
 	local_closure.itemSize = 1;
     }
     else
     {
-	local_closure.polyText =  pGC->ops->PolyText16;
+	local_closure.polyText =  (PolyTextPtr) pGC->ops->PolyText16;
 	local_closure.itemSize = 2;
     }
     local_closure.pGC = pGC;
@@ -1448,7 +1463,8 @@ doImageText(client, c)
     /* Make sure our drawable hasn't disappeared while we slept. */
     if (c->slept &&
 	c->pDraw &&
-	c->pDraw != (DrawablePtr)LookupIDByClass(c->did, RC_DRAWABLE))
+	c->pDraw != (DrawablePtr)SecurityLookupIDByClass(client, c->did,
+					RC_DRAWABLE, SecurityWriteAccess))
     {
 	/* Our drawable has disappeared.  Treat like client died... ask
 	   the FPE code to clean up after client. */
@@ -1515,7 +1531,7 @@ doImageText(client, c)
 	    ValidateGC(c->pDraw, c->pGC);
 
 	    c->slept = TRUE;
-            ClientSleep(client, doImageText, (pointer) c);
+            ClientSleep(client, (ClientSleepProcPtr)doImageText, (pointer) c);
         }
         return TRUE;
     }
@@ -1574,12 +1590,12 @@ ImageText(client, pDraw, pGC, nChars, data, xorg, yorg, reqType, did)
     local_closure.yorg = yorg;
     if ((local_closure.reqType = reqType) == X_ImageText8)
     {
-	local_closure.imageText = pGC->ops->ImageText8;
+	local_closure.imageText = (ImageTextPtr) pGC->ops->ImageText8;
 	local_closure.itemSize = 1;
     }
     else
     {
-	local_closure.imageText =  pGC->ops->ImageText16;
+	local_closure.imageText = (ImageTextPtr) pGC->ops->ImageText16;
 	local_closure.itemSize = 2;
     }
     local_closure.did = did;
@@ -1592,8 +1608,12 @@ ImageText(client, pDraw, pGC, nChars, data, xorg, yorg, reqType, did)
 
 /* does the necessary magic to figure out the fpe type */
 static int
+#if NeedFunctionPrototypes
+DetermineFPEType(char *pathname)
+#else
 DetermineFPEType(pathname)
     char       *pathname;
+#endif
 {
     int         i;
 
@@ -1606,10 +1626,14 @@ DetermineFPEType(pathname)
 
 
 static void
+#if NeedFunctionPrototypes
+FreeFontPath(FontPathElementPtr *list, int n, Bool force)
+#else
 FreeFontPath(list, n, force)
     FontPathElementPtr	*list;
     Bool		force;
     int         n;
+#endif
 {
     int         i;
 
@@ -1635,12 +1659,16 @@ FreeFontPath(list, n, force)
     xfree((char *) list);
 }
 
-static      FontPathElementPtr
+static FontPathElementPtr
+#if NeedFunctionPrototypes
+find_existing_fpe(FontPathElementPtr *list, int num, unsigned char *name, int len)
+#else
 find_existing_fpe(list, num, name, len)
     FontPathElementPtr *list;
     int         num;
-    char       *name;
+    unsigned char *name;
     int         len;
+#endif
 {
     FontPathElementPtr fpe;
     int         i;
@@ -1655,10 +1683,14 @@ find_existing_fpe(list, num, name, len)
 
 
 static int
+#if NeedFunctionPrototypes
+SetFontPathElements(int npaths, unsigned char *paths, int *bad)
+#else
 SetFontPathElements(npaths, paths, bad)
     int         npaths;
     unsigned char *paths;
     int        *bad;
+#endif
 {
     int         i,
                 err;
@@ -1879,8 +1911,15 @@ void
 InitFonts ()
 {
     patternCache = MakeFontPatternCache();
-    FontFileRegisterFpeFunctions();
-    fs_register_fpe_functions();
+
+    if (screenInfo.numScreens > screenInfo.numVideoScreens) {
+	PrinterFontRegisterFpeFunctions();
+	FontFileCheckRegisterFpeFunctions();
+	check_fs_register_fpe_functions();
+    } else {
+	FontFileRegisterFpeFunctions();
+	fs_register_fpe_functions();
+    }
 }
 
 int
@@ -1889,37 +1928,39 @@ GetDefaultPointSize ()
     return 120;
 }
 
-struct resolution {
-    CARD16 x_resolution B16;
-    CARD16 y_resolution B16;
-    CARD16 point_size B16;
-};
 
-struct resolution *
+FontResolutionPtr
 GetClientResolutions (num)
     int        *num;
 {
-    static struct resolution res;
-    ScreenPtr   pScreen;
+    if (requestingClient && requestingClient->fontResFunc != NULL &&
+	!requestingClient->clientGone)
+    {
+	return (*requestingClient->fontResFunc)(requestingClient, num);
+    }
+    else {
+	static struct _FontResolution res;
+	ScreenPtr   pScreen;
 
-    pScreen = screenInfo.screens[0];
-    res.x_resolution = (pScreen->width * 25.4) / pScreen->mmWidth;
-    /*
-     * XXX - we'll want this as long as bitmap instances are prevalent so that
-     * we can match them from scalable fonts
-     */
-    if (res.x_resolution < 88)
-	res.x_resolution = 75;
-    else
-	res.x_resolution = 100;
-    res.y_resolution = (pScreen->height * 25.4) / pScreen->mmHeight;
-    if (res.y_resolution < 88)
-	res.y_resolution = 75;
-    else
-	res.y_resolution = 100;
-    res.point_size = 120;
-    *num = 1;
-    return &res;
+	pScreen = screenInfo.screens[0];
+	res.x_resolution = (pScreen->width * 25.4) / pScreen->mmWidth;
+	/*
+	 * XXX - we'll want this as long as bitmap instances are prevalent 
+	 so that we can match them from scalable fonts
+	 */
+	if (res.x_resolution < 88)
+	    res.x_resolution = 75;
+	else
+	    res.x_resolution = 100;
+	res.y_resolution = (pScreen->height * 25.4) / pScreen->mmHeight;
+	if (res.y_resolution < 88)
+	    res.y_resolution = 75;
+	else
+	    res.y_resolution = 100;
+	res.point_size = 120;
+	*num = 1;
+	return &res;
+    }
 }
 
 /*
@@ -1929,6 +1970,100 @@ GetClientResolutions (num)
  */
 
 int
+#if NeedFunctionPrototypes
+RegisterFPEFunctions(
+    int         (*name_func) (
+                  char* /* name */
+                  ),
+    int         (*init_func) (
+                  FontPathElementPtr /* fpe */
+                  ),
+    int         (*free_func) (
+                  FontPathElementPtr /* fpe */
+                  ),
+    int         (*reset_func) (
+                  FontPathElementPtr /* fpe */
+                  ),
+    int         (*open_func) (
+                  pointer /* client */,
+                  FontPathElementPtr /* fpe */,
+                  int /* flags */,
+                  char* /* name */,
+                  int /* namelen */,
+                  fsBitmapFormat /* format */,
+                  fsBitmapFormatMask /* fmask */,
+                  unsigned long /* id (type XID or FSID) */,
+                  FontPtr* /* pFont */,
+                  char** /* aliasName */,
+                  FontPtr /* non_cachable_font */
+                  ),
+    int         (*close_func) (
+                  FontPathElementPtr /* fpe */,
+                  FontPtr /* pFont */
+                  ),
+    int         (*list_func) (
+                  pointer /* client */,
+                  FontPathElementPtr /* fpe */,
+                  char* /* pat */,
+                  int /* len */,
+                  int /* max */,
+                  FontNamesPtr /* names */
+                  ),
+    int         (*start_lfwi_func) (
+                  pointer /* client */,
+                  FontPathElementPtr /* fpe */,
+                  char* /* pat */,
+                  int /* patlen */,
+                  int /* maxnames */,
+                  pointer* /* privatep */
+                  ),
+    int         (*next_lfwi_func) (
+                  pointer /* client */,
+                  FontPathElementPtr /* fpe */,
+                  char** /* name */,
+                  int* /* namelen */,
+                  FontInfoPtr* /* info */,
+                  int* /* numFonts */,
+                  pointer /* private */
+                  ),
+    int         (*wakeup_func) (
+                  FontPathElementPtr /* fpe */,
+                  unsigned long* /* LastSelectMask */
+                  ),
+    int         (*client_died) (
+                  pointer /* client */,
+                  FontPathElementPtr /* fpe */
+                  ),
+    int         (*load_glyphs) (
+                  pointer /* client */,
+                  FontPtr /* pfont */,
+                  Bool /* range_flag */,
+                  unsigned int /* nchars */,
+                  int /* item_size */,
+                  unsigned char* /* data */
+                  ),
+    int         (*start_list_alias_func) (
+                  pointer /* client */,
+                  FontPathElementPtr /* fpe */,
+                  char* /* pat */,
+                  int /* len */,
+                  int /* max */,
+                  pointer* /* privatep */
+                  ),
+    int         (*next_list_alias_func) (
+                  pointer /* client */,
+                  FontPathElementPtr /* fpe */,
+                  char** /* namep */,
+                  int* /* namelenp */,
+                  char** /* resolvedp */,
+                  int* /* resolvedlenp */,
+                  pointer /* private */
+                  ),
+    void        (*set_path_func) (
+                  void
+                  )
+)
+#else
 RegisterFPEFunctions(name_func, init_func, free_func, reset_func,
 	   open_func, close_func, list_func, start_lfwi_func, next_lfwi_func,
 		     wakeup_func, client_died, load_glyphs,
@@ -1949,6 +2084,7 @@ RegisterFPEFunctions(name_func, init_func, free_func, reset_func,
     int		(*start_list_alias_func) ();
     int		(*next_list_alias_func) ();
     void	(*set_path_func) ();
+#endif
 {
     FPEFunctions *new;
 
@@ -2003,7 +2139,8 @@ FontPtr
 find_old_font(id)
     XID         id;
 {
-    return (FontPtr) LookupIDByType(id, RT_NONE);
+    return (FontPtr) SecurityLookupIDByType(NullClient, id, RT_NONE,
+					    SecurityUnknownAccess);
 }
 
 Font

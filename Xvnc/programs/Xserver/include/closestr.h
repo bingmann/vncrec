@@ -1,4 +1,5 @@
-/* $XConsortium: closestr.h,v 1.9 94/04/17 20:25:29 dpw Exp $ */
+/* $XConsortium: closestr.h,v 1.10 95/05/19 19:18:55 dpw Exp $ */
+/* $XFree86: xc/programs/Xserver/include/closestr.h,v 3.0 1996/04/15 11:34:23 dawes Exp $ */
 /*
 
 Copyright (c) 1991  X Consortium
@@ -41,6 +42,9 @@ from the X Consortium.
 #include "gcstruct.h"
 
 /* closure structures */
+
+/* OpenFont */
+
 typedef struct _OFclosure {
     ClientPtr   client;
     short       current_fpe;
@@ -58,8 +62,10 @@ typedef struct _OFclosure {
     FontPtr	non_cachable_font;
 }           OFclosureRec;
 
+/* ListFontsWithInfo */
+
 typedef struct _LFWIstate {
-    char	*pattern;
+    char	pattern[256];  /* max len of font name */
     int		patlen;
     int		current_fpe;
     int		max_names;
@@ -81,6 +87,8 @@ typedef struct _LFWIclosure {
     char		*savedName;
 } LFWIclosureRec;
 
+/* ListFonts */
+
 typedef struct _LFclosure {
     ClientPtr   client;
     int         num_fpes;
@@ -94,6 +102,20 @@ typedef struct _LFclosure {
     int		savedNameLen;
 }	LFclosureRec;
 
+/* PolyText */
+
+typedef
+    int			(* PolyTextPtr)(
+#if NeedNestedPrototypes
+			DrawablePtr /* pDraw */,
+			GCPtr /* pGC */,
+			int /* x */,
+			int /* y */,
+			int /* count */,
+			void * /* chars or shorts */
+#endif
+			);
+
 typedef struct _PTclosure {
     ClientPtr		client;
     DrawablePtr		pDraw;
@@ -104,12 +126,26 @@ typedef struct _PTclosure {
     int			xorg;
     int			yorg;
     CARD8		reqType;
-    int			(* polyText)();
+    PolyTextPtr		polyText;
     int			itemSize;
     XID			did;
     int			err;
     Bool		slept;
 } PTclosureRec;
+
+/* ImageText */
+
+typedef
+    void		(* ImageTextPtr)(
+#if NeedNestedPrototypes
+			DrawablePtr /* pDraw */,
+			GCPtr /* pGC */,
+			int /* x */,
+			int /* y */,
+			int /* count */,
+			void * /* chars or shorts */
+#endif
+			);
 
 typedef struct _ITclosure {
     ClientPtr		client;
@@ -120,7 +156,7 @@ typedef struct _ITclosure {
     int			xorg;
     int			yorg;
     CARD8		reqType;
-    void		(* imageText)();
+    ImageTextPtr	imageText;
     int			itemSize;
     XID			did;
     Bool		slept;

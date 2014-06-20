@@ -1,5 +1,6 @@
 /*
  * $XConsortium: stipple68k.s,v 1.3 94/04/17 20:29:09 keith Exp $
+ * $XFree86: xc/programs/Xserver/cfb/stipple68k.s,v 3.0 1996/08/13 11:27:37 dawes Exp $
  *
 Copyright (c) 1990  X Consortium
 
@@ -31,8 +32,16 @@ in this Software without prior written authorization from the X Consortium.
  * Stipple code for 68k processors
  */
 
+#ifdef __ELF__
+#ifdef TETEXT
+#define _cfbStippleStack cfbStippleStackTE
+#else
+#define _cfbStippleStack cfbStippleStack
+#endif
+#else
 #ifdef TETEXT
 #define _cfbStippleStack _cfbStippleStackTE
+#endif
 #endif
 
 
@@ -61,8 +70,29 @@ in this Software without prior written authorization from the X Consortium.
 #define arg5	56
 #define arg6	60
 
+#ifdef __ELF__
+#define ForEachLine	.L2
+#define ForEachBits	.L5
+#define a0 %A0
+#define a1 %A1
+#define a2 %A2
+#define a3 %A3
+#define a4 %A4
+#define a5 %A5
+#define a6 %A6
+#define sp %SP
+#define d0 %D0
+#define d1 %D1
+#define d2 %D2
+#define d3 %D3
+#define d4 %D4
+#define d5 %D5
+#define d6 %D6
+#define d7 %D7
+#else
 #define ForEachLine	L2
 #define ForEachBits	L5
+#endif
 #define CASE_SIZE	5
 
 .text
@@ -88,7 +118,7 @@ ForEachLine:
 	addl	stride,addr
 	movel	stipple@+,c
 #ifdef TETEXT
-	beq	NextLine
+	jeq	NextLine
 #endif
 	/* Get first few bits */
 	movel	c,ctemp
@@ -107,13 +137,13 @@ ForEachBits:
 
 #define Break				\
 	andl	c,c		 	; \
-	bne	ForEachBits	 	; \
+	jne	ForEachBits	 	; \
 	dbra	count,ForEachLine	; \
 	moveml	sp@+,PopMask		; \
 	rts				;
 
 CaseBegin:
-	bne	ForEachBits		/* 0 */
+	jne	ForEachBits		/* 0 */
 NextLine:
 	dbra	count,ForEachLine
 	moveml	sp@+,PopMask
@@ -158,45 +188,45 @@ NextLine:
 
 	. = CaseBegin + 0x100
 
-	moveb	value,atemp@(0)		/* 8 */
+	moveb	value,atemp@		/* 8 */
 	Break
 
 	. = CaseBegin + 0x120
 
 	moveb	value,atemp@(3)		/* 9 */
-	moveb	value,atemp@(0)
+	moveb	value,atemp@
 	Break
 
 	. = CaseBegin + 0x140
 
 	moveb	value,atemp@(2)		/* a */
-	moveb	value,atemp@(0)
+	moveb	value,atemp@
 	Break
 
 	. = CaseBegin + 0x160
 
 	movew	value,atemp@(2)		/* b */
-	moveb	value,atemp@(0)
+	moveb	value,atemp@
 	Break
 
 	. = CaseBegin + 0x180
 
-	movew	value,atemp@(0)		/* c */
+	movew	value,atemp@		/* c */
 	Break
 
 	. = CaseBegin + 0x1a0
 
 	moveb	value,atemp@(3)		/* d */
-	movew	value,atemp@(0)
+	movew	value,atemp@
 	Break
 
 	. = CaseBegin + 0x1c0
 
 	moveb	value,atemp@(2)		/* e */
-	movew	value,atemp@(0)
+	movew	value,atemp@
 	Break
 
 	. = CaseBegin + 0x1e0
 
-	movel	value,atemp@(0)		/* f */
+	movel	value,atemp@		/* f */
 	Break

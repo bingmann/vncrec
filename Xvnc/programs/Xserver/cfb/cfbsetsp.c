@@ -1,4 +1,5 @@
 /* $XConsortium: cfbsetsp.c,v 5.10 94/04/17 20:29:01 dpw Exp $ */
+/* $XFree86: xc/programs/Xserver/cfb/cfbsetsp.c,v 3.0 1996/06/29 09:05:49 dawes Exp $ */
 /***********************************************************
 
 Copyright (c) 1987  X Consortium
@@ -88,15 +89,40 @@ cfbSetScanline(y, xOrigin, xStart, xEnd, psrc, alu, pdstBase, widthDst, planemas
     register int	nend; 		/* " " last partial word */
     int			offSrc;
     int		startmask, endmask, nlMiddle, nl;
+#if PSZ == 24
+    register char *psrcb, *pdstb;
+    register int	xIndex;
+#endif
     DeclareMergeRop()
 
     InitializeMergeRop(alu,planemask);
+#if PSZ == 24
+    pdst = pdstBase + (y * widthDst);
+    xIndex = xStart;
+    pdstb = (char *)pdst + (xStart * 3);
+    offSrc = xStart - xOrigin;
+    psrcb = (char *)psrc + (offSrc * 3);
+#else
     pdst = pdstBase + (y * widthDst) + (xStart >> PWSH); 
     psrc += (xStart - xOrigin) >> PWSH;
     offSrc = (xStart - xOrigin) & PIM;
+#endif
     w = xEnd - xStart;
     dstBit = xStart & PIM;
 
+#if PSZ == 24
+    nl = w;
+    while (nl--){
+      psrc = (unsigned int *)((unsigned long)psrcb & ~0x03);
+      getbits24(psrc, tmpSrc, offSrc);
+      pdst = (int *)((unsigned long)pdstb & ~0x03);
+      DoMergeRop24(tmpSrc, pdst, xIndex);
+      offSrc++;
+      psrcb += 3;
+      xIndex++;
+      pdstb += 3;
+    } 
+#else /* PSZ == 24 */
     if (dstBit + w <= PPW) 
     { 
 	maskpartialbits(dstBit, w, startmask);
@@ -140,6 +166,7 @@ cfbSetScanline(y, xOrigin, xStart, xEnd, psrc, alu, pdstBase, widthDst, planemas
 	getbits(psrc, offSrc, nend, tmpSrc);
 	putbitsmropshort(tmpSrc, 0, nend, pdst);
     } 
+#endif /* PSZ == 24 */
 }
 
 

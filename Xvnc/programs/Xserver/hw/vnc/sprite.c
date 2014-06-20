@@ -1896,7 +1896,7 @@ rfbSpriteSetCursor (pScreen, pCursor, x, y)
     pScreenPriv->pCursor = pCursor;
 
     for (cl = rfbClientHead; cl; cl = cl->next) {
-	if (cl->ready) {
+	if (REGION_NOTEMPTY(pScreen,&cl->requestedRegion)) {
 	    /* cursorIsDrawn is guaranteed to be FALSE here, so we definitely
 	       want to send a screen update to the client, even if that's only
 	       putting up the cursor */

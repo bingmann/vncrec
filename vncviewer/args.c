@@ -39,6 +39,7 @@ int listenPort = 0, flashPort = 0;
 char *displayname = NULL;
 
 Bool shareDesktop = False;
+Bool viewOnly = False;
 
 CARD32 explicitEncodings[MAX_ENCODINGS];
 int nExplicitEncodings = 0;
@@ -52,11 +53,22 @@ Bool forceOwnCmap = False;
 Bool forceTruecolour = False;
 int requestedDepth = 0;
 
+char *geometry = NULL;
+
+int wmDecorationWidth = 4;
+int wmDecorationHeight = 24;
+
 char *passwdFile = NULL;
 
-Bool outlineSolid = False;
 int updateRequestPeriodms = 0;
-int delay = 0;
+
+int updateRequestX = 0;
+int updateRequestY = 0;
+int updateRequestW = 0;
+int updateRequestH = 0;
+
+int rawDelay = 0;
+int copyRectDelay = 0;
 
 Bool debug = False;
 
@@ -69,13 +81,16 @@ usage()
 	    "       %s [<options>] -listen [<display#>]\n"
 	    "\n"
 	    "<options> are:\n"
-	    "              [-display <display>] [-shared]\n"
+	    "              [-display <display>] [-shared] [-viewonly]\n"
 	    "              [-raw] [-copyrect] [-rre] [-corre] [-hextile]\n"
 	    "              [-nocopyrect] [-norre] [-nocorre] [-nohextile]\n"
 	    "              [-bgr233] [-owncmap] [-truecolour] [-depth <d>]\n"
+	    "              [-geometry <geom>]\n"
+	    "              [-wmdecoration <width>x<height>]\n"
 	    "              [-passwd <passwd-file>]\n"
-	    "              [-period <ms>] [-delay <ms>]\n"
-	    "              [-debug]\n\n"
+	    "              [-period <ms>]\n"
+	    "              [-region <x> <y> <width> <height>]\n"
+	    "              [-rawdelay <ms>] [-copyrectdelay <ms>] [-debug]\n\n"
 	    ,programName,programName);
     exit(1);
 }
@@ -85,29 +100,24 @@ void
 processArgs(int argc, char **argv)
 {
     int i;
+    Bool argumentSpecified = False;
 
     programName = argv[0];
-    
+
     for (i = 1; i < argc; i++) {
-	if (argv[i][0] != '-')
-	    break;
-      
+
 	if (strcmp(argv[i],"-display") == 0) {
 
 	    if (++i >= argc) usage();
 	    displayname = argv[i];
 
-	} else if (strcmp(argv[i],"-listen") == 0) {
-
-	    listenSpecified = True;
-	    if (++i < argc) {
-		listenPort = CLIENTPORT+atoi(argv[i]);
-		flashPort = FLASHPORT+atoi(argv[i]);
-	    }
-
 	} else if (strcmp(argv[i],"-shared") == 0) {
 
 	    shareDesktop = True;
+
+	} else if (strcmp(argv[i],"-viewonly") == 0) {
+
+	    viewOnly = True;
 
 	} else if (strcmp(argv[i],"-rre") == 0) {
 
@@ -166,28 +176,73 @@ processArgs(int argc, char **argv)
 	    if (++i >= argc) usage();
 	    requestedDepth = atoi(argv[i]);
 
+	} else if (strcmp(argv[i],"-geometry") == 0) {
+
+	    if (++i >= argc) usage();
+	    geometry = argv[i];
+
+	} else if (strcmp(argv[i],"-wmdecoration") == 0) {
+
+	    if (++i >= argc) usage();
+	    if (sscanf(argv[i], "%dx%d",
+		       &wmDecorationWidth, &wmDecorationHeight) != 2) usage();
+
 	} else if (strcmp(argv[i],"-passwd") == 0) {
 
 	    if (++i >= argc) usage();
 	    passwdFile = argv[i];
-
-	} else if (strcmp(argv[i],"-outlinesolid") == 0) {
-
-	    outlineSolid = True;
 
 	} else if (strcmp(argv[i],"-period") == 0) {
 
 	    if (++i >= argc) usage();
 	    updateRequestPeriodms = atoi(argv[i]);
 
-	} else if (strcmp(argv[i],"-delay") == 0) {
+	} else if (strcmp(argv[i],"-region") == 0) {
+
+	    if ((i+4) >= argc) usage();
+	    updateRequestX = atoi(argv[i+1]);
+	    updateRequestY = atoi(argv[i+2]);
+	    updateRequestW = atoi(argv[i+3]);
+	    updateRequestH = atoi(argv[i+4]);
+	    if ((updateRequestX < 0) || (updateRequestY < 0) ||
+		(updateRequestW < 0) || (updateRequestH < 0))
+		usage();
+	    i += 4;
+
+	} else if (strcmp(argv[i],"-rawdelay") == 0) {
 
 	    if (++i >= argc) usage();
-	    delay = atoi(argv[i]);
+	    rawDelay = atoi(argv[i]);
+
+	} else if (strcmp(argv[i],"-copyrectdelay") == 0) {
+
+	    if (++i >= argc) usage();
+	    copyRectDelay = atoi(argv[i]);
 
 	} else if (strcmp(argv[i],"-debug") == 0) {
 
 	    debug = True;
+
+	} else if (strcmp(argv[i],"-listen") == 0) {
+
+	    if (argumentSpecified) usage();
+
+	    listenSpecified = True;
+	    if (++i < argc) {
+		listenPort = CLIENTPORT+atoi(argv[i]);
+		flashPort = FLASHPORT+atoi(argv[i]);
+	    }
+
+	} else if (argv[i][0] != '-') {
+
+	    if (argumentSpecified || listenSpecified) usage();
+
+	    argumentSpecified = True;
+
+	    if (sscanf(argv[i], "%[^:]:%d", hostname, &port) != 2) usage();
+
+	    if (port < 100)
+		port += SERVERPORT;
 
 	} else {
 
@@ -215,24 +270,17 @@ processArgs(int argc, char **argv)
 		flashPort = FLASHPORT+atoi(colonPos+1);
 
 	    } else {
-		fprintf(stderr,"%s: "
-			"cannot work out which display number to listen on.\n",
-			programName);
+		fprintf(stderr,"%s: cannot work out which display number to "
+			"listen on.\n", programName);
 		fprintf(stderr,
 			"Please specify explicitly with -listen <num>\n");
 		exit(1);
 	    }
 	}
 
-    } else {	/* -listen not specified */
+    } else if (!argumentSpecified) {
 
-	if (((argc - i) != 1)
-	    || (sscanf(argv[i], "%[^:]:%d", hostname, &port) != 2))
-	{
-	    usage();
-	}
+	usage();
 
-	if (port < 100)
-	    port += SERVERPORT;
     }
 }

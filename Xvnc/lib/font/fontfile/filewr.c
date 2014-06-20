@@ -1,4 +1,5 @@
 /* $XConsortium: filewr.c,v 1.4 94/04/17 20:17:05 gildea Exp $ */
+/* $XFree86: xc/lib/font/fontfile/filewr.c,v 3.0 1994/12/17 09:41:42 dawes Exp $ */
 
 /*
 
@@ -40,7 +41,7 @@ FontFileOpenWrite (name)
 {
     int	fd;
 
-#ifdef WIN32
+#if defined(WIN32) || defined(__EMX__)
     fd = open (name, O_CREAT|O_TRUNC|O_RDWR|O_BINARY, 0666);
 #else
     fd = creat (name, 0666);

@@ -1,4 +1,5 @@
 /* $XConsortium: propertyst.h,v 1.5 94/04/17 20:25:56 dpw Exp $ */
+/* $XFree86: xc/programs/Xserver/include/propertyst.h,v 3.0 1994/12/25 12:36:44 dawes Exp $ */
 /***********************************************************
 
 Copyright (c) 1987  X Consortium
@@ -61,7 +62,7 @@ typedef struct _Property {
 	short		format;     /* format of data for swapping - 8,16,32 */
 	long		size;       /* size of data in (format/8) bytes */
 	pointer         data;       /* private to client */
-#ifdef LBX
+#if defined(LBX) || defined(LBX_COMPAT)
 	/*  If space is at a premium and binary compatibility is not
 	 *  an issue, you may want to put the owner_pid next to format
 	 *  so that the two shorts pack together without padding.

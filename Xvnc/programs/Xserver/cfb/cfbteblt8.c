@@ -29,7 +29,7 @@ used in advertising or otherwise to promote the sale, use or other dealings
 in this Software without prior written authorization from the X Consortium.
 */
 
-/* $XConsortium: cfbteblt8.c,v 5.23 94/04/17 20:29:02 dpw Exp $ */
+/* $XConsortium: cfbteblt8.c,v 5.24 94/09/29 15:26:00 dpw Exp $ */
 
 #if PSZ == 8
 
@@ -311,8 +311,8 @@ extern unsigned long endtab[];
 #define FirstStep	Step
 #else
 #if PGSZ == 64
-#define StoreBits(o)	StorePixels(o,*((unsigned long *) (((char *) cfb8Pixels) + (c & 0x7f8))));
-#define FirstStep	c = BitLeft (c, 5);
+#define StoreBits(o)	StorePixels(o,cfb8Pixels[(c) & PGSZBMSK]);
+#define FirstStep	Step
 #else /* PGSZ == 32 */
 #define StoreBits(o)	StorePixels(o,*((unsigned long *) (((char *) cfb8Pixels) + (c & 0x3c))));
 #define FirstStep	c = BitLeft (c, 2);
@@ -481,7 +481,7 @@ CFBTEGBLT8 (pDrawable, pGC, xInit, yInit, nglyph, ppci, pglyphBase)
 	    }
 	    else
 	    {
-#if NGLYPHS == 4
+#if NGLYPHS == 4 && PGSZ == 32
 	    	ew = widthGlyph;    /* widthGlyphs >> 2 */
 #else
 	    	ew = widthGlyphs >> PWSH;

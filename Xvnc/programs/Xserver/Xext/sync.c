@@ -1,4 +1,5 @@
-/* $XConsortium: sync.c,v 1.10 94/04/17 20:32:58 dpw Exp $ */
+/* $XConsortium: sync.c /main/13 1996/12/16 16:51:55 rws $ */
+/* $XFree86: xc/programs/Xserver/Xext/sync.c,v 3.3 1997/01/18 06:53:00 dawes Exp $ */
 /*
 
 Copyright (c) 1991, 1993  X Consortium
@@ -89,12 +90,255 @@ static SyncCounter **SysCounterList = NULL;
 #define XSyncCAAllTrigger \
     (XSyncCACounter | XSyncCAValueType | XSyncCAValue | XSyncCATestType)
 
-static void SyncComputeBracketValues(
+static int
+FreeAlarm(
 #if NeedFunctionPrototypes
-				     SyncCounter * /* pCounter */,
-				     Bool /* startOver */
+    pointer /* addr */,
+    XID /* id */
 #endif
 );
+
+static int
+FreeAlarmClient(
+#if NeedFunctionPrototypes
+    pointer /* value */,
+    XID /* id */
+#endif
+);
+
+static int
+FreeAwait(
+#if NeedFunctionPrototypes
+    pointer /* addr */,
+    XID /* id */
+#endif
+);
+
+static void
+ServertimeBracketValues(
+#if NeedFunctionPrototypes
+    pointer /* pCounter */,
+    CARD64 * /* pbracket_less */,
+    CARD64 * /* pbracket_greater */
+#endif
+);
+
+static void
+ServertimeQueryValue(
+#if NeedFunctionPrototypes
+    pointer /* pCounter */,
+    CARD64 * /* pValue_return */
+#endif
+);
+
+static void
+ServertimeWakeupHandler(
+#if NeedFunctionPrototypes
+    pointer /* env */,
+    int /* rc */,
+    pointer /* LastSelectMask */
+#endif
+);
+
+static int 
+SyncInitTrigger(
+#if NeedFunctionPrototypes
+    ClientPtr /* client */,
+    SyncTrigger * /* pTrigger */,
+    XSyncCounter /* counter */,
+    Mask /* changes */
+#endif
+);
+
+static void
+SAlarmNotifyEvent(
+#if NeedFunctionPrototypes
+    xSyncAlarmNotifyEvent * /* from */,
+    xSyncAlarmNotifyEvent * /* to */
+#endif
+);
+
+static void
+SCounterNotifyEvent(
+#if NeedFunctionPrototypes
+    xSyncCounterNotifyEvent * /* from */,
+    xSyncCounterNotifyEvent * /* to */
+#endif
+);
+
+static void
+ServertimeBlockHandler(
+#if NeedFunctionPrototypes
+    pointer  /* env */,
+    struct timeval ** /* wt */,
+    pointer  /* LastSelectMask */
+#endif
+);
+
+static int
+SyncAddTriggerToCounter(
+#if NeedFunctionPrototypes
+    SyncTrigger * /* pTrigger */
+#endif
+);
+
+extern void
+SyncAlarmCounterDestroyed(
+#if NeedFunctionPrototypes
+    SyncTrigger * /* pTrigger */
+#endif
+);
+
+static void
+SyncAlarmTriggerFired(
+#if NeedFunctionPrototypes
+    SyncTrigger * /* pTrigger */
+#endif
+);
+
+static void
+SyncAwaitTriggerFired(
+#if NeedFunctionPrototypes
+    SyncTrigger * /* pTrigger */
+#endif
+);
+
+static int
+SyncChangeAlarmAttributes(
+#if NeedFunctionPrototypes
+    ClientPtr /* client */,
+    SyncAlarm * /* pAlarm */,
+    Mask /* mask */,
+    CARD32 * /* values */
+#endif
+);
+
+static Bool
+SyncCheckTriggerNegativeComparison(
+#if NeedFunctionPrototypes
+    SyncTrigger * /* pTrigger */,
+    CARD64 /* oldval */
+#endif
+);
+
+static Bool
+SyncCheckTriggerNegativeTransition(
+#if NeedFunctionPrototypes
+    SyncTrigger * /* pTrigger */,
+    CARD64 /* oldval */
+#endif
+);
+
+static Bool
+SyncCheckTriggerPositiveComparison(
+#if NeedFunctionPrototypes
+    SyncTrigger * /* pTrigger */,
+    CARD64 /* oldval */
+#endif
+);
+
+static Bool
+SyncCheckTriggerPositiveTransition(
+#if NeedFunctionPrototypes
+    SyncTrigger * /* pTrigger */,
+    CARD64 /* oldval */
+#endif
+);
+
+static SyncCounter *
+SyncCreateCounter(
+#if NeedFunctionPrototypes
+    ClientPtr /* client */,
+    XSyncCounter /* id */,
+    CARD64 /* initialvalue */
+#endif
+);
+
+static void SyncComputeBracketValues(
+#if NeedFunctionPrototypes
+    SyncCounter * /* pCounter */,
+    Bool /* startOver */
+#endif
+);
+
+static void
+SyncDeleteTriggerFromCounter(
+#if NeedFunctionPrototypes
+    SyncTrigger * /* pTrigger */
+#endif
+);
+
+static Bool
+SyncEventSelectForAlarm(
+#if NeedFunctionPrototypes
+    SyncAlarm * /* pAlarm */,
+    ClientPtr /* client */,
+    Bool /* wantevents */
+#endif
+);
+
+static void
+SyncInitServerTime(
+#if NeedFunctionPrototypes
+    void
+#endif
+);
+
+static void 
+SyncResetProc(
+#if NeedFunctionPrototypes
+    ExtensionEntry * /* extEntry */
+#endif
+);
+
+static void
+SyncSendAlarmNotifyEvents(
+#if NeedFunctionPrototypes
+    SyncAlarm * /* pAlarm */
+#endif
+);
+
+static void
+SyncSendCounterNotifyEvents(
+#if NeedFunctionPrototypes
+    ClientPtr /* client */,
+    SyncAwait ** /* ppAwait */,
+    int /* num_events */
+#endif
+);
+
+static DISPATCH_PROC(ProcSyncAwait);
+static DISPATCH_PROC(ProcSyncChangeAlarm);
+static DISPATCH_PROC(ProcSyncChangeCounter);
+static DISPATCH_PROC(ProcSyncCreateAlarm);
+static DISPATCH_PROC(ProcSyncCreateCounter);
+static DISPATCH_PROC(ProcSyncDestroyAlarm);
+static DISPATCH_PROC(ProcSyncDestroyCounter);
+static DISPATCH_PROC(ProcSyncDispatch);
+static DISPATCH_PROC(ProcSyncGetPriority);
+static DISPATCH_PROC(ProcSyncInitialize);
+static DISPATCH_PROC(ProcSyncListSystemCounters);
+static DISPATCH_PROC(ProcSyncListSystemCounters);
+static DISPATCH_PROC(ProcSyncQueryAlarm);
+static DISPATCH_PROC(ProcSyncQueryCounter);
+static DISPATCH_PROC(ProcSyncSetCounter);
+static DISPATCH_PROC(ProcSyncSetPriority);
+static DISPATCH_PROC(SProcSyncAwait);
+static DISPATCH_PROC(SProcSyncChangeAlarm);
+static DISPATCH_PROC(SProcSyncChangeCounter);
+static DISPATCH_PROC(SProcSyncCreateAlarm);
+static DISPATCH_PROC(SProcSyncCreateCounter);
+static DISPATCH_PROC(SProcSyncDestroyAlarm);
+static DISPATCH_PROC(SProcSyncDestroyCounter);
+static DISPATCH_PROC(SProcSyncDispatch);
+static DISPATCH_PROC(SProcSyncDispatch);
+static DISPATCH_PROC(SProcSyncGetPriority);
+static DISPATCH_PROC(SProcSyncInitialize);
+static DISPATCH_PROC(SProcSyncListSystemCounters);
+static DISPATCH_PROC(SProcSyncQueryAlarm);
+static DISPATCH_PROC(SProcSyncQueryCounter);
+static DISPATCH_PROC(SProcSyncSetCounter);
+static DISPATCH_PROC(SProcSyncSetPriority);
 
 /*  Each counter maintains a simple linked list of triggers that are
  *  interested in the counter.  The two functions below are used to
@@ -232,8 +476,8 @@ SyncInitTrigger(client, pTrigger, counter, changes)
     {
 	if (counter == None)
 	    pCounter = NULL;
-	else if (!(pCounter = (SyncCounter *)
-		   			LookupIDByType(counter, RTCounter)))
+	else if (!(pCounter = (SyncCounter *)SecurityLookupIDByType(
+			client, counter, RTCounter, SecurityReadAccess)))
 	{
 	    client->errorValue = counter;
 	    return SyncErrorBase + XSyncBadCounter;
@@ -464,26 +708,26 @@ SyncAlarmTriggerFired(pTrigger)
     {
 	Bool overflow;
 	CARD64 oldvalue;
-	SyncTrigger *pTrigger = &pAlarm->trigger;
+	SyncTrigger *paTrigger = &pAlarm->trigger;
 
 	/* "The alarm is updated by repeatedly adding delta to the
 	 *  value of the trigger and re-initializing it until it
 	 *  becomes FALSE."
 	 */
-	oldvalue = pTrigger->test_value;
+	oldvalue = paTrigger->test_value;
 
 	/* XXX really should do something smarter here */
 
 	do
 	{
-	    XSyncValueAdd(&pTrigger->test_value, pTrigger->test_value,
+	    XSyncValueAdd(&paTrigger->test_value, paTrigger->test_value,
 			  pAlarm->delta, &overflow);
 	} while (!overflow && 
-	      (*pTrigger->CheckTrigger)(pTrigger,
-					pTrigger->pCounter->value));
+	      (*paTrigger->CheckTrigger)(paTrigger,
+					paTrigger->pCounter->value));
 
-	new_test_value = pTrigger->test_value;
-	pTrigger->test_value = oldvalue;
+	new_test_value = paTrigger->test_value;
+	paTrigger->test_value = oldvalue;
 
 	/* "If this update would cause value to fall outside the range
 	 *  for an INT64...no change is made to value (test-value) and
@@ -712,7 +956,6 @@ SyncChangeAlarmAttributes(client, pAlarm, mask, values)
     Mask	    mask;
     CARD32	    *values;
 {
-    SyncAlarmClientList    *pClients;
     int		   status;
     XSyncCounter   counter;
     Mask	   origmask = mask;
@@ -721,9 +964,9 @@ SyncChangeAlarmAttributes(client, pAlarm, mask, values)
 
     while (mask)
     {
-	int    index = lowbit(mask);
-	mask &= ~index;
-	switch (index)
+	int    index2 = lowbit(mask);
+	mask &= ~index2;
+	switch (index2)
 	{
 	  case XSyncCACounter:
 	    mask &= ~XSyncCACounter;
@@ -1000,7 +1243,6 @@ FreeAlarm(addr, id)
     XID             id;
 {
     SyncAlarm      *pAlarm = (SyncAlarm *) addr;
-    SyncAlarmClientList    *pClient;
 
     pAlarm->state = XSyncAlarmDestroyed;
 
@@ -1141,7 +1383,6 @@ static int
 ProcSyncInitialize(client)
     ClientPtr       client;
 {
-    REQUEST(xSyncInitializeReq);
     xSyncInitializeReply  rep;
     int   n;
 
@@ -1168,7 +1409,6 @@ static int
 ProcSyncListSystemCounters(client)
     ClientPtr       client;
 {
-    REQUEST(xSyncListSystemCountersReq);
     xSyncListSystemCountersReply  rep;
     int i, len;
     xSyncSystemCounter *list, *walklist;
@@ -1254,7 +1494,7 @@ ProcSyncSetPriority(client)
 
     if (stuff->id == None)
 	priorityclient = client;
-    else if (!(priorityclient = LookupClient(stuff->id)))
+    else if (!(priorityclient = LookupClient(stuff->id, client)))
     {
 	client->errorValue = stuff->id;
 	return BadMatch;
@@ -1289,13 +1529,14 @@ ProcSyncGetPriority(client)
 
     if (stuff->id == None)
 	priorityclient = client;
-    else if (!(priorityclient = LookupClient(stuff->id)))
+    else if (!(priorityclient = LookupClient(stuff->id, client)))
     {
 	client->errorValue = stuff->id;
 	return BadMatch;
     }
 
     rep.type = X_Reply;
+    rep.length = 0;
     rep.sequenceNumber = client->sequence;
     rep.priority = priorityclient->priority;
 
@@ -1319,7 +1560,6 @@ ProcSyncCreateCounter(client)
     ClientPtr       client;
 {
     REQUEST(xSyncCreateCounterReq);
-    SyncCounter    *pCounter;
     CARD64          initial;
 
     REQUEST_SIZE_MATCH(xSyncCreateCounterReq);
@@ -1344,7 +1584,8 @@ ProcSyncSetCounter(client)
     SyncCounter    *pCounter;
     CARD64	   newvalue;
 
-    pCounter = (SyncCounter *) LookupIDByType(stuff->cid, RTCounter);
+    pCounter = (SyncCounter *)SecurityLookupIDByType(client, stuff->cid,
+					   RTCounter, SecurityWriteAccess);
     if (pCounter == NULL)
     {
 	client->errorValue = stuff->cid;
@@ -1376,7 +1617,8 @@ ProcSyncChangeCounter(client)
 
     REQUEST_SIZE_MATCH(xSyncChangeCounterReq);
 
-    pCounter = (SyncCounter *) LookupIDByType(stuff->cid, RTCounter);
+    pCounter = (SyncCounter *) SecurityLookupIDByType(client, stuff->cid,
+					    RTCounter, SecurityWriteAccess);
     if (pCounter == NULL)
     {
 	client->errorValue = stuff->cid;
@@ -1413,7 +1655,8 @@ ProcSyncDestroyCounter(client)
 
     REQUEST_SIZE_MATCH(xSyncDestroyCounterReq);
 
-    pCounter = (SyncCounter *) LookupIDByType(stuff->counter, RTCounter);
+    pCounter = (SyncCounter *)SecurityLookupIDByType(client, stuff->counter,
+					   RTCounter, SecurityDestroyAccess);
     if (pCounter == NULL)
     {
 	client->errorValue = stuff->counter;
@@ -1438,9 +1681,8 @@ ProcSyncAwait(client)
 {
     REQUEST(xSyncAwaitReq);
     int             len, items;
-    int             n, i;
+    int             i;
     xSyncWaitCondition *pProtocolWaitConds;
-    int             ret;
     SyncAwaitUnion *pAwaitUnion;
     SyncAwait	   *pAwait;
     int		   status;
@@ -1559,7 +1801,8 @@ ProcSyncQueryCounter(client)
 
     REQUEST_SIZE_MATCH(xSyncQueryCounterReq);
 
-    pCounter = (SyncCounter *) LookupIDByType(stuff->counter, RTCounter);
+    pCounter = (SyncCounter *)SecurityLookupIDByType(client, stuff->counter,
+					    RTCounter, SecurityReadAccess);
     if (pCounter == NULL)
     {
 	client->errorValue = stuff->counter;
@@ -1603,7 +1846,6 @@ ProcSyncCreateAlarm(client)
     REQUEST(xSyncCreateAlarmReq);
     SyncAlarm      *pAlarm;
     int             status;
-    int             i;
     unsigned long   len, vmask;
     SyncTrigger	    *pTrigger;
 
@@ -1688,7 +1930,8 @@ ProcSyncChangeAlarm(client)
 
     REQUEST_AT_LEAST_SIZE(xSyncChangeAlarmReq);
 
-    if (!(pAlarm = (SyncAlarm *) LookupIDByType(stuff->alarm, RTAlarm)))
+    if (!(pAlarm = (SyncAlarm *)SecurityLookupIDByType(client, stuff->alarm,
+					      RTAlarm, SecurityWriteAccess)))
     {
 	client->errorValue = stuff->alarm;
 	return SyncErrorBase + XSyncBadAlarm;
@@ -1728,7 +1971,8 @@ ProcSyncQueryAlarm(client)
 
     REQUEST_SIZE_MATCH(xSyncQueryAlarmReq);
 
-    pAlarm = (SyncAlarm *) LookupIDByType(stuff->alarm, RTAlarm);
+    pAlarm = (SyncAlarm *)SecurityLookupIDByType(client, stuff->alarm,
+						RTAlarm, SecurityReadAccess);
     if (!pAlarm)
     {
 	client->errorValue = stuff->alarm;
@@ -1788,7 +2032,8 @@ ProcSyncDestroyAlarm(client)
 
     REQUEST_SIZE_MATCH(xSyncDestroyAlarmReq);
 
-    if (!(pAlarm = (SyncAlarm *) LookupIDByType(stuff->alarm, RTAlarm)))
+    if (!(pAlarm = (SyncAlarm *)SecurityLookupIDByType(client, stuff->alarm,
+					      RTAlarm, SecurityDestroyAccess)))
     {
 	client->errorValue = stuff->alarm;
 	return SyncErrorBase + XSyncBadAlarm;
@@ -2057,8 +2302,6 @@ static int
 SProcSyncDispatch(client)
     ClientPtr       client;
 {
-    int             n;
-
     REQUEST(xReq);
 
     switch (stuff->data)
@@ -2148,8 +2391,6 @@ SyncResetProc(extEntry)
 }
 
 
-static void SyncInitServerTime();
-
 /*
  * ** Initialise the extension.
  */
@@ -2182,8 +2423,8 @@ SyncExtensionInit()
     SyncReqCode = extEntry->base;
     SyncEventBase = extEntry->eventBase;
     SyncErrorBase = extEntry->errorBase;
-    EventSwapVector[SyncEventBase + XSyncCounterNotify] = SCounterNotifyEvent;
-    EventSwapVector[SyncEventBase + XSyncAlarmNotify] = SAlarmNotifyEvent;
+    EventSwapVector[SyncEventBase + XSyncCounterNotify] = (EventSwapPtr) SCounterNotifyEvent;
+    EventSwapVector[SyncEventBase + XSyncAlarmNotify] = (EventSwapPtr) SAlarmNotifyEvent;
 
     /*
      * Although SERVERTIME is implemented by the OS layer, we initialise it
@@ -2205,7 +2446,9 @@ SyncExtensionInit()
  */
 
 
+#if !defined(WIN32) && !defined(MINIX) && !defined(Lynx)
 #include <sys/time.h>
+#endif
 
 static pointer ServertimeCounter;
 static XSyncValue Now;

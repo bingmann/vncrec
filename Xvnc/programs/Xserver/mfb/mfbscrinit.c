@@ -46,6 +46,7 @@ SOFTWARE.
 
 ******************************************************************/
 /* $XConsortium: mfbscrinit.c,v 5.17 94/04/17 20:28:34 dpw Exp $ */
+/* $XFree86: xc/programs/Xserver/mfb/mfbscrinit.c,v 3.0 1994/06/18 16:29:52 dawes Exp $ */
 
 #include "X.h"
 #include "Xproto.h"	/* for xColorItem */
@@ -100,7 +101,7 @@ mfbAllocatePrivates(pScreen, pWinIndex, pGCIndex)
 	frameWindowPrivateIndex = AllocateWindowPrivateIndex();
 #endif
 	mfbWindowPrivateIndex = AllocateWindowPrivateIndex();
-	mfbGCPrivateIndex = AllocateGCPrivateIndex();
+	mfbGCPrivateIndex = miAllocateGCPrivateIndex();
 	miRegisterGCPrivateIndex(mfbGCPrivateIndex);
 	visual.vid = FakeClientID(0);
 	VID = visual.vid;

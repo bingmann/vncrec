@@ -47,6 +47,7 @@ SOFTWARE.
 ******************************************************************/
 
 /* $XConsortium: mispans.c,v 5.5 94/04/17 20:27:52 dpw Exp $ */
+/* $XFree86: xc/programs/Xserver/mi/mispans.c,v 3.0 1995/07/07 15:45:49 dawes Exp $ */
 
 #include "misc.h"
 #include "pixmapstr.h"
@@ -419,8 +420,10 @@ void miFillUniqueSpanGroup(pDraw, pGC, spanGroup)
 
 	if (!yspans || !ysizes)
 	{
-	    xfree (yspans);
-	    xfree (ysizes);
+	    if (yspans)
+		xfree (yspans);
+	    if (ysizes)
+		xfree (ysizes);
 	    miDisposeSpanGroup (spanGroup);
 	    return;
 	}
@@ -497,10 +500,12 @@ void miFillUniqueSpanGroup(pDraw, pGC, spanGroup)
 		xfree (yspans[i].points);
 		xfree (yspans[i].widths);
 	    }
-	    xfree (points);
-	    xfree (widths);
 	    xfree (yspans);
 	    xfree (ysizes);
+	    if (points)
+		xfree (points);
+	    if (widths)
+		xfree (widths);
 	    return;
 	}
 	count = 0;
@@ -525,7 +530,7 @@ void miFillUniqueSpanGroup(pDraw, pGC, spanGroup)
 	xfree(points);
 	xfree(widths);
 	xfree(yspans);
-	xfree(ysizes);
+	xfree(ysizes);		/* use (DE)ALLOCATE_LOCAL for these? */
     }
 
     spanGroup->count = 0;

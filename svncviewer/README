@@ -1,0 +1,77 @@
+SVNCVIEWER 0.1
+16/3/98
+
+This is a alpha port of vncviewer to svgalib based on the X client.
+You no longer need to start X to use vnc ! Even that old 4MB
+386 which you've got in the corner can be used as an X terminal.
+It can also be used on a single-floppy Linux - not quite the answer
+to the QNX challenge, but good enough for me. 
+
+#include "../LICENCE.TXT"
+
+Installation:
+Unpack the vnc sources first.
+cd vnc
+tar xzvf <thisfile>
+cd svncviewer
+xmkmf
+make
+chown root svncviewer;chmod 4711 svncviewer
+
+Usage:
+Usage and options are similar to vncviewer. Options which aren't there:
+-listen and of course -display.
+Alt-Fn switches consoles, as is usual with svgalib apps. 
+Ctrl-Alt-Backspace kills the viewer.
+
+Some hints on getting svncviewer working for you :
+1. First of all make sure your card is supported by svgalib at the higher
+   resolutions like 640x480x256. Otherwise you can only use 320x200x256
+2. Sometimes svgalib incorrectly detects the card or doesn't detect it
+   at all and defaults to the VGA driver. In this case you might have to
+   edit /etc/vga/libvga.config (this is Redhat's svgalib config, your
+   distribution might have it elsewhere) and uncomment the line corresponding
+   to your chipset. Cards I've had trouble autodetecting:
+   Cirrus Logic 5446 - uncomment the chipset Cirrus line.
+   Trident TVGA 8900 - incorrectly detected as Mach64. uncomment TVGA.
+   Chips and Technologies - add the line 
+   chipset C&T
+   (Note: It seems some distributions don't have svgalib compiled with
+   C&T support. You might need to recompile svgalib).
+3. If you get something like read error: broken pipe, it means the remote
+   Xvnc has closed the connection, usually because the client's parameters
+   like bpp are not acceptable. Check out the Xvnc logs.
+4. There is a workaround in svga.c which disables use of acceleration.
+   You might want to comment out NO_ACCEL and see if acceleration works.
+5. If your mouse doesn't work, make sure that /dev/mouse is rw-able by you.
+   This is because svgalib opens the mouse O_RDWR and we give up suid perms
+   immediately after vga_init and before opening the mouse. Redhat's default
+   is 660, you might want to make this 666.
+
+TODO:
+1. The viewer is not flexible about selection of graphics mode. It selects
+   the closest possible to the server geometry/depth. It bails out if a
+   resolution = server geometry is not available. 
+2. Only the std. keymap works, for other keyboards you might have to
+   hack keys.h which maps Linux keycodes (different from X keycodes) to
+   X keysyms.
+3. Mouse middle button doesn't work (svgalib problem ?)
+4. Keyboard LEDs 
+
+Please mail bug reports/patches etc. to ganesh@cse.iitb.ernet.in
+In your bug report, please include the following information:
+Linux distribution, kernel version, svgalib version.
+Graphics card and whether other svgalib apps work at *high* resolutions.
+What parameters Xvnc was started with.
+What parameters were used for svncviewer.
+Exact error messages, snippets from log files where applicable.
+
+For the latest in svnc, check http://www.cse.iitb.ernet.in/~sitaram/vnc
+
+Lastly, a BIG thank you to the ORL guys for making vnc freely available.
+VNC rules !
+
+				Ganesh Varadarajan <ganesh@cse.iitb.ernet.in>
+				Sitaram Iyer <sitaram@cse.iitb.ernet.in>
+
+				Indian Institute of Technology, Bombay.

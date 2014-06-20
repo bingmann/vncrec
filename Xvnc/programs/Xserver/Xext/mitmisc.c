@@ -28,7 +28,9 @@ in this Software without prior written authorization from the X Consortium.
 /* RANDOM CRUFT! THIS HAS NO OFFICIAL X CONSORTIUM BLESSING */
 
 /* $XConsortium: mitmisc.c,v 1.5 94/04/17 20:32:54 rws Exp $ */
+/* $XFree86: xc/programs/Xserver/Xext/mitmisc.c,v 3.1 1996/05/06 05:55:29 dawes Exp $ */
 
+#define NEED_EVENTS
 #include "X.h"
 #include "Xproto.h"
 #include "misc.h"
@@ -41,17 +43,28 @@ in this Software without prior written authorization from the X Consortium.
 extern Bool permitOldBugs;
 
 static unsigned char MITReqCode;
-static int ProcMITDispatch(), SProcMITDispatch();
-static void MITResetProc();
+
+static void MITResetProc(
+#if NeedFunctionPrototypes
+    ExtensionEntry * /* extEntry */
+#endif
+);
+
+static DISPATCH_PROC(ProcMITDispatch);
+static DISPATCH_PROC(ProcMITGetBugMode);
+static DISPATCH_PROC(ProcMITSetBugMode);
+static DISPATCH_PROC(SProcMITDispatch);
+static DISPATCH_PROC(SProcMITGetBugMode);
+static DISPATCH_PROC(SProcMITSetBugMode);
 
 void
 MITMiscExtensionInit()
 {
-    ExtensionEntry *extEntry, *AddExtension();
+    ExtensionEntry *extEntry;
 
-    if (extEntry = AddExtension(MITMISCNAME, 0, 0,
+    if ((extEntry = AddExtension(MITMISCNAME, 0, 0,
 				 ProcMITDispatch, SProcMITDispatch,
-				 MITResetProc, StandardMinorOpcode))
+				 MITResetProc, StandardMinorOpcode)) != 0)
 	MITReqCode = (unsigned char)extEntry->base;
 }
 
@@ -82,7 +95,6 @@ static int
 ProcMITGetBugMode(client)
     register ClientPtr client;
 {
-    REQUEST(xMITGetBugModeReq);
     xMITGetBugModeReply rep;
     register int n;
 

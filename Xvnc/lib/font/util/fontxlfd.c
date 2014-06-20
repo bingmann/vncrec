@@ -1,4 +1,5 @@
-/* $XConsortium: fontxlfd.c,v 1.19 94/06/05 14:42:48 rws Exp $ */
+/* $XConsortium: fontxlfd.c /main/20 1996/09/28 16:49:26 rws $ */
+/* $XFree86: xc/lib/font/util/fontxlfd.c,v 3.5 1996/12/23 06:02:34 dawes Exp $ */
 
 /*
 
@@ -39,7 +40,7 @@ from the X Consortium.
 #include	"fontxlfd.h"
 #include	<X11/Xos.h>
 #include	<math.h>
-#ifndef X_NOT_STDC_ENV
+#if !defined(X_NOT_STDC_ENV) || defined(SCO)
 #include	<stdlib.h>
 #endif
 #if defined(X_NOT_STDC_ENV) || (defined(sony) && !defined(SYSTYPE_SYSV) && !defined(_SYSTYPE_SYSV))
@@ -49,6 +50,7 @@ from the X Consortium.
 #include	<locale.h>
 #endif
 #include	<ctype.h>
+#include	<stdio.h>	/* for sprintf() */
 
 static char *
 GetInt(ptr, val)
@@ -209,14 +211,85 @@ double
 xlfd_round_double(x)
 double x;
 {
-    /* Utility for XLFD users to round numbers to XLFD_NDIGITS
-       significant digits.  How do you round to n significant digits on
-       a binary machine?  Let printf() do it for you.  */
-    char formatbuf[40], buffer[40];
+   /* Utility for XLFD users to round numbers to XLFD_NDIGITS
+      significant digits.  How do you round to n significant digits on
+      a binary machine?  */
 
-    sprintf(formatbuf, "%%.%dlg", XLFD_NDIGITS);
-    sprintf(buffer, formatbuf, x);
-    return atof(buffer);
+#if defined(i386) || defined(__i386__) || defined(__alpha__)
+#if !defined(__EMX__)
+#include <float.h>
+
+/* if we have IEEE 754 fp, we can round to binary digits... */
+
+#if (FLT_RADIX == 2) && (DBL_DIG == 15) && (DBL_MANT_DIG == 53)
+
+#ifndef M_LN2
+#define M_LN2       0.69314718055994530942
+#endif
+#ifndef M_LN10
+#define M_LN10      2.30258509299404568402
+#endif
+
+/* convert # of decimal digits to # of binary digits */
+#define XLFD_NDIGITS_2 ((int)(XLFD_NDIGITS * M_LN10 / M_LN2 + 0.5))
+   
+   union conv_d {
+      double d;
+      unsigned char b[8];
+   } d;
+   int i,j,k,d_exp;
+   
+   if (x == 0) 
+      return x;
+
+   /* do minor sanity check for IEEE 754 fp and correct byte order */
+   d.d = 1.0;
+   if (sizeof(double) == 8 && d.b[7] == 0x3f && d.b[6] == 0xf0) {
+      
+      /* 
+       * this code will round IEEE 754 double to XLFD_NDIGITS_2 binary digits
+       */
+      
+      d.d = x;
+      d_exp = (d.b[7] << 4) | (d.b[6] >> 4);
+      
+      i = (DBL_MANT_DIG-XLFD_NDIGITS_2) >> 3;
+      j = 1 << ((DBL_MANT_DIG-XLFD_NDIGITS_2) & 0x07);
+      for (; i<7; i++) {
+	 k = d.b[i] + j;
+	 d.b[i] = k;
+	 if (k & 0x100) j = 1;
+	 else break;
+      }
+      if ((i==7) && ((d.b[6] & 0xf0) != ((d_exp<<4) & 0xf0))) {
+	 /* mantissa overflow: increment exponent */
+	 d_exp = (d_exp & 0x800 ) | ((d_exp & 0x7ff) + 1);
+	 d.b[7] = d_exp >> 4;
+	 d.b[6] = (d.b[6] & 0x0f) | (d_exp << 4);
+      }
+      
+      i = (DBL_MANT_DIG-XLFD_NDIGITS_2) >> 3;
+      j = 1 << ((DBL_MANT_DIG-XLFD_NDIGITS_2) & 0x07);      
+      d.b[i] &= ~(j-1);
+      for (;--i>=0;) d.b[i] = 0;
+
+      return d.d;
+   }
+   else 
+#endif
+#endif /* !__EMX__ */
+#endif /* i386 || __i386__ */
+    {
+	/*
+	 * If not IEEE 754:  Let printf() do it for you.  
+	 */
+	 
+	char formatbuf[40], buffer[40];
+	 
+	sprintf(formatbuf, "%%.%dlg", XLFD_NDIGITS);
+	sprintf(buffer, formatbuf, x);
+	return atof(buffer);
+    }
 }
 
 static char *

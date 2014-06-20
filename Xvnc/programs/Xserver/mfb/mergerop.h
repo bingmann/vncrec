@@ -1,5 +1,6 @@
 /*
- * $XConsortium: mergerop.h,v 1.10 94/04/17 20:28:14 dpw Exp $
+ * $XConsortium: mergerop.h,v 1.11 95/06/08 23:20:39 gildea Exp $
+ * $XFree86: xc/programs/Xserver/mfb/mergerop.h,v 3.1 1996/06/29 09:10:20 dawes Exp $
  *
 Copyright (c) 1989  X Consortium
 
@@ -40,8 +41,13 @@ typedef struct _mergeRopBits {
 
 extern mergeRopRec	mergeRopBits[16];
 
+#if PPW != PGSZ	/* cfb */
 #define DeclareMergeRop() unsigned long   _ca1, _cx1, _ca2, _cx2;
 #define DeclarePrebuiltMergeRop()	unsigned long	_cca, _ccx;
+#else /* mfb */
+#define DeclareMergeRop() unsigned long   _ca1, _cx1, _ca2, _cx2;
+#define DeclarePrebuiltMergeRop()	unsigned long	_cca, _ccx;
+#endif
 
 #if PPW != PGSZ	/* cfb */
 #define InitializeMergeRop(alu,pm) {\
@@ -70,7 +76,33 @@ extern mergeRopRec	mergeRopBits[16];
 #define DoMergeRop(src, dst) \
     ((dst) & ((src) & _ca1 ^ _cx1) ^ ((src) & _ca2 ^ _cx2))
 
+#define DoMergeRop24(src,dst,index) {\
+	register int idx = ((index) & 3)<< 1; \
+	*(dst) = (((*(dst)) & cfbrmask[idx]) | (((*(dst)) & cfbmask[idx]) & \
+	((((src) & _ca1 ^ _cx1)<<cfb24Shift[idx])&cfbmask[idx]) ^ \
+	((((src) & _ca2 ^ _cx2)<<cfb24Shift[idx])&cfbmask[idx]))); \
+	idx++; \
+	(dst)++; \
+	*(dst) = (((*(dst)) & cfbrmask[idx]) | (((*(dst)) & cfbmask[idx]) & \
+	((((src) & _ca1 ^ _cx1)>>cfb24Shift[idx])&cfbmask[idx]) ^ \
+	((((src) & _ca2 ^ _cx2)>>cfb24Shift[idx])&cfbmask[idx]))); \
+	(dst)--; \
+	}
+
 #define DoPrebuiltMergeRop(dst) ((dst) & _cca ^ _ccx)
+
+#define DoPrebuiltMergeRop24(dst,index) { \
+	register int idx = ((index) & 3)<< 1; \
+	*(dst) = (((*(dst)) & cfbrmask[idx]) | (((*(dst)) & cfbmask[idx]) &\
+	(( _cca <<cfb24Shift[idx])&cfbmask[idx]) ^ \
+	(( _ccx <<cfb24Shift[idx])&cfbmask[idx]))); \
+	idx++; \
+	(dst)++; \
+	*(dst) = (((*(dst)) & cfbrmask[idx]) | (((*(dst)) & cfbmask[idx]) &\
+	(( _cca >>cfb24Shift[idx])&cfbmask[idx]) ^ \
+	(( _ccx >>cfb24Shift[idx])&cfbmask[idx]))); \
+	(dst)--; \
+	}
 
 #define DoMaskPrebuiltMergeRop(dst,mask) \
     ((dst) & (_cca | ~(mask)) ^ (_ccx & (mask)))
@@ -80,6 +112,19 @@ extern mergeRopRec	mergeRopBits[16];
 
 #define DoMaskMergeRop(src, dst, mask) \
     ((dst) & (((src) & _ca1 ^ _cx1) | ~(mask)) ^ (((src) & _ca2 ^ _cx2) & (mask)))
+
+#define DoMaskMergeRop24(src, dst, mask, index)  {\
+	register int idx = ((index) & 3)<< 1; \
+	*(dst) = (((*(dst)) & cfbrmask[idx]) | (((*(dst)) & cfbmask[idx]) & \
+	((((((src) & _ca1 ^ _cx1) |(~mask))<<cfb24Shift[idx])&cfbmask[idx]) ^ \
+	(((((src) & _ca2 ^ _cx2)&(mask))<<cfb24Shift[idx])&cfbmask[idx])))); \
+	idx++; \
+	(dst)++; \
+	*(dst) = (((*(dst)) & cfbrmask[idx]) | (((*(dst)) & cfbmask[idx]) & \
+	((((((src) & _ca1 ^ _cx1) |(~mask))>>cfb24Shift[idx])&cfbmask[idx]) ^ \
+	(((((src) & _ca2 ^ _cx2)&(mask))>>cfb24Shift[idx])&cfbmask[idx])))); \
+	(dst)--; \
+	}
 
 #ifndef MROP
 #define MROP 0
@@ -102,12 +147,35 @@ extern mergeRopRec	mergeRopBits[16];
 #define Mnand		(1<<GXnand)
 #define Mset		(1<<GXset)
 
+#define MROP_PIXEL24(pix, idx) \
+	(((*(pix) & cfbmask[(idx)<<1]) >> cfb24Shift[(idx)<<1])| \
+	((*((pix)+1) & cfbmask[((idx)<<1)+1]) << cfb24Shift[((idx)<<1)+1]))
+
+#define MROP_SOLID24P(src,dst,sindex, index) \
+	MROP_SOLID24(MROP_PIXEL24(src,sindex),dst,index)
+#define MROP_MASK24P(src,dst,mask,sindex,index)	\
+	MROP_MASK24(MROP_PIXEL24(src,sindex),dst,mask,index)
+
 #if (MROP) == Mcopy
 #define MROP_DECLARE()
 #define MROP_DECLARE_REG()
 #define MROP_INITIALIZE(alu,pm)
 #define MROP_SOLID(src,dst)	(src)
+#define MROP_SOLID24(src,dst,index)	    {\
+	register int idx = ((index) & 3)<< 1; \
+	*(dst) = (*(dst) & cfbrmask[idx])|(((src)<<cfb24Shift[idx])&cfbmask[idx]); \
+	idx++; \
+	*((dst)+1) = (*((dst)+1) & cfbrmask[idx])|(((src)>>cfb24Shift[idx])&cfbmask[idx]); \
+	}
 #define MROP_MASK(src,dst,mask)	((dst) & ~(mask) | (src) & (mask))
+#define MROP_MASK24(src,dst,mask,index)	{\
+	register int idx = ((index) & 3)<< 1; \
+	*(dst) = (*(dst) & cfbrmask[idx] &(~(((mask)<< cfb24Shift[idx])&cfbmask[idx])) | \
+		((((src)&(mask))<<cfb24Shift[idx])&cfbmask[idx])); \
+	idx++; \
+	*((dst)+1) = (*((dst)+1) & cfbrmask[idx] &(~(((mask)>>cfb24Shift[idx])&cfbmask[idx])) | \
+		((((src)&(mask))>>cfb24Shift[idx])&cfbmask[idx])); \
+	}
 #define MROP_NAME(prefix)	MROP_NAME_CAT(prefix,Copy)
 #endif
 
@@ -116,7 +184,25 @@ extern mergeRopRec	mergeRopBits[16];
 #define MROP_DECLARE_REG()
 #define MROP_INITIALIZE(alu,pm)
 #define MROP_SOLID(src,dst)	(~(src))
+#define MROP_SOLID24(src,dst,index)	    {\
+	register int idx = ((index) & 3)<< 1; \
+	*(dst) = (*(dst) & cfbrmask[idx])|(((~(src))<<cfb24Shift[idx])&cfbmask[idx]); \
+	idx++; \
+	(dst)++; \
+	*(dst) = (*(dst) & cfbrmask[idx])|(((~(src))>>cfb24Shift[idx])&cfbmask[idx]); \
+	(dst)--; \
+	}
 #define MROP_MASK(src,dst,mask)	((dst) & ~(mask) | (~(src)) & (mask))
+#define MROP_MASK24(src,dst,mask,index)	{\
+	register int idx = ((index) & 3)<< 1; \
+	*(dst) = (*(dst) & cfbrmask[idx] &(~(((mask)<< cfb24Shift[idx])&cfbmask[idx])) | \
+		((((~(src))&(mask))<<cfb24Shift[idx])&cfbmask[idx])); \
+	idx++; \
+	(dst)++; \
+	*(dst) = (*(dst) & cfbrmask[idx] &(~(((mask)>>cfb24Shift[idx])&cfbmask[idx])) | \
+		((((~(src))&(mask))>>cfb24Shift[idx])&cfbmask[idx])); \
+	(dst)--; \
+	}
 #define MROP_NAME(prefix)	MROP_NAME_CAT(prefix,CopyInverted)
 #endif
 
@@ -125,7 +211,23 @@ extern mergeRopRec	mergeRopBits[16];
 #define MROP_DECLARE_REG()
 #define MROP_INITIALIZE(alu,pm)
 #define MROP_SOLID(src,dst)	((src) ^ (dst))
+#define MROP_SOLID24(src,dst,index)	    {\
+	register int idx = ((index) & 3)<< 1; \
+	*(dst) ^= (((src)<<cfb24Shift[idx])&cfbmask[idx]); \
+	idx++; \
+	(dst)++; \
+	*(dst) ^= (((src)>>cfb24Shift[idx])&cfbmask[idx]); \
+	(dst)--; \
+	}
 #define MROP_MASK(src,dst,mask)	(((src) & (mask)) ^ (dst))
+#define MROP_MASK24(src,dst,mask,index)	{\
+	register int idx = ((index) & 3)<< 1; \
+	*(dst) ^= ((((src)&(mask))<<cfb24Shift[idx])&cfbmask[idx]); \
+	idx++; \
+	(dst)++; \
+	*(dst) ^= ((((src)&(mask))>>cfb24Shift[idx])&cfbmask[idx]); \
+	(dst)--; \
+	}
 #define MROP_NAME(prefix)	MROP_NAME_CAT(prefix,Xor)
 #endif
 
@@ -134,7 +236,23 @@ extern mergeRopRec	mergeRopBits[16];
 #define MROP_DECLARE_REG()
 #define MROP_INITIALIZE(alu,pm)
 #define MROP_SOLID(src,dst)	((src) | (dst))
+#define MROP_SOLID24(src,dst,index)	    {\
+	register int idx = ((index) & 3)<< 1; \
+	*(dst) |= (((src)<<cfb24Shift[idx])&cfbmask[idx]); \
+	idx++; \
+	(dst)++; \
+	*(dst) |= (((src)>>cfb24Shift[idx])&cfbmask[idx]); \
+	(dst)--; \
+	}
 #define MROP_MASK(src,dst,mask)	(((src) & (mask)) | (dst))
+#define MROP_MASK24(src,dst,mask,index)	{\
+	register int idx = ((index) & 3)<< 1; \
+	*(dst) |= ((((src)&(mask))<<cfb24Shift[idx])&cfbmask[idx]); \
+	idx++; \
+	(dst)++; \
+	*(dst) |= ((((src)&(mask))>>cfb24Shift[idx])&cfbmask[idx]); \
+	(dst)--; \
+	}
 #define MROP_NAME(prefix)	MROP_NAME_CAT(prefix,Or)
 #endif
 
@@ -155,7 +273,9 @@ extern mergeRopRec	mergeRopBits[16];
 #define MROP_PREBUILD(src)	PrebuildMergeRop(src)
 #define MROP_PREBUILT_DECLARE()	DeclarePrebuiltMergeRop()
 #define MROP_PREBUILT_SOLID(src,dst)	DoPrebuiltMergeRop(dst)
+#define MROP_PREBUILT_SOLID24(src,dst,index)	DoPrebuiltMergeRop24(dst,index)
 #define MROP_PREBUILT_MASK(src,dst,mask)    DoMaskPrebuiltMergeRop(dst,mask)
+#define MROP_PREBUILT_MASK24(src,dst,mask,index)    DoMaskPrebuiltMergeRop24(dst,mask,index)
 #endif
 
 #if (MROP) == 0
@@ -163,22 +283,29 @@ extern mergeRopRec	mergeRopBits[16];
 #define MROP_DECLARE_REG()	register DeclareMergeRop()
 #define MROP_INITIALIZE(alu,pm)	InitializeMergeRop(alu,pm)
 #define MROP_SOLID(src,dst)	DoMergeRop(src,dst)
+#define MROP_SOLID24(src,dst,index)	DoMergeRop24(src,dst,index)
 #define MROP_MASK(src,dst,mask)	DoMaskMergeRop(src, dst, mask)
+#define MROP_MASK24(src,dst,mask,index)	DoMaskMergeRop24(src, dst, mask,index)
 #define MROP_NAME(prefix)	MROP_NAME_CAT(prefix,General)
 #define MROP_PREBUILD(src)	PrebuildMergeRop(src)
 #define MROP_PREBUILT_DECLARE()	DeclarePrebuiltMergeRop()
 #define MROP_PREBUILT_SOLID(src,dst)	DoPrebuiltMergeRop(dst)
+#define MROP_PREBUILT_SOLID24(src,dst,index)	DoPrebuiltMergeRop24(dst,index)
 #define MROP_PREBUILT_MASK(src,dst,mask)    DoMaskPrebuiltMergeRop(dst,mask)
+#define MROP_PREBUILT_MASK24(src,dst,mask,index) \
+	DoMaskPrebuiltMergeRop24(dst,mask,index)
 #endif
 
 #ifndef MROP_PREBUILD
 #define MROP_PREBUILD(src)
 #define MROP_PREBUILT_DECLARE()
 #define MROP_PREBUILT_SOLID(src,dst)	MROP_SOLID(src,dst)
+#define MROP_PREBUILT_SOLID24(src,dst,index)	MROP_SOLID24(src,dst,index)
 #define MROP_PREBUILT_MASK(src,dst,mask)    MROP_MASK(src,dst,mask)
+#define MROP_PREBUILT_MASK24(src,dst,mask,index) MROP_MASK24(src,dst,mask,index)
 #endif
 
-#if (__STDC__ && !defined(UNIXCPP)) || defined(ANSICPP)
+#if (defined(__STDC__) && !defined(UNIXCPP)) || defined(ANSICPP)
 #define MROP_NAME_CAT(prefix,suffix)	prefix##suffix
 #else
 #define MROP_NAME_CAT(prefix,suffix)	prefix/**/suffix

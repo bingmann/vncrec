@@ -1,4 +1,5 @@
-/* $XConsortium: extnsionst.h,v 1.14 94/04/17 20:25:42 dpw Exp $ */
+/* $XConsortium: extnsionst.h /main/15 1996/08/01 19:18:11 dpw $ */
+/* $XFree86: xc/programs/Xserver/include/extnsionst.h,v 3.2 1996/12/23 07:09:27 dawes Exp $ */
 /***********************************************************
 
 Copyright (c) 1987  X Consortium
@@ -75,6 +76,9 @@ typedef struct _ExtensionEntry {
 	ClientPtr /* client */
 #endif
 );
+#ifdef XCSECURITY
+    Bool secure;		/* extension visible to untrusted clients? */
+#endif
 } ExtensionEntry;
 
 /* any attempt to declare the types of the parameters to the functions
@@ -83,9 +87,27 @@ typedef struct _ExtensionEntry {
  * to another.  You can't even put void *, void * (the ibm compiler
  * complains, anyway).
  */
-extern void (* EventSwapVector[128]) ();
+typedef void (*EventSwapPtr) (
+#if NeedFunctionPrototypes && defined(EVENT_SWAP_PTR)
+	xEvent *,
+	xEvent *
+#endif
+);
 
-typedef void (* ExtensionLookupProc)(/*args indeterminate*/);
+extern EventSwapPtr EventSwapVector[128];
+
+extern void NotImplemented (	/* FIXME: this may move to another file... */
+#if NeedFunctionPrototypes && defined(EVENT_SWAP_PTR)
+	xEvent *,
+	xEvent *
+#endif
+);
+
+typedef void (* ExtensionLookupProc)(	/*args indeterminate*/
+#ifdef	EXTENSION_PROC_ARGS
+	EXTENSION_PROC_ARGS
+#endif
+);
 
 typedef struct _ProcEntry {
     char *name;
@@ -158,6 +180,13 @@ extern Bool RegisterScreenProc(
     char* /*name*/,
     ScreenPtr /*pScreen*/,
     ExtensionLookupProc /*proc*/
+#endif
+);
+
+extern void DeclareExtensionSecurity(
+#if NeedFunctionPrototypes
+    char * /*extname*/,
+    Bool /*secure*/
 #endif
 );
 

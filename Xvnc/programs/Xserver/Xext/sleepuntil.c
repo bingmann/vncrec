@@ -1,5 +1,6 @@
 /*
  * $XConsortium: sleepuntil.c,v 1.5 94/04/17 20:32:57 dpw Exp $
+ * $XFree86: xc/programs/Xserver/Xext/sleepuntil.c,v 3.0 1996/05/06 05:55:34 dawes Exp $
  *
 Copyright (c) 1992  X Consortium
 
@@ -42,7 +43,13 @@ typedef struct _Sertafied {
     TimeStamp		revive;
     ClientPtr		pClient;
     XID			id;
-    void		(*notifyFunc)();
+    void		(*notifyFunc)(
+#if NeedNestedPrototypes
+			ClientPtr /* client */,
+			pointer /* closure */
+#endif
+			);
+
     pointer		closure;
 } SertafiedRec, *SertafiedPtr;
 
@@ -50,11 +57,35 @@ static SertafiedPtr pPending;
 static RESTYPE	    SertafiedResType;
 static Bool	    BlockHandlerRegistered;
 static int	    SertafiedGeneration;
-static void	    ClientAwaken();
-static int	    SertafiedDelete();
-static void	    SertafiedBlockHandler();
-static void	    SertafiedWakeupHandler();
 
+static void	    ClientAwaken(
+#if NeedFunctionPrototypes
+    ClientPtr /* client */,
+    pointer /* closure */
+#endif
+);
+static int	    SertafiedDelete(
+#if NeedFunctionPrototypes
+    pointer /* value */,
+    XID /* id */
+#endif
+);
+static void	    SertafiedBlockHandler(
+#if NeedFunctionPrototypes
+    pointer /* data */,
+    OSTimePtr /* wt */,
+    pointer /* LastSelectMask */
+#endif
+);
+static void	    SertafiedWakeupHandler(
+#if NeedFunctionPrototypes
+    pointer /* data */,
+    int /* i */,
+    pointer /* LastSelectMask */
+#endif
+);
+
+int
 ClientSleepUntil (client, revive, notifyFunc, closure)
     ClientPtr	client;
     TimeStamp	*revive;

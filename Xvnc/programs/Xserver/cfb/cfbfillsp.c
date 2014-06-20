@@ -76,6 +76,7 @@ SOFTWARE.
 ******************************************************************/
 
 /* $XConsortium: cfbfillsp.c,v 5.24 94/04/17 20:28:48 dpw Exp $ */
+/* $XFree86: xc/programs/Xserver/cfb/cfbfillsp.c,v 3.1 1996/12/09 11:50:54 dawes Exp $ */
 
 #include "X.h"
 #include "Xmd.h"
@@ -159,7 +160,11 @@ int fSorted;
     if (!(pGC->planemask))
 	return;
 
+#if PSZ == 24
+    if (pGC->tile.pixmap->drawable.width & 3)
+#else
     if (pGC->tile.pixmap->drawable.width & PIM)
+#endif
     {
     	fill = cfbFillSpanTileOddGeneral;
     	if ((pGC->planemask & PMSK) == PMSK)
@@ -521,35 +526,66 @@ int fSorted;
 
 		/* width of dest/stipple */
                 xrem = (x - xSrc) % stippleWidth;
+#if PSZ == 24
+		w = 1;
+#else
 	        w = min((stippleWidth - xrem), width);
 		/* dist to word bound in dest */
 		w = min(w, PPW - (x & PIM));
 		/* dist to word bound in stip */
 		w = min(w, MFB_PPW - (x & MFB_PIM));
+#endif
 
 	        xtemp = (xrem & MFB_PIM);
 	        ptemp = (unsigned long *)(psrcS + (xrem >> MFB_PWSH));
+#if PSZ == 24
+		tmpx = x & 3;
+		pdsttmp = pdst + ((x * 3)>>2);
+#else
 		tmpx = x & PIM;
 		pdsttmp = pdst + (x>>PWSH);
+#endif
 		switch ( pGC->fillStyle ) {
 		    case FillOpaqueStippled:
+#if PSZ == 24
+			getstipplepixels24(ptemp, xtemp, 0, &bgfill, &tmpDst1, xrem);
+			getstipplepixels24(ptemp, xtemp, 1, &fgfill, &tmpDst2, xrem);
+#else
 			getstipplepixels(ptemp, xtemp, w, 0, &bgfill, &tmpDst1);
 			getstipplepixels(ptemp, xtemp, w, 1, &fgfill, &tmpDst2);
+#endif
 			break;
 		    case FillStippled:
 			/* Fill tmpSrc with the source pixels */
+#if PSZ == 24
+			getbits24(pdsttmp, tmpSrc, x);
+			getstipplepixels24(ptemp, xtemp, 0, &tmpSrc, &tmpDst1, xrem);
+#else
 			getbits(pdsttmp, tmpx, w, tmpSrc);
 			getstipplepixels(ptemp, xtemp, w, 0, &tmpSrc, &tmpDst1);
+#endif
 			if (rop != stiprop) {
+#if PSZ == 24
+			    putbitsrop24(fgfill, 0, &tmpSrc, pGC->planemask, stiprop);
+#else
 			    putbitsrop(fgfill, 0, w, &tmpSrc, pGC->planemask, stiprop);
+#endif
 			} else {
 			    tmpSrc = fgfill;
 			}
+#if PSZ == 24
+			getstipplepixels24(ptemp, xtemp, 1, &tmpSrc, &tmpDst2, xrem);
+#else
 			getstipplepixels(ptemp, xtemp, w, 1, &tmpSrc, &tmpDst2);
+#endif
 			break;
 		}
 		tmpDst2 |= tmpDst1;
+#if PSZ == 24
+		putbitsrop24(tmpDst2, tmpx, pdsttmp, pGC->planemask, rop);
+#else
 		putbitsrop(tmpDst2, tmpx, w, pdsttmp, pGC->planemask, rop);
+#endif
 		x += w;
 		width -= w;
 	    }
@@ -645,6 +681,7 @@ cfb8Stipple32FS (pDrawable, pGC, nInit, pptInit, pwidthInit, fSorted)
 	}
 	bits = src[y % stippleHeight];
 	RotBitsLeft (bits, (x & ((PGSZ-1) & ~PIM)));
+#if PPW == 4
 	if (cfb8StippleRRop == GXcopy)
 	{
 	    xor = devPriv->xor;
@@ -752,6 +789,7 @@ cfb8Stipple32FS (pDrawable, pGC, nInit, pptInit, pwidthInit, fSorted)
 	    }
 	}
 	else
+#endif /* PPW == 4 */
 	{
 	    if (startmask)
 	    {
@@ -859,6 +897,7 @@ cfb8OpaqueStipple32FS (pDrawable, pGC, nInit, pptInit, pwidthInit, fSorted)
 	}
 	bits = src[y % stippleHeight];
 	RotBitsLeft (bits, (x & ((PGSZ-1) & ~PIM)));
+#if PPW == 4
 	if (cfb8StippleRRop == GXcopy)
 	{
 	    xor = devPriv->xor;
@@ -933,6 +972,7 @@ cfb8OpaqueStipple32FS (pDrawable, pGC, nInit, pptInit, pwidthInit, fSorted)
 	    }
 	}
 	else
+#endif /* PPW == 4 */
 	{
 	    if (startmask)
 	    {

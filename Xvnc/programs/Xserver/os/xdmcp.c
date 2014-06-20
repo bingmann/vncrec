@@ -1,4 +1,5 @@
-/* $XConsortium: xdmcp.c,v 1.31 94/06/03 17:21:13 mor Exp $ */
+/* $XConsortium: xdmcp.c /main/34 1996/12/02 10:23:29 lehors $ */
+/* $XFree86: xc/programs/Xserver/os/xdmcp.c,v 3.9 1997/01/18 06:58:04 dawes Exp $ */
 /*
  * Copyright 1989 Network Computing Devices, Inc., Mountain View, California.
  *
@@ -14,15 +15,45 @@
  *
  */
 
+#ifdef WIN32
+/* avoid conflicting definitions */
+#define BOOL wBOOL
+#define ATOM wATOM
+#define FreeResource wFreeResource
+#include <winsock.h>
+#undef BOOL
+#undef ATOM
+#undef FreeResource
+#undef CreateWindowA
+#undef RT_FONT
+#undef RT_CURSOR
+#endif
 #include "Xos.h"
+#if !defined(MINIX) && !defined(WIN32)
+#ifndef Lynx
 #include <sys/param.h>
 #include <sys/socket.h>
+#else
+#include <socket.h>
+#endif
 #include <netinet/in.h>
 #include <netdb.h>
+#else
+#if defined(MINIX)
+#include <net/hton.h>
+#include <net/netlib.h>
+#include <net/gen/netdb.h>
+#include <net/gen/udp.h>
+#include <net/gen/udp_io.h>
+#include <sys/nbio.h>
+#include <sys/ioctl.h>
+#endif
+#endif
 #include <stdio.h>
 #include "X.h"
 #include "Xmd.h"
 #include "misc.h"
+#include "Xpoll.h"
 #include "osdep.h"
 #include "input.h"
 #include "dixstruct.h"
@@ -30,6 +61,8 @@
 
 #ifdef STREAMSCONN
 #include <tiuser.h>
+#include <netconfig.h>
+#include <netdir.h>
 #endif
 
 #ifdef XDMCP
@@ -37,8 +70,8 @@
 #include "Xdmcp.h"
 
 extern char *display;
-extern FdSet EnabledDevices;
-extern FdSet AllClients;
+extern fd_set EnabledDevices;
+extern fd_set AllClients;
 extern char *defaultDisplayClass;
 
 static int		    xdmcpSocket, sessionSocket;
@@ -60,7 +93,7 @@ static XdmcpBuffer	    buffer;
 
 static struct sockaddr_in   ManagerAddress;
 
-static get_xdmcp_sock(
+static void get_xdmcp_sock(
 #if NeedFunctionPrototypes
     void
 #endif
@@ -201,6 +234,16 @@ void XdmcpRegisterManufacturerDisplayID(
     int	    /*length*/
 #endif
 );
+
+#ifdef MINIX
+static void read_cb(
+#if NeedFunctionPrototypes
+    nbio_ref_t	/*ref*/,
+    int		/*res*/,
+    int		/*err*/
+#endif
+);
+#endif
 
 static short	xdm_udp_port = XDM_UDP_PORT;
 static Bool	OneSession = FALSE;
@@ -598,13 +641,13 @@ XdmcpBlockHandler(data, wt, pReadmask)
     struct timeval  **wt;
     pointer	    pReadmask;
 {
-    FdMask *LastSelectMask = (FdMask *)pReadmask;
+    fd_set *LastSelectMask = (fd_set*)pReadmask;
     CARD32 millisToGo, wtMillis;
     static struct timeval waittime;
 
     if (state == XDM_OFF)
 	return;
-    BITSET(LastSelectMask, xdmcpSocket);
+    FD_SET(xdmcpSocket, LastSelectMask);
     if (timeOutTime == 0)
 	return;
     millisToGo = GetTimeInMillis();
@@ -642,27 +685,27 @@ XdmcpWakeupHandler(data, i, pReadmask)
     int	    i;
     pointer pReadmask;
 {
-    FdMask  *LastSelectMask = (FdMask *)pReadmask;
-    FdSet   devicesReadable;
+    fd_set* LastSelectMask = (fd_set*)pReadmask;
+    fd_set   devicesReadable;
 
     if (state == XDM_OFF)
 	return;
     if (i > 0)
     {
-	if (GETBIT(LastSelectMask, xdmcpSocket))
+	if (FD_ISSET(xdmcpSocket, LastSelectMask))
 	{
 	    receive_packet();
-	    BITCLEAR(LastSelectMask, xdmcpSocket);
+	    FD_CLR(xdmcpSocket, LastSelectMask);
 	} 
-	MASKANDSETBITS(devicesReadable, LastSelectMask, EnabledDevices);
-	if (ANYSET(devicesReadable))
+	XFD_ANDSET(&devicesReadable, LastSelectMask, &EnabledDevices);
+	if (XFD_ANYSET(&devicesReadable))
 	{
 	    if (state == XDM_AWAIT_USER_INPUT)
 		restart();
 	    else if (state == XDM_RUN_SESSION)
 		keepaliveDormancy = defaultKeepaliveDormancy;
 	}
-	if (ANYSET(AllClients) && state == XDM_RUN_SESSION)
+	if (XFD_ANYSET(&AllClients) && state == XDM_RUN_SESSION)
 	    timeOutTime = GetTimeInMillis() +  keepaliveDormancy * 1000;
     }
     else if (timeOutTime && GetTimeInMillis() >= timeOutTime)
@@ -889,18 +932,91 @@ XdmcpAddAuthorization (name, data)
  * to the state machine.
  */
 
-static
+static void
 get_xdmcp_sock()
 {
+#ifdef STREAMSCONN
+    struct netconfig *nconf;
+
+    if ((xdmcpSocket = t_open("/dev/udp", O_RDWR, 0)) < 0) {
+	XdmcpWarning("t_open() of /dev/udp failed");
+	return;
+    }
+
+    if( t_bind(xdmcpSocket,NULL,NULL) < 0 ) {
+	XdmcpWarning("UDP socket creation failed");
+	t_error("t_bind(xdmcpSocket) failed" );
+	t_close(xdmcpSocket);
+	return;
+    }
+
+    /*
+     * This part of the code looks contrived. It will actually fit in nicely
+     * when the CLTS part of Xtrans is implemented.
+     */
+ 
+    if( (nconf=getnetconfigent("udp")) == NULL ) {
+	XdmcpWarning("UDP socket creation failed: getnetconfigent()");
+	t_unbind(xdmcpSocket);
+	t_close(xdmcpSocket);
+	return;
+    }
+ 
+    if( netdir_options(nconf, ND_SET_BROADCAST, xdmcpSocket, NULL) ) {
+	XdmcpWarning("UDP set broadcast option failed: netdir_options()");
+	freenetconfigent(nconf);
+	t_unbind(xdmcpSocket);
+	t_close(xdmcpSocket);
+	return;
+    }
+ 
+    freenetconfigent(nconf);
+#else
+#ifndef _MINIX
     int soopts = 1;
 
-#ifdef STREAMSCONN
-    if ((xdmcpSocket = t_open("/dev/udp", O_RDWR, 0)) < 0)
-	XdmcpWarning("t_open() of /dev/udp failed");
-    if( t_bind(xdmcpSocket,NULL,NULL) < 0 )
-	t_error("t_bind(xdmcpSocket) failed" );
-#else
     if ((xdmcpSocket = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
+#else /* MINIX */
+    char *udp_device;
+    int r, s_errno;
+    nwio_udpopt_t udpopt;
+    nbio_ref_t ref;
+
+    udp_device= getenv("UDP_DEVICE");
+    if (udp_device == NULL)
+    	udp_device= UDP_DEVICE;
+    xdmcpSocket= open(udp_device, O_RDWR);
+    if (xdmcpSocket != -1)
+    {
+    	udpopt.nwuo_flags= NWUO_COPY | NWUO_LP_SEL | NWUO_EN_LOC | 
+    		NWUO_DI_BROAD | NWUO_RP_ANY | NWUO_RA_ANY | NWUO_RWDATALL |
+    		NWUO_DI_IPOPT;
+    	r= ioctl(xdmcpSocket, NWIOSUDPOPT, &udpopt);
+    	if (r == -1)
+    	{
+    		s_errno= errno;
+    		close(xdmcpSocket);
+    		xdmcpSocket= -1;
+    		errno= s_errno;
+    	}
+    	ioctl(xdmcpSocket, NWIOGUDPOPT, &udpopt);
+    	ErrorF("0x%x, 0x%x, 0x%x, 0x%x, 0x%x\n", 
+    		udpopt.nwuo_flags,
+    		udpopt.nwuo_locport,
+    		udpopt.nwuo_remport,
+    		udpopt.nwuo_locaddr,
+    		udpopt.nwuo_remaddr);
+    }
+    if (xdmcpSocket != -1)
+    {
+	fcntl(xdmcpSocket, F_SETFD, fcntl(xdmcpSocket, F_GETFD) | 
+    								FD_ASYNCHIO);
+	nbio_register(xdmcpSocket);
+	ref.ref_int= xdmcpSocket;
+	nbio_setcallback(xdmcpSocket, ASIO_READ, read_cb, ref);
+    }
+    if (xdmcpSocket == -1)
+#endif /* !MINIX */
 	XdmcpWarning("UDP socket creation failed");
 #ifdef SO_BROADCAST
     else if (setsockopt(xdmcpSocket, SOL_SOCKET, SO_BROADCAST, (char *)&soopts,
@@ -1096,25 +1212,25 @@ static void
 recv_decline_msg(length)
     unsigned		length;
 {
-    ARRAY8  Status, DeclineAuthenticationName, DeclineAuthenticationData;
+    ARRAY8  status, DeclineAuthenticationName, DeclineAuthenticationData;
 
-    Status.data = 0;
+    status.data = 0;
     DeclineAuthenticationName.data = 0;
     DeclineAuthenticationData.data = 0;
-    if (XdmcpReadARRAY8 (&buffer, &Status) &&
+    if (XdmcpReadARRAY8 (&buffer, &status) &&
 	XdmcpReadARRAY8 (&buffer, &DeclineAuthenticationName) &&
 	XdmcpReadARRAY8 (&buffer, &DeclineAuthenticationData))
     {
-    	if (length == 6 + Status.length +
+    	if (length == 6 + status.length +
 		      	  DeclineAuthenticationName.length +
  		      	  DeclineAuthenticationData.length &&
 	    XdmcpCheckAuthentication (&DeclineAuthenticationName,
 				      &DeclineAuthenticationData, DECLINE))
     	{
-	    XdmcpFatal ("Session declined", &Status);
+	    XdmcpFatal ("Session declined", &status);
     	}
     }
-    XdmcpDisposeARRAY8 (&Status);
+    XdmcpDisposeARRAY8 (&status);
     XdmcpDisposeARRAY8 (&DeclineAuthenticationName);
     XdmcpDisposeARRAY8 (&DeclineAuthenticationData);
 }
@@ -1162,21 +1278,21 @@ recv_failed_msg(length)
     unsigned		length;
 {
     CARD32  FailedSessionID;
-    ARRAY8  Status;
+    ARRAY8  status;
 
     if (state != XDM_AWAIT_MANAGE_RESPONSE)
 	return;
-    Status.data = 0;
+    status.data = 0;
     if (XdmcpReadCARD32 (&buffer, &FailedSessionID) &&
-	XdmcpReadARRAY8 (&buffer, &Status))
+	XdmcpReadARRAY8 (&buffer, &status))
     {
-    	if (length == 6 + Status.length &&
+    	if (length == 6 + status.length &&
 	    SessionID == FailedSessionID)
 	{
-	    XdmcpFatal ("Session failed", &Status);
+	    XdmcpFatal ("Session failed", &status);
 	}
     }
-    XdmcpDisposeARRAY8 (&Status);
+    XdmcpDisposeARRAY8 (&status);
 }
 
 static void
@@ -1236,12 +1352,8 @@ XdmcpFatal (type, status)
     char	*type;
     ARRAY8Ptr	status;
 {
-    extern void AbortDDX();
-
-    ErrorF ("XDMCP fatal error: %s %*.*s\n", type,
+    FatalError ("XDMCP fatal error: %s %*.*s\n", type,
 	   status->length, status->length, status->data);
-    AbortDDX ();
-    exit (1);
 }
 
 static 
@@ -1268,7 +1380,11 @@ get_manager_by_name(argc, argv, i)
 	ErrorF("Xserver: unknown host: %s\n", argv[i]);
 	exit(1);
     }
+#ifndef _MINIX
     if (hep->h_length == sizeof (struct in_addr))
+#else
+    if (hep->h_length == sizeof (ipaddr_t))
+#endif
     {
 	memmove(&ManagerAddress.sin_addr, hep->h_addr, hep->h_length);
 #ifdef BSD44SOCKETS
@@ -1283,6 +1399,66 @@ get_manager_by_name(argc, argv, i)
 	exit (1);
     }
 }
+
+#ifdef MINIX
+static char read_buffer[XDM_MAX_MSGLEN+sizeof(udp_io_hdr_t)];
+static int read_inprogress;
+static int read_size;
+
+int
+XdmcpFill (fd, buffer, from, fromlen)
+int             fd;
+XdmcpBufferPtr  buffer;
+XdmcpNetaddr    from;       /* return */
+int             *fromlen;   /* return */
+{
+	int r;
+
+	if (read_inprogress)
+		return 0;
+
+	if (read_size != 0)
+	{
+		r= read_size;
+		read_size= 0;
+		return MNX_XdmcpFill(fd, buffer, from, fromlen, read_buffer,
+			r);
+	}
+
+	r= read(fd, read_buffer, sizeof(read_buffer));
+	if (r > 0)
+	{
+		return MNX_XdmcpFill(fd, buffer, from, fromlen, read_buffer,
+			r);
+	}
+	else if (r == -1 && errno == EINPROGRESS)
+	{
+		read_inprogress= 1;
+		nbio_inprogress(fd, ASIO_READ, 1 /* read */, 0 /* write */,
+			0 /* except */);
+		return 0;
+	}
+	else
+		FatalError("XdmcpFill: read failed: %s\n",
+			r == 0 ? "EOF" : strerror(errno));
+	return 0;
+}
+
+static void read_cb(ref, res, err)
+nbio_ref_t ref;
+int res;
+int err;
+{
+	if (res <= 0)
+	{
+		FatalError("xdmcp'read_cb: read failed: %s\n",
+			res == 0 ? "EOF" : strerror(err));
+	}
+	read_inprogress= 0;
+	read_size= res;
+}
+#endif
+
 #else
 static int xdmcp_non_empty; /* avoid complaint by ranlib */
 #endif /* XDMCP */

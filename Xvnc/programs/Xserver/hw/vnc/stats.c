@@ -25,16 +25,6 @@
 #include <stdlib.h>
 #include "rfb.h"
 
-#define MAX_ENCODINGS 10
-
-int rfbBytesSent[MAX_ENCODINGS];
-int rfbRectanglesSent[MAX_ENCODINGS];
-
-int rfbFramebufferUpdateMessagesSent;
-int rfbRawBytesEquivalent;
-int rfbKeyEventsRcvd;
-int rfbPointerEventsRcvd;
-
 static char* encNames[] = {
     "raw", "copyRect", "RRE", "[encoding 3]", "CoRRE", "hextile",
     "[encoding 6]", "[encoding 7]", "[encoding 8]", "[encoding 9]"
@@ -42,68 +32,52 @@ static char* encNames[] = {
 
 
 void
-rfbResetStats()
+rfbResetStats(rfbClientPtr cl)
 {
     int i;
     for (i = 0; i < MAX_ENCODINGS; i++) {
-	rfbBytesSent[i] = 0;
-	rfbRectanglesSent[i] = 0;
+	cl->rfbBytesSent[i] = 0;
+	cl->rfbRectanglesSent[i] = 0;
     }
-    rfbFramebufferUpdateMessagesSent = 0;
-    rfbRawBytesEquivalent = 0;
-    rfbKeyEventsRcvd = 0;
-    rfbPointerEventsRcvd = 0;
+    cl->rfbFramebufferUpdateMessagesSent = 0;
+    cl->rfbRawBytesEquivalent = 0;
+    cl->rfbKeyEventsRcvd = 0;
+    cl->rfbPointerEventsRcvd = 0;
 }
 
 void
-rfbPrintStats()
+rfbPrintStats(rfbClientPtr cl)
 {
     int i;
     int totalRectanglesSent = 0;
     int totalBytesSent = 0;
 
-    fprintf(stderr,"Statistics\n");
-    fprintf(stderr,"----------\n");
+    rfbLog("Statistics:\n");
 
-    if ((rfbKeyEventsRcvd != 0) || (rfbPointerEventsRcvd != 0))
-	fprintf(stderr,"Key events received %d, pointer events %d\n",
-		rfbKeyEventsRcvd, rfbPointerEventsRcvd);
+    if ((cl->rfbKeyEventsRcvd != 0) || (cl->rfbPointerEventsRcvd != 0))
+	rfbLog("  key events received %d, pointer events %d\n",
+		cl->rfbKeyEventsRcvd, cl->rfbPointerEventsRcvd);
 
     for (i = 0; i < MAX_ENCODINGS; i++) {
-	totalRectanglesSent += rfbRectanglesSent[i];
-	totalBytesSent += rfbBytesSent[i];
+	totalRectanglesSent += cl->rfbRectanglesSent[i];
+	totalBytesSent += cl->rfbBytesSent[i];
     }
 
-    fprintf(stderr,"Framebuffer updates %d, rectangles %d, bytes %d\n",
-	    rfbFramebufferUpdateMessagesSent, totalRectanglesSent,
+    rfbLog("  framebuffer updates %d, rectangles %d, bytes %d\n",
+	    cl->rfbFramebufferUpdateMessagesSent, totalRectanglesSent,
 	    totalBytesSent);
 
     for (i = 0; i < MAX_ENCODINGS; i++) {
-	if (rfbRectanglesSent[i] != 0)
-	    fprintf(stderr,"   %s rectangles %d, bytes %d\n",
-		    encNames[i], rfbRectanglesSent[i], rfbBytesSent[i]);
+	if (cl->rfbRectanglesSent[i] != 0)
+	    rfbLog("    %s rectangles %d, bytes %d\n",
+		   encNames[i], cl->rfbRectanglesSent[i], cl->rfbBytesSent[i]);
     }
 
-    if ((totalBytesSent-rfbBytesSent[rfbEncodingCopyRect]) != 0) {
-	fprintf(stderr,"Raw bytes equivalent %d, compression ratio %f\n",
-		rfbRawBytesEquivalent,
-		(double)rfbRawBytesEquivalent
-		/ (double)(totalBytesSent-rfbBytesSent[rfbEncodingCopyRect]));
+    if ((totalBytesSent - cl->rfbBytesSent[rfbEncodingCopyRect]) != 0) {
+	rfbLog("  raw bytes equivalent %d, compression ratio %f\n",
+		cl->rfbRawBytesEquivalent,
+		(double)cl->rfbRawBytesEquivalent
+		/ (double)(totalBytesSent
+			   - cl->rfbBytesSent[rfbEncodingCopyRect]));
     }
-    /*
-    if (rfbFramebufferUpdateMessagesSent != 0)
-	fprintf(stderr,"Average rectangles per framebuffer update %d\n",
-		totalRectanglesSent / rfbFramebufferUpdateMessagesSent);
-
-    if (totalRectanglesSent != 0)
-	fprintf(stderr,"Average bytes per rectangle %d\n",
-		totalBytesSent / totalRectanglesSent);
-
-    for (i = 0; i < MAX_ENCODINGS; i++) {
-	if (rfbRectanglesSent[i] != 0)
-	    fprintf(stderr,"   %s %d\n",
-		    encNames[i], rfbBytesSent[i] / rfbRectanglesSent[i]);
-    }
-    */
-    fprintf(stderr,"\n");
 }

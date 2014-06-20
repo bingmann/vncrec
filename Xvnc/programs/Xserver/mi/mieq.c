@@ -1,5 +1,5 @@
 /*
- * $XConsortium: mieq.c,v 1.7 94/04/17 20:27:31 dpw Exp $
+ * $XConsortium: mieq.c,v 1.8 94/11/02 15:59:29 kaleb Exp $
  *
 Copyright (c) 1990  X Consortium
 
@@ -53,7 +53,7 @@ typedef struct _Event {
 } EventRec, *EventPtr;
 
 typedef struct _EventQueue {
-    long	head, tail;	    /* long for SetInputCheck */
+    HWEventQueueType	head, tail;	    /* long for SetInputCheck */
     CARD32	lastEventTime;	    /* to avoid time running backwards */
     Bool	lastMotion;
     EventRec	events[QUEUE_SIZE]; /* static allocation for signals */
@@ -90,7 +90,7 @@ void
 mieqEnqueue (e)
     xEvent	*e;
 {
-    int	oldtail, newtail, prevtail;
+    HWEventQueueType	oldtail, newtail, prevtail;
     Bool    isMotion;
 
     oldtail = miEventQueue.tail;

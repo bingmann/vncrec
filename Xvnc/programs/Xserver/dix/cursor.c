@@ -47,7 +47,8 @@ SOFTWARE.
 ******************************************************************/
 
 
-/* $XConsortium: cursor.c,v 1.44 94/04/17 20:26:20 dpw Exp $ */
+/* $XConsortium: cursor.c /main/19 1996/08/01 19:20:16 dpw $ */
+/* $XFree86: xc/programs/Xserver/dix/cursor.c,v 3.1 1996/12/23 06:29:36 dawes Exp $ */
 
 #include "X.h"
 #include "Xmd.h"
@@ -69,8 +70,12 @@ typedef struct _GlyphShare {
 static GlyphSharePtr sharedGlyphs = (GlyphSharePtr)NULL;
 
 static void
+#if NeedFunctionPrototypes
+FreeCursorBits(CursorBitsPtr bits)
+#else
 FreeCursorBits(bits)
     CursorBitsPtr bits;
+#endif
 {
     if (--bits->refcnt > 0)
 	return;
@@ -209,8 +214,10 @@ AllocGlyphCursor(source, sourceChar, mask, maskChar,
     ScreenPtr 	pscr;
     GlyphSharePtr pShare;
 
-    sourcefont = (FontPtr) LookupIDByType(source, RT_FONT);
-    maskfont = (FontPtr) LookupIDByType(mask, RT_FONT);
+    sourcefont = (FontPtr) SecurityLookupIDByType(client, source, RT_FONT,
+						  SecurityReadAccess);
+    maskfont = (FontPtr) SecurityLookupIDByType(client, mask, RT_FONT,
+						SecurityReadAccess);
 
     if (!sourcefont)
     {
@@ -252,14 +259,14 @@ AllocGlyphCursor(source, sourceChar, mask, maskChar,
 	if (!maskfont)
 	{
 	    register long n;
-	    register unsigned char *bits;
+	    register unsigned char *mskptr;
 
 	    n = BitmapBytePad(cm.width)*(long)cm.height;
-	    bits = mskbits = (unsigned char *)xalloc(n);
-	    if (!bits)
+	    mskptr = mskbits = (unsigned char *)xalloc(n);
+	    if (!mskptr)
 		return BadAlloc;
 	    while (--n >= 0)
-		*bits++ = ~0;
+		*mskptr++ = ~0;
 	}
 	else
 	{
@@ -268,10 +275,10 @@ AllocGlyphCursor(source, sourceChar, mask, maskChar,
 		client->errorValue = maskChar;
 		return BadValue;
 	    }
-	    if (res = ServerBitsFromGlyph(maskfont, maskChar, &cm, &mskbits))
+	    if ((res = ServerBitsFromGlyph(maskfont, maskChar, &cm, &mskbits)) != 0)
 		return res;
 	}
-	if (res = ServerBitsFromGlyph(sourcefont, sourceChar, &cm, &srcbits))
+	if ((res = ServerBitsFromGlyph(sourcefont, sourceChar, &cm, &srcbits)) != 0)
 	{
 	    xfree(mskbits);
 	    return res;

@@ -1,4 +1,5 @@
-/* $XConsortium: Xtransint.h,v 1.21 94/05/10 11:08:46 mor Exp $ */
+/* $XConsortium: Xtransint.h /main/25 1995/12/05 16:51:28 mor $ */
+/* $XFree86: xc/lib/xtrans/Xtransint.h,v 3.18.2.2 1997/07/19 04:59:16 dawes Exp $ */
 /*
 
 Copyright (c) 1993, 1994  X Consortium
@@ -52,22 +53,32 @@ from the X Consortium.
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/*
- * DEBUG will enable the PRMSG() macros used in the X Transport Interface code.
- * Each use of the PRMSG macro has a level associated with it. DEBUG is defined
- * to be a level. If the invocation level is =< the value of DEBUG, then the
- * message will be printed out to stderr. Recommended levels are:
- *
- *	DEBUG=1	Error messages
- *	DEBUG=2 API Function Tracing
- *	DEBUG=3 All Function Tracing
- *	DEBUG=4 printing of intermediate values
- *	DEBUG=5 really detailed stuff
-#define DEBUG 2
- */
-
 #ifndef _XTRANSINT_H_
 #define _XTRANSINT_H_
+
+/*
+ * XTRANSDEBUG will enable the PRMSG() macros used in the X Transport 
+ * Interface code. Each use of the PRMSG macro has a level associated with 
+ * it. XTRANSDEBUG is defined to be a level. If the invocation level is =< 
+ * the value of XTRANSDEBUG, then the message will be printed out to stderr. 
+ * Recommended levels are:
+ *
+ *	XTRANSDEBUG=1	Error messages
+ *	XTRANSDEBUG=2 API Function Tracing
+ *	XTRANSDEBUG=3 All Function Tracing
+ *	XTRANSDEBUG=4 printing of intermediate values
+ *	XTRANSDEBUG=5 really detailed stuff
+#define XTRANSDEBUG 2
+ *
+ * Defining XTRANSDEBUGTIMESTAMP will cause printing timestamps with each
+ * message.
+ */
+
+#ifndef __EMX__
+#  define XTRANSDEBUG 1
+#else
+#define XTRANSDEBUG 1
+#endif
 
 #ifdef WIN32
 #define _WILLWINSOCK_
@@ -75,9 +86,9 @@ from the X Consortium.
 
 #include "Xtrans.h"
 
-#ifdef DEBUG
+#ifdef XTRANSDEBUG
 #include <stdio.h>
-#endif /* DEBUG */
+#endif /* XTRANSDEBUG */
 
 #include <errno.h>
 #ifdef X_NOT_STDC_ENV
@@ -85,7 +96,27 @@ extern int  errno;		/* Internal system error number. */
 #endif
 
 #ifndef WIN32
+#ifndef MINIX
+#ifndef Lynx
 #include <sys/socket.h>
+#else
+#include <socket.h>
+#endif
+#endif
+#ifdef __EMX__
+#include <sys/ioctl.h>
+#endif
+
+/*
+ * Moved the setting of NEED_UTSNAME to this header file from Xtrans.c,
+ * to avoid a race condition. JKJ (6/5/97)
+ */
+#if (defined(_POSIX_SOURCE) && !defined(AIXV3)) || defined(hpux) || defined(USG) || defined(SVR4) || defined(SCO)
+#ifndef NEED_UTSNAME
+#define NEED_UTSNAME
+#endif
+#include <sys/utsname.h>
+#endif
 
 /*
  * makedepend screws up on #undef OPEN_MAX, so we define a new symbol
@@ -108,10 +139,18 @@ extern int  errno;		/* Internal system error number. */
 #else
 #include <sys/param.h>
 #ifndef OPEN_MAX
+#ifdef __OSF1__
+#define OPEN_MAX 256
+#else
 #ifdef NOFILE
 #define OPEN_MAX NOFILE
 #else
+#ifndef __EMX__
 #define OPEN_MAX NOFILES_MAX
+#else
+#define OPEN_MAX 256
+#endif
+#endif
 #endif
 #endif
 #endif
@@ -125,8 +164,11 @@ extern int  errno;		/* Internal system error number. */
 
 #endif /* TRANS_OPEN_MAX */
 
-
+#ifdef __EMX__
+#define ESET(val)
+#else
 #define ESET(val) errno = val
+#endif
 #define EGET() errno
 
 #else /* WIN32 */
@@ -358,6 +400,8 @@ typedef struct _Xtransport_table {
 
 #define TRANS_ALIAS	(1<<0)	/* record is an alias, don't create server */
 #define TRANS_LOCAL	(1<<1)	/* local transport */
+#define TRANS_DISABLED	(1<<2)	/* Don't open this one */
+#define TRANS_NOLISTEN  (1<<3)  /* Don't listen on this one */
 
 
 /*
@@ -365,7 +409,7 @@ typedef struct _Xtransport_table {
  * systems, so they may be emulated.
  */
 
-#if defined(CRAY) || (defined(SYSV) && defined(SYSV386)) || defined(WIN32) || defined(__sxg__) || defined(SCO)
+#if defined(CRAY) || (defined(SYSV) && defined(i386) && !defined(SCO325)) || defined(WIN32) || defined(__sxg__) || defined(__EMX__)
 
 #define READV(ciptr, iov, iovcnt)	TRANS(ReadV)(ciptr, iov, iovcnt)
 
@@ -381,10 +425,10 @@ static	int TRANS(ReadV)(
 
 #define READV(ciptr, iov, iovcnt)	readv(ciptr->fd, iov, iovcnt)
 
-#endif /* CRAY || (SYSV && SYSV386) || WIN32 || __sxg__ || SCO */
+#endif /* CRAY || (SYSV && i386) || WIN32 || __sxg__ || */
 
 
-#if defined(CRAY) || defined(WIN32) || defined(__sxg__) || defined(SCO)
+#if defined(CRAY) || (defined(SYSV) && defined(i386) && !defined(SCO325)) || defined(WIN32) || defined(__sxg__) || defined(__EMX__)
 
 #define WRITEV(ciptr, iov, iovcnt)	TRANS(WriteV)(ciptr, iov, iovcnt)
 
@@ -400,7 +444,7 @@ static int TRANS(WriteV)(
 
 #define WRITEV(ciptr, iov, iovcnt)	writev(ciptr->fd, iov, iovcnt)
 
-#endif /* CRAY || WIN32 || __sxg__ || SCO */
+#endif /* CRAY || WIN32 || __sxg__ */
 
 
 static int is_numeric (
@@ -411,17 +455,57 @@ static int is_numeric (
 
 
 /*
- * Some DEBUG stuff
+ * Some XTRANSDEBUG stuff
  */
 
-#if defined(DEBUG)
-#define PRMSG(lvl,x,a,b,c)	if (lvl <= DEBUG){ \
-			int saveerrno=errno; \
-			fprintf(stderr, x,a,b,c); fflush(stderr); \
+#if defined(XTRANSDEBUG)
+/* add hack to the format string to avoid warnings about extra arguments
+ * to fprintf.
+ */
+#ifdef XTRANSDEBUGTIMESTAMP
+#if defined(XSERV_t) && defined(TRANS_SERVER)
+/* Use ErrorF() for the X server */
+#define PRMSG(lvl,x,a,b,c)	if (lvl <= XTRANSDEBUG){ \
+			int hack= 0, saveerrno=errno; \
+                        struct timeval tp;\
+                        gettimeofday(&tp,0); \
+			ErrorF(__xtransname); \
+			ErrorF(x+hack,a,b,c); \
+                        ErrorF("timestamp (ms): %d\n",tp.tv_sec*1000+tp.tv_usec/1000); \
 			errno=saveerrno; \
-			}
+			} else ((void)0)
 #else
-#define PRMSG(lvl,x,a,b,c)
-#endif /* DEBUG */
+#define PRMSG(lvl,x,a,b,c)	if (lvl <= XTRANSDEBUG){ \
+			int hack= 0, saveerrno=errno; \
+                        struct timeval tp;\
+                        gettimeofday(&tp,0); \
+			fprintf(stderr, __xtransname); fflush(stderr); \
+			fprintf(stderr, x+hack,a,b,c); fflush(stderr); \
+                        fprintf(stderr, "timestamp (ms): %d\n",tp.tv_sec*1000+tp.tv_usec/1000); \
+                        fflush(stderr); \
+			errno=saveerrno; \
+			} else ((void)0)
+#endif /* XSERV_t && TRANS_SERVER */
+#else /* XTRANSDEBUGTIMESTAMP */
+#if defined(XSERV_t) && defined(TRANS_SERVER)
+/* Use ErrorF() for the X server */
+#define PRMSG(lvl,x,a,b,c)	if (lvl <= XTRANSDEBUG){ \
+			int hack= 0, saveerrno=errno; \
+			ErrorF(__xtransname); \
+			ErrorF(x+hack,a,b,c); \
+			errno=saveerrno; \
+			} else ((void)0)
+#else
+#define PRMSG(lvl,x,a,b,c)	if (lvl <= XTRANSDEBUG){ \
+			int hack= 0, saveerrno=errno; \
+			fprintf(stderr, __xtransname); fflush(stderr); \
+			fprintf(stderr, x+hack,a,b,c); fflush(stderr); \
+			errno=saveerrno; \
+			} else ((void)0)
+#endif /* XSERV_t && TRANS_SERVER */
+#endif /* XTRANSDEBUGTIMESTAMP */
+#else
+#define PRMSG(lvl,x,a,b,c)	((void)0)
+#endif /* XTRANSDEBUG */
 
 #endif /* _XTRANSINT_H_ */

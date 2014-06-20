@@ -30,8 +30,10 @@
 #include "X11/Xproto.h"
 #include "inputstr.h"
 #include <X11/keysym.h>
+#include <Xatom.h>
 #include "rfb.h"
 
+extern WindowPtr *WindowTable; /* Why isn't this in a header file? */
 
 #define KEY_IS_PRESSED(keycode) \
     (kbdDevice->key->down[(keycode) >> 3] & (1 << ((keycode) & 7)))
@@ -201,7 +203,7 @@ KbdDeviceInit(pDevice, pKeySyms, pModMap)
 				     * MAP_LENGTH * GLYPHS_PER_KEY);
 
     if (!pKeySyms->map) {
-	fprintf(stderr,"xalloc failed\n");
+	rfbLog("xalloc failed\n");
 	exit(1);
     }
 
@@ -250,7 +252,7 @@ PtrDeviceControl(dev, ctrl)
 
     if (udpSockConnected) {
 	if (write(udpSock, &ptrAcceleration, 1) <= 0) {
-	    perror("PtrDeviceControl: UDP input: write");
+	    rfbLogPerror("PtrDeviceControl: UDP input: write");
 	    rfbDisconnectUDPSock();
 	}
     }
@@ -258,9 +260,10 @@ PtrDeviceControl(dev, ctrl)
 
 
 void
-KbdAddEvent(down, keySym)
+KbdAddEvent(down, keySym, cl)
     Bool down;
     KeySym keySym;
+    rfbClientPtr cl;
 {
     xEvent ev, fake;
     KeySymsPtr keySyms = &kbdDevice->key->curKeySyms;
@@ -272,6 +275,14 @@ KbdAddEvent(down, keySym)
     Bool fakeShiftLRelease = FALSE;
     Bool fakeShiftRRelease = FALSE;
     Bool shiftedKey;
+
+#ifdef CORBA
+    if (cl) {
+	CARD32 clientId = cl->sock;
+	ChangeWindowProperty(WindowTable[0], VNC_LAST_CLIENT_ID, XA_INTEGER,
+			     32, PropModeReplace, 1, (pointer)&clientId, TRUE);
+    }
+#endif
 
     if (down) {
 	ev.u.u.type = KeyPress;
@@ -302,20 +313,19 @@ KbdAddEvent(down, keySym)
 
     if (!foundKey) {
 	if (freeKey == -1) {
-	    fprintf(stderr,
-		    "KbdAddEvent: ignoring KeySym 0x%x - no free KeyCodes\n",
-		    keySym);
+	    rfbLog("KbdAddEvent: ignoring KeySym 0x%x - no free KeyCodes\n",
+		   keySym);
 	    return;
 	}
 
 	i = freeKey;
 	keySyms->map[i] = keySym;
 	SendMappingNotify(MappingKeyboard,
-			  MIN_KEY_CODE + (i / keySyms->mapWidth), 1);
+			  MIN_KEY_CODE + (i / keySyms->mapWidth), 1,
+			  serverClient);
 
-	fprintf(stderr,
-		"KbdAddEvent: unknown KeySym 0x%x - allocating KeyCode %d\n",
-		keySym, MIN_KEY_CODE + (i / keySyms->mapWidth));
+	rfbLog("KbdAddEvent: unknown KeySym 0x%x - allocating KeyCode %d\n",
+	       keySym, MIN_KEY_CODE + (i / keySyms->mapWidth));
     }
 
     time = GetTimeInMillis();
@@ -373,15 +383,24 @@ KbdAddEvent(down, keySym)
 }
 
 void
-PtrAddEvent(buttonMask, x, y)
+PtrAddEvent(buttonMask, x, y, cl)
     int buttonMask;
     int x;
     int y;
+    rfbClientPtr cl;
 {
     xEvent ev;
     int i;
     unsigned long time;
     static int oldButtonMask = 0;
+
+#ifdef CORBA
+    if (cl) {
+	CARD32 clientId = cl->sock;
+	ChangeWindowProperty(WindowTable[0], VNC_LAST_CLIENT_ID, XA_INTEGER,
+			     32, PropModeReplace, 1, (pointer)&clientId, TRUE);
+    }
+#endif
 
     time = GetTimeInMillis();
 
