@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2002-2003 Constantin Kaplinsky.  All Rights Reserved.
+ *  Copyright (C) 2002-2006 Constantin Kaplinsky.  All Rights Reserved.
  *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
@@ -220,6 +220,9 @@ static XtResource appDataResourceList[] = {
 
   {"grabKeyboard", "GrabKeyboard", XtRBool, sizeof(Bool),
    XtOffsetOf(AppData, grabKeyboard), XtRImmediate, (XtPointer) False},
+
+  {"autoPass", "AutoPass", XtRBool, sizeof(Bool),
+   XtOffsetOf(AppData, autoPass), XtRImmediate, (XtPointer) False}
 };
 
 
@@ -246,6 +249,7 @@ XrmOptionDescRec cmdLineOptions[] = {
   {"-nojpeg",        "*enableJPEG",         XrmoptionNoArg,  "False"},
   {"-nocursorshape", "*useRemoteCursor",    XrmoptionNoArg,  "False"},
   {"-x11cursor",     "*useX11Cursor",       XrmoptionNoArg,  "True"},
+  {"-autopass",      "*autoPass",           XrmoptionNoArg,  "True"}
 
 };
 
@@ -295,7 +299,7 @@ void
 usage(void)
 {
   fprintf(stderr,
-	  "TightVNC viewer version 1.2.9\n"
+	  "TightVNC Viewer version 1.3.9\n"
 	  "\n"
 	  "Usage: %s [<OPTIONS>] [<HOST>][:<DISPLAY#>]\n"
 	  "       %s [<OPTIONS>] [<HOST>][::<PORT#>]\n"
@@ -309,7 +313,7 @@ usage(void)
 	  "        -viewonly\n"
 	  "        -fullscreen\n"
 	  "        -noraiseonbeep\n"
-	  "        -passwd <PASSWD-FILENAME>\n"
+	  "        -passwd <PASSWD-FILENAME> (standard VNC authentication)\n"
 	  "        -encodings <ENCODING-LIST> (e.g. \"tight copyrect\")\n"
 	  "        -bgr233\n"
 	  "        -owncmap\n"
@@ -320,6 +324,7 @@ usage(void)
 	  "        -nojpeg\n"
 	  "        -nocursorshape\n"
 	  "        -x11cursor\n"
+	  "        -autopass\n"
 	  "\n"
 	  "Option names may be abbreviated, e.g. -bgr instead of -bgr233.\n"
 	  "See the manual page for more information."
@@ -340,6 +345,7 @@ GetArgsAndResources(int argc, char **argv)
   int i;
   char *vncServerName, *colonPos;
   int len, portOffset;
+  int disp;
 
   /* Turn app resource specs into our appData structure for the rest of the
      program to use */
@@ -404,6 +410,9 @@ GetArgsAndResources(int argc, char **argv)
     if (!len || strspn(colonPos + 1, "0123456789") != len) {
       usage();
     }
-    vncServerPort = atoi(colonPos + 1) + portOffset;
+    disp = atoi(colonPos + 1);
+    if (portOffset != 0 && disp >= 100)
+      portOffset = 0;
+    vncServerPort = disp + portOffset;
   }
 }

@@ -27,7 +27,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
+#include <sys/types.h>
 #include <unistd.h>
+#include <pwd.h>
 #include <X11/IntrinsicP.h>
 #include <X11/StringDefs.h>
 #include <X11/Shell.h>
@@ -36,6 +38,7 @@
 #include <X11/Xatom.h>
 #include <X11/Xmu/StdSel.h>
 #include "rfbproto.h"
+#include "caps.h"
 
 extern int endianTest;
 
@@ -50,7 +53,6 @@ extern int endianTest;
 
 #define MAX_ENCODINGS 20
 
-#define FLASH_PORT_OFFSET 5400
 #define LISTEN_PORT_OFFSET 5500
 #define TUNNEL_PORT_OFFSET 5500
 #define SERVER_PORT_OFFSET 5900
@@ -85,6 +87,8 @@ typedef struct {
   int wmDecorationWidth;
   int wmDecorationHeight;
 
+  char *userLogin;
+
   char *passwordFile;
   Bool passwordDialog;
 
@@ -103,6 +107,7 @@ typedef struct {
   Bool enableJPEG;
   Bool useRemoteCursor;
   Bool useX11Cursor;
+  Bool autoPass;
 
 } AppData;
 
@@ -112,7 +117,7 @@ extern char *fallback_resources[];
 extern char vncServerHost[];
 extern int vncServerPort;
 extern Bool listenSpecified;
-extern int listenPort, flashPort;
+extern int listenPort;
 
 extern XrmOptionDescRec cmdLineOptions[];
 extern int numCmdLineOptions;
