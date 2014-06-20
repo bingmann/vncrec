@@ -1,4 +1,5 @@
 /*
+ *  Copyright (C) 2002 RealVNC Ltd.
  *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
@@ -28,7 +29,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include "vncauth.h"
+#include <rfb/vncauth.h>
 
 static void usage(char *argv[]) {
   fprintf(stderr,"Usage: %s [file]\n",argv[0]);
@@ -84,7 +85,7 @@ int main(int argc, char *argv[]) {
       }
       for (i = 0; i < strlen(passwd); i++)
 	passwd[i] = passwd1[i] = '\0';
-      return;
+      return 0;
     }
 
     fprintf(stderr,"They don't match. Try again.\n\n");

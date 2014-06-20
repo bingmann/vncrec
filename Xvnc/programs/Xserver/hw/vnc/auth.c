@@ -6,6 +6,7 @@
  */
 
 /*
+ *  Copyright (C) 2002 RealVNC Ltd.
  *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
@@ -34,6 +35,7 @@
 #define AUTH_TOO_MANY_BASE_DELAY 10 * 1000 /* in ms, doubles for each failure
 					      over MAX_AUTH_TRIES */
 
+static int rfbAuthFailure();
 static CARD32 rfbAuthReenable(OsTimerPtr timer, CARD32 now, pointer arg);
 
 char *rfbAuthPasswdFile = NULL;
@@ -94,14 +96,18 @@ rfbAuthProcessClientMessage(cl)
     rfbClientPtr cl;
 {
     char *passwd;
-    Bool ok;
     int i, n;
     CARD8 response[CHALLENGESIZE];
     CARD32 authResult;
 
-    if ((n = ReadExact(cl->sock, (char *)response, CHALLENGESIZE)) <= 0) {
-	if (n != 0)
+    n = ReadExact(cl->sock, (char *)response, CHALLENGESIZE);
+
+    if (n <= 0) {
+	if (n == 0)
+            rfbLog("rfbAuthProcessClientMessage: read failed\n");
+        else
 	    rfbLogPerror("rfbAuthProcessClientMessage: read");
+        rfbAuthFailure();
 	rfbCloseSock(cl->sock);
 	return;
     }
@@ -134,21 +140,8 @@ rfbAuthProcessClientMessage(cl)
 	rfbLog("rfbAuthProcessClientMessage: authentication failed from %s\n",
 	       cl->host);
 
-	rfbAuthTries++;
-
-	if (rfbAuthTries >= MAX_AUTH_TRIES) {
-
-	    CARD32 delay = AUTH_TOO_MANY_BASE_DELAY;
-	    for (i = MAX_AUTH_TRIES; i < rfbAuthTries; i++)
-		delay *= 2;
-	    timer = TimerSet(timer, 0, delay, rfbAuthReenable, NULL);
-
-	    rfbAuthTooManyTries = TRUE;
-	    authResult = Swap32IfLE(rfbVncAuthTooMany);
-
-	} else {
-	    authResult = Swap32IfLE(rfbVncAuthFailed);
-	}
+        authResult = rfbAuthFailure();
+        authResult = Swap32IfLE(authResult);
 
 	if (WriteExact(cl->sock, (char *)&authResult, 4) < 0) {
 	    rfbLogPerror("rfbAuthProcessClientMessage: write");
@@ -169,6 +162,28 @@ rfbAuthProcessClientMessage(cl)
 
     cl->state = RFB_INITIALISATION;
 }
+
+
+static int rfbAuthFailure()
+{
+  int i;
+
+  rfbAuthTries++;
+
+  if (rfbAuthTries >= MAX_AUTH_TRIES) {
+
+    CARD32 delay = AUTH_TOO_MANY_BASE_DELAY;
+    for (i = MAX_AUTH_TRIES; i < rfbAuthTries; i++)
+      delay *= 2;
+    timer = TimerSet(timer, 0, delay, rfbAuthReenable, NULL);
+
+    rfbAuthTooManyTries = TRUE;
+    return rfbVncAuthTooMany;
+  }
+
+  return rfbVncAuthFailed;
+}
+
 
 static CARD32
 rfbAuthReenable(OsTimerPtr timer, CARD32 now, pointer arg)

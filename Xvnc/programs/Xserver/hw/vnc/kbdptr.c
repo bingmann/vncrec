@@ -5,6 +5,7 @@
  */
 
 /*
+ *  Copyright (C) 2002-2003 RealVNC Ltd.
  *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
@@ -31,6 +32,9 @@
 #include "inputstr.h"
 #define XK_CYRILLIC
 #include <X11/keysym.h>
+#include <mi.h>
+#include <mipointer.h>
+#include <property.h>
 #include <Xatom.h>
 #include "rfb.h"
 
@@ -43,8 +47,6 @@ extern WindowPtr *WindowTable; /* Why isn't this in a header file? */
 static void XConvertCase(KeySym sym, KeySym *lower, KeySym *upper);
 
 static DeviceIntPtr kbdDevice;
-
-unsigned char ptrAcceleration = 50;
 
 #define MIN_KEY_CODE		8
 #define MAX_KEY_CODE		255
@@ -235,7 +237,6 @@ void
 PtrDeviceOn(pDev)
     DeviceIntPtr pDev;
 {
-    ptrAcceleration = (char)pDev->ptrfeed->ctrl.num;
 }
 
 
@@ -250,14 +251,6 @@ PtrDeviceControl(dev, ctrl)
     DevicePtr dev;
     PtrCtrl *ctrl;
 {
-    ptrAcceleration = (char)ctrl->num;
-
-    if (udpSockConnected) {
-	if (write(udpSock, &ptrAcceleration, 1) <= 0) {
-	    rfbLogPerror("PtrDeviceControl: UDP input: write");
-	    rfbDisconnectUDPSock();
-	}
-    }
 }
 
 
@@ -279,15 +272,14 @@ KbdAddEvent(down, keySym, cl)
     Bool shiftMustBeReleased = FALSE;
     Bool shiftMustBePressed = FALSE;
 
-#ifdef CORBA
     if (cl) {
 	CARD32 clientId = cl->sock;
 	ChangeWindowProperty(WindowTable[0], VNC_LAST_CLIENT_ID, XA_INTEGER,
 			     32, PropModeReplace, 1, (pointer)&clientId, TRUE);
     }
-#endif
 
     if (down) {
+        if (rfbTrace) rfbLog("KeyPress: 0x%x\n",keySym);
 	ev.u.u.type = KeyPress;
     } else {
 	ev.u.u.type = KeyRelease;
@@ -454,13 +446,11 @@ PtrAddEvent(buttonMask, x, y, cl)
     unsigned long time;
     static int oldButtonMask = 0;
 
-#ifdef CORBA
     if (cl) {
 	CARD32 clientId = cl->sock;
 	ChangeWindowProperty(WindowTable[0], VNC_LAST_CLIENT_ID, XA_INTEGER,
 			     32, PropModeReplace, 1, (pointer)&clientId, TRUE);
     }
-#endif
 
     time = GetTimeInMillis();
 

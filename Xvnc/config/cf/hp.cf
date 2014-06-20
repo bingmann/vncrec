@@ -118,17 +118,20 @@ XCOMM operating system:  OSName (OSMajorVersion.OSMinorVersion.OSTeenyVersion)
 #define HasNdbm			YES
 #define DBMLibrary		/usr/lib/libdbm.a
 #define PrimaryScreenResolution	91
-#define ExtensionOSDefines	-DHPINPUT -DXTESTEXT1
-#define XhpServer		YES
+#define ExtensionOSDefines	-DHPINPUT # -DXTESTEXT1
+#define XhpServer		NO
 #define ServerExtraSysLibs	-ldld
 #ifndef BuildXInputExt
-# define BuildXInputExt		YES
+# define BuildXInputExt		NO
 #endif
+#define BuildPex NO 
+#define BuildPexExt NO 
+#define XvncServer YES 
 #define HPFastScrolling		YES
 #ifndef BuildServer
 # define BuildServer		__hp9000s700
 #endif
-#define NeedBerklib		(BuildServer|BuildFontServer)
+#define NeedBerklib		NO
 #define XawI18nDefines		-DHAS_WCHAR_H -DHAS_ISW_FUNCS
 
 #if OSMajorVersion < 6 || (OSMajorVersion == 6 && OSMinorVersion < 2)

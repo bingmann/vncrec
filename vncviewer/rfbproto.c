@@ -1,4 +1,5 @@
 /*
+ *  Copyright (C) 2002 RealVNC Ltd.
  *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
@@ -24,8 +25,8 @@
 #include <unistd.h>
 #include <errno.h>
 #include <pwd.h>
-#include <vncviewer.h>
-#include <vncauth.h>
+#include "vncviewer.h"
+#include <rfb/vncauth.h>
 
 static Bool HandleRRE8(int rx, int ry, int rw, int rh);
 static Bool HandleRRE16(int rx, int ry, int rw, int rh);
@@ -37,9 +38,35 @@ static Bool HandleHextile8(int rx, int ry, int rw, int rh);
 static Bool HandleHextile16(int rx, int ry, int rw, int rh);
 static Bool HandleHextile32(int rx, int ry, int rw, int rh);
 
-int rfbsock;
 char *desktopName;
+
 rfbPixelFormat myFormat;
+Bool pendingFormatChange = False;
+
+/*
+ * Macro to compare pixel formats.
+ */
+
+#define PF_EQ(x,y)							\
+	((x.bitsPerPixel == y.bitsPerPixel) &&				\
+	 (x.depth == y.depth) &&					\
+	 ((x.bigEndian == y.bigEndian) || (x.bitsPerPixel == 8)) &&	\
+	 (x.trueColour == y.trueColour) &&				\
+	 (!x.trueColour || ((x.redMax == y.redMax) &&			\
+			    (x.greenMax == y.greenMax) &&		\
+			    (x.blueMax == y.blueMax) &&			\
+			    (x.redShift == y.redShift) &&		\
+			    (x.greenShift == y.greenShift) &&		\
+			    (x.blueShift == y.blueShift))))
+
+int currentEncoding = rfbEncodingZRLE;
+Bool pendingEncodingChange = False;
+int supportedEncodings[] = {
+  rfbEncodingZRLE, rfbEncodingHextile, rfbEncodingCoRRE, rfbEncodingRRE,
+  rfbEncodingRaw
+};
+#define NUM_SUPPORTED_ENCODINGS (sizeof(supportedEncodings)/sizeof(int))
+
 rfbServerInitMsg si;
 char *serverCutText = NULL;
 Bool newServerCutText = False;
@@ -50,34 +77,9 @@ int endianTest = 1;
 /* note that the CoRRE encoding uses this buffer and assumes it is big enough
    to hold 255 * 255 * 32 bits -> 260100 bytes.  640*480 = 307200 bytes */
 /* also hextile assumes it is big enough to hold 16 * 16 * 32 bits */
-
 #define BUFFER_SIZE (640*480)
 static char buffer[BUFFER_SIZE];
 
-
-/*
- * ConnectToRFBServer.
- */
-
-Bool
-ConnectToRFBServer(const char *hostname, int port)
-{
-  unsigned int host;
-
-  if (!StringToIPAddr(hostname, &host)) {
-    fprintf(stderr,"Couldn't convert '%s' to host address\n", hostname);
-    return False;
-  }
-
-  rfbsock = ConnectToTcpAddr(host, port);
-
-  if (rfbsock < 0) {
-    fprintf(stderr,"Unable to connect to VNC server\n");
-    return False;
-  }
-
-  return SetNonBlocking(rfbsock);
-}
 
 
 /*
@@ -96,15 +98,7 @@ InitialiseRFBConnection()
   int i;
   rfbClientInitMsg ci;
 
-  /* if the connection is immediately closed, don't report anything, so
-       that pmw's monitor can make test connections */
-
-  if (listenSpecified)
-    errorMessageOnReadFailure = False;
-
   if (!ReadFromRFBServer(pv, sz_rfbProtocolVersionMsg)) return False;
-
-  errorMessageOnReadFailure = True;
 
   pv[sz_rfbProtocolVersionMsg] = 0;
 
@@ -121,8 +115,7 @@ InitialiseRFBConnection()
 
   sprintf(pv,rfbProtocolVersionFormat,major,minor);
 
-  if (!WriteExact(rfbsock, pv, sz_rfbProtocolVersionMsg)) return False;
-
+  if (!WriteToRFBServer(pv, sz_rfbProtocolVersionMsg)) return False;
   if (!ReadFromRFBServer((char *)&authScheme, 4)) return False;
 
   authScheme = Swap32IfLE(authScheme);
@@ -175,7 +168,7 @@ InitialiseRFBConnection()
       passwd[i] = '\0';
     }
 
-    if (!WriteExact(rfbsock, challenge, CHALLENGESIZE)) return False;
+    if (!WriteToRFBServer((char *)challenge, CHALLENGESIZE)) return False;
 
     if (!ReadFromRFBServer((char *)&authResult, 4)) return False;
 
@@ -206,7 +199,7 @@ InitialiseRFBConnection()
 
   ci.shared = (appData.shareDesktop ? 1 : 0);
 
-  if (!WriteExact(rfbsock, (char *)&ci, sz_rfbClientInitMsg)) return False;
+  if (!WriteToRFBServer((char *)&ci, sz_rfbClientInitMsg)) return False;
 
   if (!ReadFromRFBServer((char *)&si, sz_rfbServerInitMsg)) return False;
 
@@ -235,18 +228,27 @@ InitialiseRFBConnection()
 }
 
 
-/*
- * SetFormatAndEncodings.
- */
+Bool SendFramebufferUpdateRequest(int x, int y, int w, int h, Bool incremental)
+{
+  rfbFramebufferUpdateRequestMsg fur;
 
-Bool
-SetFormatAndEncodings()
+  fur.type = rfbFramebufferUpdateRequest;
+  fur.incremental = incremental ? 1 : 0;
+  fur.x = Swap16IfLE(x);
+  fur.y = Swap16IfLE(y);
+  fur.w = Swap16IfLE(w);
+  fur.h = Swap16IfLE(h);
+
+  if (!WriteToRFBServer((char *)&fur, sz_rfbFramebufferUpdateRequestMsg))
+    return False;
+
+  return True;
+}
+
+
+Bool SendSetPixelFormat()
 {
   rfbSetPixelFormatMsg spf;
-  char buf[sz_rfbSetEncodingsMsg + MAX_ENCODINGS * 4];
-  rfbSetEncodingsMsg *se = (rfbSetEncodingsMsg *)buf;
-  CARD32 *encs = (CARD32 *)(&buf[sz_rfbSetEncodingsMsg]);
-  int len = 0;
 
   spf.type = rfbSetPixelFormat;
   spf.format = myFormat;
@@ -254,8 +256,17 @@ SetFormatAndEncodings()
   spf.format.greenMax = Swap16IfLE(spf.format.greenMax);
   spf.format.blueMax = Swap16IfLE(spf.format.blueMax);
 
-  if (!WriteExact(rfbsock, (char *)&spf, sz_rfbSetPixelFormatMsg))
-    return False;
+  return WriteToRFBServer((char *)&spf, sz_rfbSetPixelFormatMsg);
+}
+
+
+Bool SendSetEncodings()
+{
+  char buf[sz_rfbSetEncodingsMsg + MAX_ENCODINGS * 4];
+  rfbSetEncodingsMsg *se = (rfbSetEncodingsMsg *)buf;
+  CARD32 *encs = (CARD32 *)(&buf[sz_rfbSetEncodingsMsg]);
+  int len = 0;
+  int i;
 
   se->type = rfbSetEncodings;
   se->nEncodings = 0;
@@ -282,6 +293,8 @@ SetFormatAndEncodings()
 	encs[se->nEncodings++] = Swap32IfLE(rfbEncodingCoRRE);
       } else if (strncasecmp(encStr,"rre",encStrLen) == 0) {
 	encs[se->nEncodings++] = Swap32IfLE(rfbEncodingRRE);
+      } else if (strncasecmp(encStr,"zrle",encStrLen) == 0) {
+	encs[se->nEncodings++] = Swap32IfLE(rfbEncodingZRLE);
       } else {
 	fprintf(stderr,"Unknown encoding '%.*s'\n",encStrLen,encStr);
       }
@@ -289,59 +302,20 @@ SetFormatAndEncodings()
       encStr = nextEncStr;
     } while (encStr && se->nEncodings < MAX_ENCODINGS);
   } else {
-    if (SameMachine(rfbsock)) {
-      fprintf(stderr,"Same machine: preferring raw encoding\n");
-      encs[se->nEncodings++] = Swap32IfLE(rfbEncodingRaw);
-    }
-
+    
     encs[se->nEncodings++] = Swap32IfLE(rfbEncodingCopyRect);
-    encs[se->nEncodings++] = Swap32IfLE(rfbEncodingHextile);
-    encs[se->nEncodings++] = Swap32IfLE(rfbEncodingCoRRE);
-    encs[se->nEncodings++] = Swap32IfLE(rfbEncodingRRE);
+    encs[se->nEncodings++] = Swap32IfLE(currentEncoding);
+    for (i = 0; i < NUM_SUPPORTED_ENCODINGS; i++) {
+      if (supportedEncodings[i] != currentEncoding)
+        encs[se->nEncodings++] = Swap32IfLE(supportedEncodings[i]);
+    }
   }
 
   len = sz_rfbSetEncodingsMsg + se->nEncodings * 4;
 
   se->nEncodings = Swap16IfLE(se->nEncodings);
 
-  if (!WriteExact(rfbsock, buf, len)) return False;
-
-  return True;
-}
-
-
-/*
- * SendIncrementalFramebufferUpdateRequest.
- */
-
-Bool
-SendIncrementalFramebufferUpdateRequest()
-{
-  return SendFramebufferUpdateRequest(0, 0, si.framebufferWidth,
-				      si.framebufferHeight, True);
-}
-
-
-/*
- * SendFramebufferUpdateRequest.
- */
-
-Bool
-SendFramebufferUpdateRequest(int x, int y, int w, int h, Bool incremental)
-{
-  rfbFramebufferUpdateRequestMsg fur;
-
-  fur.type = rfbFramebufferUpdateRequest;
-  fur.incremental = incremental ? 1 : 0;
-  fur.x = Swap16IfLE(x);
-  fur.y = Swap16IfLE(y);
-  fur.w = Swap16IfLE(w);
-  fur.h = Swap16IfLE(h);
-
-  if (!WriteExact(rfbsock, (char *)&fur, sz_rfbFramebufferUpdateRequestMsg))
-    return False;
-
-  return True;
+  return WriteToRFBServer(buf, len);
 }
 
 
@@ -360,7 +334,7 @@ SendPointerEvent(int x, int y, int buttonMask)
   if (y < 0) y = 0;
   pe.x = Swap16IfLE(x);
   pe.y = Swap16IfLE(y);
-  return WriteExact(rfbsock, (char *)&pe, sz_rfbPointerEventMsg);
+  return WriteToRFBServer((char *)&pe, sz_rfbPointerEventMsg);
 }
 
 
@@ -376,7 +350,7 @@ SendKeyEvent(CARD32 key, Bool down)
   ke.type = rfbKeyEvent;
   ke.down = down ? 1 : 0;
   ke.key = Swap32IfLE(key);
-  return WriteExact(rfbsock, (char *)&ke, sz_rfbKeyEventMsg);
+  return WriteToRFBServer((char *)&ke, sz_rfbKeyEventMsg);
 }
 
 
@@ -395,8 +369,123 @@ SendClientCutText(char *str, int len)
 
   cct.type = rfbClientCutText;
   cct.length = Swap32IfLE(len);
-  return  (WriteExact(rfbsock, (char *)&cct, sz_rfbClientCutTextMsg) &&
-	   WriteExact(rfbsock, str, len));
+  return  (WriteToRFBServer((char *)&cct, sz_rfbClientCutTextMsg) &&
+	   WriteToRFBServer(str, len));
+}
+
+
+
+void AutoSelectFormatAndEncodings()
+{
+  /* Above 16Mbps (timing for at least a second), same machine, switch to raw
+     Above 10Mbps, switch to hextile
+     Below 4Mbps, switch to ZRLE
+     Above 1Mbps, switch from 8bit */
+
+  int kbitsPerSecond = KbitsPerSecond();
+
+  if (!appData.encodingsString) {
+
+    if (kbitsPerSecond > 16000 && sameMachine && TimeWaitedIn100us() >= 10000)
+    {
+      if (currentEncoding != rfbEncodingRaw) {
+        fprintf(stderr,"Throughput %d kbit/s - changing to Raw\n",
+                kbitsPerSecond);
+        currentEncoding = rfbEncodingRaw;
+        pendingEncodingChange = True;
+      }
+    } else if (kbitsPerSecond > 10000) {
+      if (currentEncoding != rfbEncodingHextile) {
+        fprintf(stderr,"Throughput %d kbit/s - changing to Hextile\n",
+                kbitsPerSecond);
+        currentEncoding = rfbEncodingHextile;
+        pendingEncodingChange = True;
+      }
+    } else if (kbitsPerSecond < 4000) {
+      if (currentEncoding != rfbEncodingZRLE) {
+        fprintf(stderr,"Throughput %d kbit/s - changing to ZRLE\n",
+                kbitsPerSecond);
+        currentEncoding = rfbEncodingZRLE;
+        pendingEncodingChange = True;
+      }
+    }
+  }
+
+  if (kbitsPerSecond > 1000) {
+    if (appData.useBGR233 && vis->class == TrueColor) {
+      /* only makes sense if using a TrueColor visual */
+      fprintf(stderr,"Throughput %d kbit/s - changing from 8bit\n",
+              kbitsPerSecond);
+      appData.useBGR233 = False;
+      pendingFormatChange = True;
+    }
+  }
+}
+
+
+int updateNeededX1, updateNeededY1, updateNeededX2, updateNeededY2;
+Bool updateNeeded = False;
+Bool updateDefinitelyExpected = False;
+
+void UpdateNeeded(int x, int y, int w, int h)
+{
+  if (!updateNeeded) {
+    updateNeededX1 = x;
+    updateNeededY1 = y;
+    updateNeededX2 = x+w;
+    updateNeededY2 = y+h;
+    updateNeeded = True;
+  } else {
+    if (x < updateNeededX1) updateNeededX1 = x;
+    if (y < updateNeededY1) updateNeededY1 = y;
+    if (x+w > updateNeededX2) updateNeededX2 = x+w;
+    if (y+h > updateNeededY2) updateNeededY2 = y+h;
+  }
+}
+
+Bool CheckUpdateNeeded()
+{
+  if (updateNeeded && !updateDefinitelyExpected) {
+    if (!SendFramebufferUpdateRequest(updateNeededX1, updateNeededY1,
+                                      updateNeededX2-updateNeededX1,
+                                      updateNeededY2-updateNeededY1, False))
+      return False;
+    updateDefinitelyExpected = True;
+    updateNeeded = False;
+  }
+  return True;
+}
+
+Bool RequestNewUpdate()
+{
+  updateDefinitelyExpected = False;
+
+  if (pendingEncodingChange) {
+    pendingEncodingChange = False;
+    if (!SendSetEncodings()) return False;
+  }
+
+  if (pendingFormatChange)
+  {
+    rfbPixelFormat oldFormat = myFormat;
+    pendingFormatChange = False;
+    SetMyFormatFromVisual();
+
+    if (!PF_EQ(oldFormat, myFormat)) {
+      if (!SendSetPixelFormat()) return False;
+      UpdateNeeded(0, 0, si.framebufferWidth, si.framebufferHeight);
+    }
+  }
+
+  if (updateNeeded) {
+    if (!CheckUpdateNeeded()) return False;
+  } else {
+    if (!SendFramebufferUpdateRequest(0, 0, si.framebufferWidth,
+                                      si.framebufferHeight, True))
+      return False;
+  }
+
+  return True;
 }
 
 
@@ -448,7 +537,9 @@ HandleRFBServerMessage()
     int linesToRead;
     int bytesPerLine;
     int i;
-    int usecs;
+
+    if (appData.autoDetect)
+      StartTiming();
 
     if (!ReadFromRFBServer(((char *)&msg.fu) + 1,
 			   sz_rfbFramebufferUpdateMsg - 1))
@@ -589,11 +680,21 @@ HandleRFBServerMessage()
 	break;
       }
 
+      case rfbEncodingZRLE:
+        if (!zrleDecode(rect.r.x,rect.r.y,rect.r.w,rect.r.h))
+          return False;
+	break;
+
       default:
 	fprintf(stderr,"Unknown rect encoding %d\n",
 		(int)rect.encoding);
 	return False;
       }
+    }
+
+    if (appData.autoDetect) {
+      StopTiming();
+      AutoSelectFormatAndEncodings();
     }
 
 #ifdef MITSHM
@@ -606,9 +707,7 @@ HandleRFBServerMessage()
       XSync(dpy, False);
 #endif
 
-    if (!SendIncrementalFramebufferUpdateRequest())
-      return False;
-
+    if (!RequestNewUpdate()) return False;
     break;
   }
 

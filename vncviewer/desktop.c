@@ -1,4 +1,5 @@
 /*
+ *  Copyright (C) 2002 RealVNC Ltd.
  *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
@@ -21,7 +22,7 @@
  * desktop.c - functions to deal with "desktop" window.
  */
 
-#include <vncviewer.h>
+#include "vncviewer.h"
 #include <X11/Xaw/Viewport.h>
 #include <X11/Xmu/Converters.h>
 #ifdef MITSHM
@@ -165,8 +166,8 @@ HandleBasicDesktopEvent(Widget w, XtPointer ptr, XEvent *ev, Boolean *cont)
       if (ev->xexpose.height <= 0) break;
     }
 
-    SendFramebufferUpdateRequest(ev->xexpose.x, ev->xexpose.y,
-				 ev->xexpose.width, ev->xexpose.height, False);
+    UpdateNeeded(ev->xexpose.x, ev->xexpose.y,
+                 ev->xexpose.width, ev->xexpose.height);
     break;
 
   case LeaveNotify:
@@ -352,7 +353,7 @@ CopyDataToScreen(char *buf, int x, int y, int width, int height)
     usleep(appData.rawDelay * 1000);
   }
 
-  if (!appData.useBGR233) {
+  if (!usingBGR233) {
     int h;
     int widthInBytes = width * myFormat.bitsPerPixel / 8;
     int scrWidthInBytes = si.framebufferWidth * myFormat.bitsPerPixel / 8;

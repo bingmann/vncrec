@@ -55,7 +55,11 @@ SOFTWARE.
 
 typedef struct _Drawable {
     unsigned char	type;	/* DRAWABLE_<type> */
+#if defined(__cplusplus) || defined(c_plusplus)
+    unsigned char       c_class;
+#else
     unsigned char	class;	/* specific to type */
+#endif
     unsigned char	depth;
     unsigned char	bitsPerPixel;
     unsigned long	id;	/* resource id */

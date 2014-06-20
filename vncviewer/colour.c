@@ -1,4 +1,5 @@
 /*
+ *  Copyright (C) 2002 RealVNC Ltd.
  *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
@@ -26,20 +27,22 @@
 #include <limits.h>
 
 
+Colormap cmap;
+Visual *vis = 0;
+unsigned int visdepth, visbpp;
+
+Bool usingBGR233 = False;
+
 #define INVALID_PIXEL 0xffffffff
 #define MAX_CMAP_SIZE 256
 #define BGR233_SIZE 256
+Bool initialisedBGR233 = False;
 unsigned long BGR233ToPixel[BGR233_SIZE];
-
-Colormap cmap;
-Visual *vis;
-unsigned int visdepth, visbpp;
 Bool allocColorFailed = False;
-
 static int nBGR233ColoursAllocated;
 
-static Bool GetPseudoColorVisualAndCmap(int depth);
-static Bool GetTrueColorVisualAndCmap(int depth);
+static void GetPseudoColorVisualAndCmap(int depth);
+static void GetTrueColorVisualAndCmap(int depth);
 static int GetBPPForDepth(int depth);
 static void SetupBGR233Map();
 static void AllocateExactBGR233Colours();
@@ -47,12 +50,13 @@ static Bool AllocateBGR233Colour(int r, int g, int b);
 
 
 /*
- * SetVisualAndCmap() deals with the wonderful world of X "visuals" (which are
+ * GetVisualAndCmap() deals with the wonderful world of X "visuals" (which are
  * equivalent to the RFB protocol's "pixel format").  Having decided on the
- * best visual, it also creates a colormap if necessary, sets the appropriate
- * resources on the toplevel widget, and sets up the myFormat structure to
- * describe the pixel format in terms that the RFB server will be able to
- * understand.
+ * best visual, it also creates a colormap if necessary and sets the
+ * appropriate resources on the toplevel widget.
+ *
+ * Once the visual has been chosen it never changes.  However the pixel format
+ * may change as the useBGR233 flag is toggled.
  *
  * The algorithm for deciding which visual to use is as follows:
  *
@@ -68,72 +72,114 @@ static Bool AllocateBGR233Colour(int r, int g, int b);
  * TrueColor then we just ask the RFB server for this format.  If the default
  * isn't TrueColor, or if useBGR233 is true, then we ask the RFB server for
  * BGR233 pixel format and use a lookup table to translate to the nearest
- * colours provided by the X server.
- */
+ * colours provided by the X server.  */
 
-void
-SetVisualAndCmap()
+void GetVisualAndCmap()
 {
   if (appData.forceOwnCmap) {
-    if (!si.format.trueColour) {
-      if (GetPseudoColorVisualAndCmap(si.format.depth))
-	return;
-    }
-    if (GetPseudoColorVisualAndCmap(8))
-      return;
-    fprintf(stderr,"Couldn't find a matching PseudoColor visual.\n");
+    if (!si.format.trueColour)
+      GetPseudoColorVisualAndCmap(si.format.depth);
+    if (!vis)
+      GetPseudoColorVisualAndCmap(8);
+
+    if (!vis)
+      fprintf(stderr,"Couldn't find a matching PseudoColor visual.\n");
   }
 
   if (appData.forceTrueColour) {
-    if (GetTrueColorVisualAndCmap(appData.requestedDepth))
-      return;
-    fprintf(stderr,"Couldn't find a matching TrueColor visual.\n");
+    if (!vis)
+      GetTrueColorVisualAndCmap(appData.requestedDepth);
+
+    if (!vis)
+      fprintf(stderr,"Couldn't find a matching TrueColor visual.\n");
   }
 
-  /* just use default visual and colormap */
+  if (!vis) {
 
-  vis = DefaultVisual(dpy,DefaultScreen(dpy));
-  visdepth = DefaultDepth(dpy,DefaultScreen(dpy));
-  visbpp = GetBPPForDepth(visdepth);
-  cmap = DefaultColormap(dpy,DefaultScreen(dpy));
+    /* just use default visual and colormap */
 
-  if (!appData.useBGR233 && (vis->class == TrueColor)) {
+    vis = DefaultVisual(dpy,DefaultScreen(dpy));
+    visdepth = DefaultDepth(dpy,DefaultScreen(dpy));
+    visbpp = GetBPPForDepth(visdepth);
+    cmap = DefaultColormap(dpy,DefaultScreen(dpy));
+
+    fprintf(stderr,"Using default colormap and visual, %sdepth %d.\n",
+            (vis->class == TrueColor) ? "TrueColor, " :
+            ((vis->class == PseudoColor) ? "PseudoColor, " : ""), visdepth);
+  }
+
+  if (vis->class == PseudoColor &&
+      cmap != DefaultColormap(dpy,DefaultScreen(dpy)))
+  {
+    appData.useBGR233 = False; /* BGR233 doesn't make sense with owncmap */
+    appData.autoDetect = False;
+
+  } else if (vis->class != TrueColor) {
+
+    appData.useBGR233 = True; /* If not owncmap and not truecolour then can
+                                 only use BGR233 */
+    appData.autoDetect = False;
+  }
+
+  SetMyFormatFromVisual();
+}
+
+
+void SetMyFormatFromVisual()
+{
+  if (appData.useBGR233) {
+
+    myFormat.bitsPerPixel = 8;
+    myFormat.depth = 8;
+    myFormat.trueColour = 1;
+    myFormat.bigEndian = 0;
+    myFormat.redMax = 7;
+    myFormat.greenMax = 7;
+    myFormat.blueMax = 3;
+    myFormat.redShift = 0;
+    myFormat.greenShift = 3;
+    myFormat.blueShift = 6;
+
+    SetupBGR233Map();
+
+    usingBGR233 = True;
+
+    fprintf(stderr, "Using BGR233 pixel format:\n");
+  } else {
 
     myFormat.bitsPerPixel = visbpp;
     myFormat.depth = visdepth;
-    myFormat.trueColour = 1;
-    myFormat.bigEndian = (ImageByteOrder(dpy) == MSBFirst);
-    myFormat.redShift = ffs(vis->red_mask) - 1;
-    myFormat.greenShift = ffs(vis->green_mask) - 1;
-    myFormat.blueShift = ffs(vis->blue_mask) - 1;
-    myFormat.redMax = vis->red_mask >> myFormat.redShift;
-    myFormat.greenMax = vis->green_mask >> myFormat.greenShift;
-    myFormat.blueMax = vis->blue_mask >> myFormat.blueShift;
 
-    fprintf(stderr,
-	    "Using default colormap which is TrueColor.  Pixel format:\n");
-    PrintPixelFormat(&myFormat);
-    return;
+    if (vis->class == TrueColor) {
+
+      myFormat.trueColour = 1;
+      myFormat.bigEndian = (ImageByteOrder(dpy) == MSBFirst);
+      myFormat.redShift = ffs(vis->red_mask) - 1;
+      myFormat.greenShift = ffs(vis->green_mask) - 1;
+      myFormat.blueShift = ffs(vis->blue_mask) - 1;
+      myFormat.redMax = vis->red_mask >> myFormat.redShift;
+      myFormat.greenMax = vis->green_mask >> myFormat.greenShift;
+      myFormat.blueMax = vis->blue_mask >> myFormat.blueShift;
+
+    } else if (vis->class == PseudoColor) {
+
+      myFormat.trueColour = 0;
+      myFormat.bigEndian = (ImageByteOrder(dpy) == MSBFirst);
+      myFormat.redMax = myFormat.greenMax = myFormat.blueMax = 0;
+      myFormat.redShift = myFormat.greenShift = myFormat.blueShift = 0;
+
+    } else {
+
+      fprintf(stderr,"Error: unsupported visual class %d.\n", vis->class);
+      exit(1);
+    }
+
+    usingBGR233 = False;
+
+    fprintf(stderr, "Using viewer's native pixel format:\n");
   }
 
-  appData.useBGR233 = True;
-
-  myFormat.bitsPerPixel = 8;
-  myFormat.depth = 8;
-  myFormat.trueColour = 1;
-  myFormat.bigEndian = 0;
-  myFormat.redMax = 7;
-  myFormat.greenMax = 7;
-  myFormat.blueMax = 3;
-  myFormat.redShift = 0;
-  myFormat.greenShift = 3;
-  myFormat.blueShift = 6;
-
-  fprintf(stderr,
-       "Using default colormap and translating from BGR233.  Pixel format:\n");
   PrintPixelFormat(&myFormat);
-
-  SetupBGR233Map();
 }
 
 
@@ -143,8 +189,7 @@ SetVisualAndCmap()
  * sets the appropriate resources on the toplevel widget.
  */
 
-static Bool
-GetPseudoColorVisualAndCmap(int depth)
+static void GetPseudoColorVisualAndCmap(int depth)
 {
   XVisualInfo tmpl;
   XVisualInfo *vinfo;
@@ -165,12 +210,6 @@ GetPseudoColorVisualAndCmap(int depth)
     visdepth = vinfo[0].depth;
     XFree(vinfo);
     visbpp = GetBPPForDepth(visdepth);
-    myFormat.bitsPerPixel = visbpp;
-    myFormat.depth = visdepth;
-    myFormat.trueColour = 0;
-    myFormat.bigEndian = (ImageByteOrder(dpy) == MSBFirst);
-    myFormat.redMax = myFormat.greenMax = myFormat.blueMax = 0;
-    myFormat.redShift = myFormat.greenShift = myFormat.blueShift = 0;
 
     cmap = XCreateColormap(dpy, DefaultRootWindow(dpy), vis, AllocAll);
 
@@ -181,14 +220,9 @@ GetPseudoColorVisualAndCmap(int depth)
       XInstallColormap(dpy, cmap);
     }
 
-    fprintf(stderr,"Using PseudoColor visual, depth %d.  Pixel format:\n",
-	    visdepth);
-    PrintPixelFormat(&myFormat);
-
-    return True;
+    fprintf(stderr,"PseudoColor visual with private colormap, depth %d.\n",
+            visdepth);
   }
-
-  return False;
 }
 
 
@@ -198,8 +232,7 @@ GetPseudoColorVisualAndCmap(int depth)
  * sets the appropriate resources on the toplevel widget.
  */
 
-static Bool
-GetTrueColorVisualAndCmap(int depth)
+static void GetTrueColorVisualAndCmap(int depth)
 {
   XVisualInfo tmpl;
   XVisualInfo *vinfo;
@@ -221,16 +254,6 @@ GetTrueColorVisualAndCmap(int depth)
     visdepth = vinfo[0].depth;
     XFree(vinfo);
     visbpp = GetBPPForDepth(visdepth);
-    myFormat.bitsPerPixel = visbpp;
-    myFormat.depth = visdepth;
-    myFormat.trueColour = 1;
-    myFormat.bigEndian = (ImageByteOrder(dpy) == MSBFirst);
-    myFormat.redShift = ffs(vis->red_mask) - 1;
-    myFormat.greenShift = ffs(vis->green_mask) - 1;
-    myFormat.blueShift = ffs(vis->blue_mask) - 1;
-    myFormat.redMax = vis->red_mask >> myFormat.redShift;
-    myFormat.greenMax = vis->green_mask >> myFormat.greenShift;
-    myFormat.blueMax = vis->blue_mask >> myFormat.blueShift;
 
     cmap = XCreateColormap(dpy, DefaultRootWindow(dpy), vis, AllocNone);
 
@@ -241,14 +264,8 @@ GetTrueColorVisualAndCmap(int depth)
       XInstallColormap(dpy, cmap);
     }
 
-    fprintf(stderr,"Using TrueColor visual, depth %d.  Pixel format:\n",
-	    visdepth);
-    PrintPixelFormat(&myFormat);
-
-    return True;
+    fprintf(stderr,"TrueColor visual, depth %d.\n", visdepth);
   }
-
-  return False;
 }
 
 
@@ -257,8 +274,7 @@ GetTrueColorVisualAndCmap(int depth)
  * for the given depth.
  */
 
-static int
-GetBPPForDepth(int depth)
+static int GetBPPForDepth(int depth)
 {
   XPixmapFormatValues *format;
   int nformats;
@@ -303,8 +319,7 @@ GetBPPForDepth(int depth)
  * then we also use other clients' "shared" colours available in the colormap.
  */
 
-static void
-SetupBGR233Map()
+static void SetupBGR233Map()
 {
   int r, g, b;
   long i;
@@ -315,6 +330,9 @@ SetupBGR233Map()
   Bool shared[MAX_CMAP_SIZE];
   Bool usedAsNearest[MAX_CMAP_SIZE];
   int nSharedUsed = 0;
+
+  if (initialisedBGR233) return;
+  initialisedBGR233 = True;
 
   if (visdepth > 8) {
     appData.nColours = 256; /* ignore nColours setting for > 8-bit deep */

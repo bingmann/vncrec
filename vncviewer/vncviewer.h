@@ -1,4 +1,5 @@
 /*
+ *  Copyright (C) 2002 RealVNC Ltd.
  *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
@@ -33,7 +34,7 @@
 #include <X11/keysym.h>
 #include <X11/Xatom.h>
 #include <X11/Xmu/StdSel.h>
-#include "rfbproto.h"
+#include <rfb/rfbproto.h>
 
 extern int endianTest;
 
@@ -59,6 +60,8 @@ typedef struct {
   Bool shareDesktop;
   Bool viewOnly;
   Bool fullScreen;
+
+  Bool autoDetect;
 
   String encodingsString;
 
@@ -101,6 +104,16 @@ extern XrmOptionDescRec cmdLineOptions[];
 extern int numCmdLineOptions;
 
 extern void GetArgsAndResources(int argc, char **argv);
+extern void SetFullScreenState(Widget w, XEvent *event, String *params,
+			       Cardinal *num_params);
+extern void SetBGR233State(Widget w, XEvent *event, String *params,
+                           Cardinal *num_params);
+extern void SetAutoState(Widget w, XEvent *event, String *params,
+                         Cardinal *num_params);
+extern void ToggleAuto(Widget w, XEvent *event, String *params,
+                       Cardinal *num_params);
+extern void ToggleBGR233(Widget w, XEvent *event, String *params,
+                         Cardinal *num_params);
 
 /* colour.c */
 
@@ -109,8 +122,10 @@ extern unsigned long BGR233ToPixel[];
 extern Colormap cmap;
 extern Visual *vis;
 extern unsigned int visdepth, visbpp;
+extern Bool usingBGR233;
 
-extern void SetVisualAndCmap();
+extern void GetVisualAndCmap();
+extern void SetMyFormatFromVisual();
 
 /* desktop.c */
 
@@ -141,8 +156,6 @@ extern char *DoPasswordDialog();
 
 extern void ToggleFullScreen(Widget w, XEvent *event, String *params,
 			     Cardinal *num_params);
-extern void SetFullScreenState(Widget w, XEvent *event, String *params,
-			       Cardinal *num_params);
 extern Bool BumpScroll(XEvent *ev);
 extern void FullScreenOn();
 extern void FullScreenOff();
@@ -173,21 +186,20 @@ extern void CreatePopup();
 
 /* rfbproto.c */
 
-extern int rfbsock;
 extern Bool canUseCoRRE;
 extern Bool canUseHextile;
 extern char *desktopName;
 extern rfbPixelFormat myFormat;
+extern Bool pendingFormatChange;
 extern rfbServerInitMsg si;
 extern char *serverCutText;
 extern Bool newServerCutText;
 
-extern Bool ConnectToRFBServer(const char *hostname, int port);
 extern Bool InitialiseRFBConnection();
-extern Bool SetFormatAndEncodings();
-extern Bool SendIncrementalFramebufferUpdateRequest();
-extern Bool SendFramebufferUpdateRequest(int x, int y, int w, int h,
-					 Bool incremental);
+extern Bool SendSetPixelFormat();
+extern Bool SendSetEncodings();
+extern void UpdateNeeded(int x, int y, int w, int h);
+extern Bool CheckUpdateNeeded();
 extern Bool SendPointerEvent(int x, int y, int buttonMask);
 extern Bool SendKeyEvent(CARD32 key, Bool down);
 extern Bool SendClientCutText(char *str, int len);
@@ -208,19 +220,23 @@ extern void SelectionFromVNC(Widget w, XEvent *event, String *params,
 extern XImage *CreateShmImage();
 extern void ShmCleanup();
 
-/* sockets.c */
+/* sockets.cxx */
 
-extern Bool errorMessageOnReadFailure;
+extern Bool sameMachine;
 
+extern Bool ConnectToRFBServer(const char *hostname, int port);
+extern Bool SetRFBSock(int sock);
+extern void StartTiming();
+extern void StopTiming();
+extern int KbitsPerSecond();
+extern int TimeWaitedIn100us();
 extern Bool ReadFromRFBServer(char *out, unsigned int n);
-extern Bool WriteExact(int sock, char *buf, int n);
+extern Bool WriteToRFBServer(char *buf, int n);
+extern int ConnectToTcpAddr(const char* hostname, int port);
 extern int ListenAtTcpPort(int port);
-extern int ConnectToTcpAddr(unsigned int host, int port);
 extern int AcceptTcpConnection(int listenSock);
-extern Bool SetNonBlocking(int sock);
 
 extern int StringToIPAddr(const char *str, unsigned int *addr);
-extern Bool SameMachine(int sock);
 
 /* vncviewer.c */
 
@@ -228,3 +244,7 @@ extern char *programName;
 extern XtAppContext appContext;
 extern Display* dpy;
 extern Widget toplevel;
+
+/* zrle.cxx */
+
+extern Bool zrleDecode(int x, int y, int w, int h);

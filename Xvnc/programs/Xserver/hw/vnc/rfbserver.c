@@ -3,6 +3,7 @@
  */
 
 /*
+ *  Copyright (C) 2002-2003 RealVNC Ltd.
  *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
@@ -50,6 +51,7 @@ rfbClientPtr pointerClient = NULL;  /* Mutex for pointer events */
 Bool rfbAlwaysShared = FALSE;
 Bool rfbNeverShared = FALSE;
 Bool rfbDontDisconnect = FALSE;
+int rfbMaxRects = 50;
 
 static rfbClientPtr rfbNewClient(int sock);
 static void rfbProcessClientProtocolVersion(rfbClientPtr cl);
@@ -117,7 +119,7 @@ rfbNewClient(sock)
     rfbClientPtr cl;
     BoxRec box;
     struct sockaddr_in addr;
-    int addrlen = sizeof(struct sockaddr_in);
+    unsigned int addrlen = sizeof(struct sockaddr_in);
 
     if (rfbClientHead == NULL) {
 	/* no other clients - make sure we don't think any keys are pressed */
@@ -144,6 +146,7 @@ rfbNewClient(sock)
     cl->preferredEncoding = rfbEncodingRaw;
     cl->correMaxWidth = 48;
     cl->correMaxHeight = 48;
+    cl->zrleData = 0;
 
     REGION_INIT(pScreen,&cl->copyRegion,NullBox,0);
     cl->copyDX = 0;
@@ -217,6 +220,7 @@ rfbClientConnectionGone(sock)
     else
 	rfbClientHead = cl->next;
 
+    FreeZrleData(cl);
     REGION_UNINIT(pScreen,&cl->copyRegion);
     REGION_UNINIT(pScreen,&cl->modifiedRegion);
     TimerFree(cl->deferredUpdateTimer);
@@ -554,6 +558,13 @@ rfbProcessClientNormalMessage(cl)
 			   cl->host);
 		}
 		break;
+	    case rfbEncodingZRLE:
+		if (cl->preferredEncoding == -1) {
+		    cl->preferredEncoding = enc;
+		    rfbLog("Using ZRLE encoding for client %s\n",
+			   cl->host);
+		}
+		break;
 	    default:
 		rfbLog("rfbProcessClientNormalMessage: ignoring unknown "
 		       "encoding type %d\n", (int)enc);
@@ -613,7 +624,8 @@ rfbProcessClientNormalMessage(cl)
 	}
 
 	if (FB_UPDATE_PENDING(cl)) {
-	    rfbSendFramebufferUpdate(cl);
+	  if (!cl->deferredUpdateScheduled)
+            rfbScheduleDeferredUpdate(cl);
 	}
 
 	REGION_UNINIT(pScreen,&tmpRegion);
@@ -729,6 +741,7 @@ rfbSendFramebufferUpdate(cl)
     rfbFramebufferUpdateMsg *fu = (rfbFramebufferUpdateMsg *)updateBuf;
     RegionRec updateRegion, updateCopyRegion;
     int dx, dy;
+    int bytesSent, rectsSent;
 
     /*
      * If the cursor isn't drawn, make sure it's put up.
@@ -763,6 +776,12 @@ rfbSendFramebufferUpdate(cl)
     if (!REGION_NOTEMPTY(pScreen,&updateRegion)) {
 	REGION_UNINIT(pScreen,&updateRegion);
 	return TRUE;
+    }
+
+    if (rfbTrace) {
+      rfbLog("Sending update...\n");
+      bytesSent = cl->rfbBytesSent[cl->preferredEncoding];
+      rectsSent = cl->rfbRectanglesSent[cl->preferredEncoding];
     }
 
     /*
@@ -831,6 +850,12 @@ rfbSendFramebufferUpdate(cl)
 	nUpdateRegionRects = REGION_NUM_RECTS(&updateRegion);
     }
 
+    if (nUpdateRegionRects > rfbMaxRects) {
+      BoxRec boundingBox = *(REGION_EXTENTS(pScreen, &updateRegion));
+      REGION_RESET(pScreen, &updateRegion, &boundingBox);
+      nUpdateRegionRects = 1;
+    }
+
     fu->type = rfbFramebufferUpdate;
     fu->nRects = Swap16IfLE(REGION_NUM_RECTS(&updateCopyRegion)
 			    + nUpdateRegionRects);
@@ -880,6 +905,12 @@ rfbSendFramebufferUpdate(cl)
 		return FALSE;
 	    }
 	    break;
+	case rfbEncodingZRLE:
+	    if (!rfbSendRectEncodingZRLE(cl, x, y, w, h)) {
+		REGION_UNINIT(pScreen,&updateRegion);
+		return FALSE;
+	    }
+	    break;
 	}
     }
 
@@ -887,6 +918,12 @@ rfbSendFramebufferUpdate(cl)
 
     if (!rfbSendUpdateBuf(cl))
 	return FALSE;
+
+    if (rfbTrace) {
+      bytesSent = cl->rfbBytesSent[cl->preferredEncoding] - bytesSent;
+      rectsSent = cl->rfbRectanglesSent[cl->preferredEncoding] - rectsSent;
+      rfbLog("...sent %d bytes, %d rects\n",bytesSent,rectsSent);
+    }
 
     return TRUE;
 }
@@ -1180,75 +1217,5 @@ rfbSendServerCutText(char *str, int len)
 	    rfbLogPerror("rfbSendServerCutText: write");
 	    rfbCloseSock(cl->sock);
 	}
-    }
-}
-
-
-
-
-/*****************************************************************************
- *
- * UDP can be used for keyboard and pointer events when the underlying
- * network is highly reliable.  This is really here to support ORL's
- * videotile, whose TCP implementation doesn't like sending lots of small
- * packets (such as 100s of pen readings per second!).
- */
-
-void
-rfbNewUDPConnection(sock)
-    int sock;
-{
-    if (write(sock, &ptrAcceleration, 1) < 0) {
-	rfbLogPerror("rfbNewUDPConnection: write");
-    }
-}
-
-/*
- * Because UDP is a message based service, we can't read the first byte and
- * then the rest of the packet separately like we do with TCP.  We will always
- * get a whole packet delivered in one go, so we ask read() for the maximum
- * number of bytes we can possibly get.
- */
-
-void
-rfbProcessUDPInput(sock)
-    int sock;
-{
-    int n;
-    rfbClientToServerMsg msg;
-
-    if ((n = read(sock, (char *)&msg, sizeof(msg))) <= 0) {
-	if (n < 0) {
-	    rfbLogPerror("rfbProcessUDPInput: read");
-	}
-	rfbDisconnectUDPSock();
-	return;
-    }
-
-    switch (msg.type) {
-
-    case rfbKeyEvent:
-	if (n != sz_rfbKeyEventMsg) {
-	    rfbLog("rfbProcessUDPInput: key event incorrect length\n");
-	    rfbDisconnectUDPSock();
-	    return;
-	}
-	KbdAddEvent(msg.ke.down, (KeySym)Swap32IfLE(msg.ke.key), 0);
-	break;
-
-    case rfbPointerEvent:
-	if (n != sz_rfbPointerEventMsg) {
-	    rfbLog("rfbProcessUDPInput: ptr event incorrect length\n");
-	    rfbDisconnectUDPSock();
-	    return;
-	}
-	PtrAddEvent(msg.pe.buttonMask,
-		    Swap16IfLE(msg.pe.x), Swap16IfLE(msg.pe.y), 0);
-	break;
-
-    default:
-	rfbLog("rfbProcessUDPInput: unknown message type %d\n",
-	       msg.type);
-	rfbDisconnectUDPSock();
     }
 }

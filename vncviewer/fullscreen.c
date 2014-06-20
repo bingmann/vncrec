@@ -1,4 +1,5 @@
 /*
+ *  Copyright (C) 2002 RealVNC Ltd.
  *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
@@ -21,7 +22,7 @@
  * fullscreen.c - functions to deal with full-screen mode.
  */
 
-#include <vncviewer.h>
+#include "vncviewer.h"
 #include <X11/Xaw/Form.h>
 #include <X11/Xaw/Viewport.h>
 #include <X11/Xaw/Toggle.h>
@@ -238,21 +239,6 @@ FullScreenOff()
 
 
 /*
- * SetFullScreenState is an action which sets the "state" resource of a toggle
- * widget to reflect whether we're in full-screen mode.
- */
-
-void
-SetFullScreenState(Widget w, XEvent *ev, String *params, Cardinal *num_params)
-{
-  if (appData.fullScreen)
-    XtVaSetValues(w, XtNstate, True, NULL);
-  else
-    XtVaSetValues(w, XtNstate, False, NULL);
-}
-
-
-/*
  * ToggleFullScreen is an action which toggles in and out of full-screen mode.
  */
 
@@ -264,6 +250,7 @@ ToggleFullScreen(Widget w, XEvent *ev, String *params, Cardinal *num_params)
   } else {
     FullScreenOn();
   }
+  SetFullScreenState(w, ev, 0, 0);
 }
 
 

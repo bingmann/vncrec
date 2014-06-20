@@ -5,6 +5,7 @@
  */
 
 /*
+ *  Copyright (C) 2002 RealVNC Ltd.
  *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
@@ -106,7 +107,7 @@ sendHextiles##bpp(cl, rx, ry, rw, rh)					      \
     int x, y, w, h;							      \
     int startUblen;							      \
     char *fbptr;							      \
-    CARD##bpp bg, fg, newBg, newFg;					      \
+    CARD##bpp bg=0, fg=0, newBg, newFg;					      \
     Bool mono, solid;							      \
     Bool validBg = FALSE;						      \
     Bool validFg = FALSE;						      \
@@ -301,7 +302,7 @@ testColours##bpp(data,size,mono,solid,bg,fg)				      \
     CARD##bpp *bg;							      \
     CARD##bpp *fg;							      \
 {									      \
-    CARD##bpp colour1, colour2;						      \
+    CARD##bpp colour1=0, colour2=0;					      \
     int n1 = 0, n2 = 0;							      \
     *mono = TRUE;							      \
     *solid = TRUE;							      \

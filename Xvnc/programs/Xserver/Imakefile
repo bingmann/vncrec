@@ -138,7 +138,7 @@ XPFBLIBS = dix/LibraryTargetName(xpstubs)
          XAULIB = $(XAUTHSRC)/LibraryTargetName(Xau)
        XDMCPLIB = $(XDMCPLIBSRC)/LibraryTargetName(Xdmcp)
 #if BuildLBX || GzipFontCompression
-           ZLIB = GzipLibrary
+XCOMM           ZLIB = GzipLibrary
 #endif
              OS = os/LibraryTargetName(os) $(XAULIB) $(XDMCPLIB)
         BSDEMUL = $(DEPXBSDLIB)

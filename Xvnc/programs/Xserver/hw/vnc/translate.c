@@ -3,6 +3,7 @@
  */
 
 /*
+ *  Copyright (C) 2002 RealVNC Ltd.
  *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
@@ -22,6 +23,7 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include "rfb.h"
 
 static void PrintPixelFormat(rfbPixelFormat *pf);
@@ -379,8 +381,6 @@ rfbSetClientColourMap(cl, firstColour, nColours)
     int firstColour;
     int nColours;
 {
-    EntryPtr pent;
-    int i, r, g, b;
     BoxRec box;
 
     if (nColours == 0) {

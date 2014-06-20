@@ -73,9 +73,6 @@ XCOMM $XFree86: xc/config/cf/svr4.cf,v 3.25.2.2 1997/07/05 15:55:30 dawes Exp $
 #ifndef LexCmd
 #define	LexCmd	/usr/ccs/bin/lex
 #endif
-#ifndef MakeCmd
-#define	MakeCmd	/usr/ccs/bin/make
-#endif
 #ifndef YaccCmd
 #define	YaccCmd	/usr/ccs/bin/yacc
 #endif

@@ -96,7 +96,11 @@ typedef struct _CMEntry
 typedef struct _ColormapRec
 {
     VisualPtr	pVisual;
+#if defined(__cplusplus) || defined(c_plusplus)
+    short       c_class;
+#else
     short	class;		/* PseudoColor or DirectColor */
+#endif
     long	mid;		/* client's name for colormap */
     ScreenPtr	pScreen;	/* screen map is associated with */
     short	flags;		/* 1 = IsDefault

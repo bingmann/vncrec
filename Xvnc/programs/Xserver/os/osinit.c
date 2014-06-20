@@ -62,7 +62,7 @@ SOFTWARE.
 #endif
 #endif
 
-#if !defined(SYSV) && !defined(AMOEBA) && !defined(_MINIX) && !defined(WIN32) && !defined(Lynx)
+#if !defined(SYSV) && !defined(AMOEBA) && !defined(_MINIX) && !defined(WIN32) && !defined(Lynx) || defined(hpux) || defined(AIXV4)
 #include <sys/resource.h>
 #endif
 

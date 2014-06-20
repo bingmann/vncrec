@@ -50,7 +50,7 @@ LBXUTILDIR = lbxutil
 #endif
 
 #if (BuildLBX || GzipFontCompression) && !HasZlib
-ZLIBDIR = zlib
+XCOMM ZLIBDIR = zlib
 #endif
 
 #if BuildXAudio

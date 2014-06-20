@@ -3,6 +3,7 @@
  */
 
 /*
+ *  Copyright (C) 2002 RealVNC Ltd.
  *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
@@ -28,6 +29,7 @@
 #include "rfb.h"
 #include "selection.h"
 #include "input.h"
+#include <property.h>
 #include <Xatom.h>
 
 extern WindowPtr *WindowTable; /* Why isn't this in a header file? */

@@ -1,4 +1,5 @@
 /*
+ *  Copyright (C) 2002 RealVNC Ltd.
  *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
@@ -48,7 +49,7 @@ HandleCoRREBPP (int rx, int ry, int rw, int rh)
 	return False;
 
 #if (BPP == 8)
-    gcv.foreground = (appData.useBGR233 ? BGR233ToPixel[pix] : pix);
+    gcv.foreground = (usingBGR233 ? BGR233ToPixel[pix] : pix);
 #else
     gcv.foreground = pix;
 #endif
@@ -70,7 +71,7 @@ HandleCoRREBPP (int rx, int ry, int rw, int rh)
 	h = *ptr++;
 
 #if (BPP == 8)
-	gcv.foreground = (appData.useBGR233 ? BGR233ToPixel[pix] : pix);
+	gcv.foreground = (usingBGR233 ? BGR233ToPixel[pix] : pix);
 #else
 	gcv.foreground = pix;
 #endif

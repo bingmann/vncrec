@@ -1,5 +1,5 @@
 /*
- * sockets.c - deal with TCP & UDP sockets.
+ * sockets.c - deal with TCP sockets.
  *
  * This code should be independent of any changes in the RFB protocol.  It just
  * deals with the X server scheduling stuff, calling rfbNewClientConnection and
@@ -19,6 +19,7 @@
  */
 
 /*
+ *  Copyright (C) 2002 RealVNC Ltd.
  *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
@@ -38,11 +39,14 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
 #include <sys/types.h>
 #include <sys/time.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <arpa/inet.h>
 #include <netdb.h>
 #include <fcntl.h>
 #include <errno.h>
@@ -57,17 +61,12 @@ int rfbPort = 0;
 int rfbListenSock = -1;
 Bool rfbLocalhostOnly = FALSE;
 
-int udpPort = 0;
-int udpSock = -1;
-Bool udpSockConnected = FALSE;
-static struct sockaddr_in udpRemoteAddr;
-
 static fd_set allFds;
 static int maxFd = 0;
 
 
 /*
- * rfbInitSockets sets up the TCP and UDP sockets to listen for RFB
+ * rfbInitSockets sets up the TCP sockets to listen for RFB
  * connections.  It does nothing if called again.
  */
 
@@ -118,18 +117,6 @@ rfbInitSockets()
     FD_ZERO(&allFds);
     FD_SET(rfbListenSock, &allFds);
     maxFd = rfbListenSock;
-
-    if (udpPort != 0) {
-	rfbLog("rfbInitSockets: listening for input on UDP port %d\n",udpPort);
-
-	if ((udpSock = ListenOnUDPPort(udpPort)) < 0) {
-	    rfbLogPerror("ListenOnUDPPort");
-	    exit(1);
-	}
-	AddEnabledDevice(udpSock);
-	FD_SET(udpSock, &allFds);
-	maxFd = max(udpSock,maxFd);
-    }
 }
 
 
@@ -147,8 +134,7 @@ rfbCheckFds()
     fd_set fds;
     struct timeval tv;
     struct sockaddr_in addr;
-    int addrlen = sizeof(addr);
-    char buf[6];
+    unsigned int addrlen = sizeof(addr);
     const int one = 1;
     int sock;
     static Bool inetdInitDone = FALSE;
@@ -205,55 +191,11 @@ rfbCheckFds()
 	    return;
     }
 
-    if ((udpSock != -1) && FD_ISSET(udpSock, &fds)) {
-
-	if (recvfrom(udpSock, buf, 1, MSG_PEEK,
-		     (struct sockaddr *)&addr, &addrlen) < 0) {
-
-	    rfbLogPerror("rfbCheckFds: UDP: recvfrom");
-	    rfbDisconnectUDPSock();
-
-	} else {
-
-	    if (!udpSockConnected ||
-		(memcmp(&addr, &udpRemoteAddr, addrlen) != 0))
-	    {
-		/* new remote end */
-		rfbLog("rfbCheckFds: UDP: got connection\n");
-
-		memcpy(&udpRemoteAddr, &addr, addrlen);
-		udpSockConnected = TRUE;
-
-		if (connect(udpSock,
-			    (struct sockaddr *)&addr, addrlen) < 0) {
-		    rfbLogPerror("rfbCheckFds: UDP: connect");
-		    rfbDisconnectUDPSock();
-		    return;
-		}
-
-		rfbNewUDPConnection(udpSock);
-	    }
-
-	    rfbProcessUDPInput(udpSock);
-	}
-
-	FD_CLR(udpSock, &fds);
-	if (--nfds == 0)
-	    return;
-    }
-
     for (sock = 0; sock <= maxFd; sock++) {
 	if (FD_ISSET(sock, &fds) && FD_ISSET(sock, &allFds)) {
 	    rfbProcessClientMessage(sock);
 	}
     }
-}
-
-
-void
-rfbDisconnectUDPSock()
-{
-    udpSockConnected = FALSE;
 }
 
 
@@ -471,6 +413,7 @@ ListenOnTCPPort(port)
     int sock;
     int one = 1;
 
+    memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
     if (rfbLocalhostOnly)
@@ -526,33 +469,6 @@ ConnectToTcpAddr(host, port)
 
     if (connect(sock, (struct sockaddr *)&addr, (sizeof(addr))) < 0) {
 	close(sock);
-	return -1;
-    }
-
-    return sock;
-}
-
-
-int
-ListenOnUDPPort(port)
-    int port;
-{
-    struct sockaddr_in addr;
-    int sock;
-    int one = 1;
-
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    addr.sin_addr.s_addr = INADDR_ANY;
-
-    if ((sock = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
-	return -1;
-    }
-    if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR,
-		   (char *)&one, sizeof(one)) < 0) {
-	return -1;
-    }
-    if (bind(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
 	return -1;
     }
 

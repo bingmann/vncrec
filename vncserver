@@ -1,5 +1,6 @@
 #!/usr/bin/perl
 #
+#  Copyright (C) 2002 RealVNC Ltd.
 #  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
 #
 #  This is free software; you can redistribute it and/or modify
@@ -33,15 +34,16 @@
 #
 
 $geometry = "1024x768";
-$depth = 8;
+$depth = 16;
 $desktopName = "X";
-$vncClasses = "/usr/local/vnc/classes";
+$vncClasses = (((-d "/usr/share/vnc/classes") && "/usr/share/vnc/classes") ||
+               ((-d "/usr/local/vnc/classes") && "/usr/local/vnc/classes"));
 $vncUserDir = "$ENV{HOME}/.vnc";
-$xauthorityFile = "$ENV{HOME}/.Xauthority";
+$xauthorityFile = "$ENV{XAUTHORITY}" || "$ENV{HOME}/.Xauthority";
 
 $defaultXStartup
     = ("#!/bin/sh\n\n".
-       "xrdb \$HOME/.Xresources\n".
+       "[ -r \$HOME/.Xresources ] && xrdb \$HOME/.Xresources\n".
        "xsetroot -solid grey\n".
        "xterm -geometry 80x24+10+10 -ls -title \"\$VNCDESKTOP Desktop\" &\n".
        "twm &\n");
@@ -125,7 +127,7 @@ unlink($desktopLog);
 srand(time+$$+unpack("L",`cat $vncUserDir/passwd`));
 $cookie = "";
 for (1..16) {
-    $cookie .= sprintf("%02x", int(rand(256)));
+    $cookie .= sprintf("%02x", int(rand(256)) % 256);
 }
     
 system("xauth -f $xauthorityFile add $host:$displayNumber . $cookie");
@@ -135,7 +137,7 @@ system("xauth -f $xauthorityFile add $host/unix:$displayNumber . $cookie");
 
 $cmd = "Xvnc :$displayNumber";
 $cmd .= " -desktop " . &quotedString($desktopName);
-$cmd .= " -httpd $vncClasses";
+$cmd .= " -httpd $vncClasses" if ($vncClasses);
 $cmd .= " -auth $xauthorityFile";
 $cmd .= " -geometry $geometry" if ($geometry);
 $cmd .= " -depth $depth" if ($depth);
@@ -143,6 +145,7 @@ $cmd .= " -pixelformat $pixelformat" if ($pixelformat);
 $cmd .= " -rfbwait 120000";
 $cmd .= " -rfbauth $vncUserDir/passwd";
 $cmd .= " -rfbport $vncPort";
+$cmd .= " -pn";
 
 # Add font path and color database stuff here, e.g.:
 #
@@ -184,7 +187,9 @@ warn "Log file is $desktopLog\n\n";
 # If the unix domain socket exists then use that (DISPLAY=:n) otherwise use
 # TCP (DISPLAY=host:n)
 
-if (-e "/tmp/.X11-unix/X$displayNumber") {
+if (-e "/tmp/.X11-unix/X$displayNumber" ||
+    -e "/usr/spool/sockets/X11/$displayNumber")
+{
     $ENV{DISPLAY}= ":$displayNumber";
 } else {
     $ENV{DISPLAY}= "$host:$displayNumber";
@@ -282,6 +287,13 @@ sub CheckDisplayNumber
 
     if (-e "/tmp/.X11-unix/X$n") {
 	warn "\nWarning: $host:$n is taken because of /tmp/.X11-unix/X$n\n";
+	warn "Remove this file if there is no X server $host:$n\n";
+	return 0;
+    }
+
+    if (-e "/usr/spool/sockets/X11/$n") {
+	warn("\nWarning: $host:$n is taken because of ".
+             "/usr/spool/sockets/X11/$n\n");
 	warn "Remove this file if there is no X server $host:$n\n";
 	return 0;
     }

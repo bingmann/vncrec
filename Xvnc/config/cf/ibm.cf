@@ -100,8 +100,8 @@ baseobj.Osuf:	basedep.CCsuf						@@\
 #define Malloc0ReturnsNull	YES
 #define CppCmd			/usr/ccs/lib/cpp
 #define ExpandManNames		YES
-#define ExtensionOSDefines	-DXTESTEXT1
-#define XibmServer		YES
+#define ExtensionOSDefines	# -DXTESTEXT1
+#define XibmServer		NO
 #define ibmIncludeSKYWAY	YES
 
 /* IBM cpp has slightly non-standard line directives, but supports -P */

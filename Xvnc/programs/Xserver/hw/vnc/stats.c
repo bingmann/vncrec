@@ -3,6 +3,7 @@
  */
 
 /*
+ *  Copyright (C) 2002 RealVNC Ltd.
  *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
@@ -27,7 +28,10 @@
 
 static char* encNames[] = {
     "raw", "copyRect", "RRE", "[encoding 3]", "CoRRE", "hextile",
-    "[encoding 6]", "[encoding 7]", "[encoding 8]", "[encoding 9]"
+    "[encoding 6]", "[encoding 7]", "[encoding 8]", "[encoding 9]",
+    "[encoding 10]", "[encoding 11]", "[encoding 12]", "[encoding 13]",
+    "[encoding 14]", "[encoding 15]", "ZRLE", "[encoding 17]",
+    "[encoding 18]", "[encoding 19]", "[encoding 20]"
 };
 
 

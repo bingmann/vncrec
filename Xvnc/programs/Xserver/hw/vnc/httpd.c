@@ -3,6 +3,7 @@
  */
 
 /*
+ *  Copyright (C) 2002 RealVNC Ltd.
  *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
@@ -22,11 +23,14 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
 #include <sys/types.h>
 #include <sys/time.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <arpa/inet.h>
 #include <netdb.h>
 #include <fcntl.h>
 #include <errno.h>
@@ -34,11 +38,11 @@
 
 #include "rfb.h"
 
-#define NOT_FOUND_STR "HTTP/1.0 404 Not found\n\n" \
+#define NOT_FOUND_STR "HTTP/1.0 404 Not found\r\n\r\n" \
     "<HEAD><TITLE>File Not Found</TITLE></HEAD>\n" \
     "<BODY><H1>File Not Found</H1></BODY>\n"
 
-#define OK_STR "HTTP/1.0 200 OK\n\n"
+#define OK_STR "HTTP/1.0 200 OK\r\n\r\n"
 
 static void httpProcessInput();
 static Bool compareAndSkip(char **ptr, const char *str);
@@ -48,19 +52,18 @@ char *httpDir = NULL;
 
 int httpListenSock = -1;
 int httpSock = -1;
-FILE* httpFP = NULL;
 
 #define BUF_SIZE 32768
 
 static char buf[BUF_SIZE];
+static int bufLen;
 
 
 /*
  * httpInitSockets sets up the TCP socket to listen for HTTP connections.
  */
 
-void
-httpInitSockets()
+void httpInitSockets()
 {
     static Bool done = FALSE;
 
@@ -94,14 +97,14 @@ httpInitSockets()
  * HTTP socket(s).  If there is input to process, httpProcessInput is called.
  */
 
-void
-httpCheckFds()
+void httpCheckFds()
 {
-    int nfds, n;
+    int nfds;
     fd_set fds;
     struct timeval tv;
     struct sockaddr_in addr;
-    int addrlen = sizeof(addr);
+    unsigned int addrlen = sizeof(addr);
+    int flags;
 
     if (!httpDir)
 	return;
@@ -135,45 +138,49 @@ httpCheckFds()
 	    rfbLogPerror("httpCheckFds: accept");
 	    return;
 	}
-	if ((httpFP = fdopen(httpSock, "r+")) == NULL) {
-	    rfbLogPerror("httpCheckFds: fdopen");
+
+	flags = fcntl(httpSock, F_GETFL);
+
+	if (flags < 0 || fcntl(httpSock, F_SETFL, flags | O_NONBLOCK) == -1) {
+	    rfbLogPerror("httpCheckFds: fcntl");
 	    close(httpSock);
 	    httpSock = -1;
 	    return;
 	}
 
 	AddEnabledDevice(httpSock);
+        bufLen = 0;
     }
 }
 
 
-static void
-httpCloseSock()
+static void httpCloseSock()
 {
-    fclose(httpFP);
-    httpFP = NULL;
+    close(httpSock);
     RemoveEnabledDevice(httpSock);
     httpSock = -1;
 }
 
 
 /*
- * httpProcessInput is called when input is received on the HTTP socket.
+ * httpProcessInput is called when input is received on the HTTP socket.  We
+ * read lines from the HTTP client until we get a blank line (the end of an
+ * HTTP request).  The socket is non-blocking so we return if there's no more
+ * to read and will carry on where we left off when more data is available.
  */
 
-static void
-httpProcessInput()
+static void httpProcessInput()
 {
     struct sockaddr_in addr;
-    int addrlen = sizeof(addr);
+    unsigned int addrlen = sizeof(addr);
     char fullFname[256];
     char *fname;
     int maxFnameLen;
     int fd;
-    Bool gotGet = FALSE;
     Bool performSubstitutions = FALSE;
     char str[256];
-    struct passwd *user = getpwuid(getuid());;
+    struct passwd *user = getpwuid(getuid());
+    int n;
 
     if (strlen(httpDir) > 200) {
 	rfbLog("-httpd directory too long\n");
@@ -184,65 +191,71 @@ httpProcessInput()
     fname = &fullFname[strlen(fullFname)];
     maxFnameLen = 255 - strlen(fullFname);
 
-    buf[0] = '\0';
-
     while (1) {
+        if (bufLen >= BUF_SIZE-1) {
+            rfbLog("httpProcessInput: HTTP request is too long\n");
+            httpCloseSock();
+            return;
+        }
 
-	/* Read lines from the HTTP client until a blank line.  The only
-	   line we need to parse is the line "GET <filename> ..." */
+        n = read(httpSock, buf + bufLen, BUF_SIZE - bufLen - 1);
 
-	if (!fgets(buf, BUF_SIZE, httpFP)) {
-	    rfbLogPerror("httpProcessInput: fgets");
-	    httpCloseSock();
-	    return;
-	}
+        if (n <= 0) {
+            if (n < 0) {
+                if (errno == EAGAIN) return;
+                rfbLogPerror("httpProcessInput: read");
+            } else {
+                rfbLog("httpProcessInput: connection closed\n");
+            }
+            httpCloseSock();
+            return;
+        }
 
-	if ((strcmp(buf,"\n") == 0) || (strcmp(buf,"\r\n") == 0)
-	    || (strcmp(buf,"\r") == 0) || (strcmp(buf,"\n\r") == 0))
-	    /* end of client request */
-	    break;
+        bufLen += n;
+        buf[bufLen] = 0;
 
-	if (strncmp(buf, "GET ", 4) == 0) {
-	    gotGet = TRUE;
-
-	    if (strlen(buf) > maxFnameLen) {
-		rfbLog("GET line too long\n");
-		httpCloseSock();
-		return;
-	    }
-
-	    if (sscanf(buf, "GET %s HTTP/1.0", fname) != 1) {
-		rfbLog("couldn't parse GET line\n");
-		httpCloseSock();
-		return;
-	    }
-
-	    if (fname[0] != '/') {
-		rfbLog("filename didn't begin with '/'\n");
-		WriteExact(httpSock, NOT_FOUND_STR, strlen(NOT_FOUND_STR));
-		httpCloseSock();
-		return;
-	    }
-
-	    if (strchr(fname+1, '/') != NULL) {
-		rfbLog("asking for file in other directory\n");
-		WriteExact(httpSock, NOT_FOUND_STR, strlen(NOT_FOUND_STR));
-		httpCloseSock();
-		return;
-	    }
-
-	    getpeername(httpSock, (struct sockaddr *)&addr, &addrlen);
-	    rfbLog("httpd: get '%s' for %s\n", fname+1,
-		   inet_ntoa(addr.sin_addr));
-	    continue;
-	}
+	if (strstr(buf, "\r\r") || strstr(buf, "\n\n") ||
+	    strstr(buf, "\r\n\r\n") || strstr(buf, "\n\r\n\r"))
+            break;
     }
 
-    if (!gotGet) {
-	rfbLog("no GET line\n");
+    if (strncmp(buf, "GET ", 4) != 0) {
+	rfbLog("httpProcessInput: first line wasn't a GET?\n");
 	httpCloseSock();
 	return;
     }
+
+    buf[strcspn(buf, "\r\n")] = 0; /* only want first line */
+
+    if (strlen(buf) > maxFnameLen) {
+	rfbLog("httpProcessInput: GET line too long\n");
+	httpCloseSock();
+	return;
+    }
+
+    if (sscanf(buf, "GET %s HTTP", fname) != 1) {
+	rfbLog("httpProcessInput: couldn't parse GET line\n");
+	httpCloseSock();
+	return;
+    }
+
+    if (fname[0] != '/') {
+	rfbLog("httpProcessInput: filename didn't begin with '/'\n");
+	WriteExact(httpSock, NOT_FOUND_STR, strlen(NOT_FOUND_STR));
+	httpCloseSock();
+	return;
+    }
+
+    if (strchr(fname+1, '/') != NULL) {
+	rfbLog("httpProcessInput: asking for file in other directory\n");
+	WriteExact(httpSock, NOT_FOUND_STR, strlen(NOT_FOUND_STR));
+	httpCloseSock();
+	return;
+    }
+
+    getpeername(httpSock, (struct sockaddr *)&addr, &addrlen);
+    rfbLog("httpd: get '%s' for %s\n", fname+1,
+	   inet_ntoa(addr.sin_addr));
 
     /* If we were asked for '/', actually read the file index.vnc */
 
@@ -291,7 +304,7 @@ httpProcessInput()
 	    char *dollar;
 	    buf[n] = 0; /* make sure it's null-terminated */
 
-	    while (dollar = strchr(ptr, '$')) {
+	    while ((dollar = strchr(ptr, '$'))) {
 		WriteExact(httpSock, ptr, (dollar - ptr));
 
 		ptr = dollar;

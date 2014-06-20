@@ -1,8 +1,11 @@
 
-VNC 3.3.3r2 Source Distribution for Unix platforms
-==================================================
+VNC 3.3.7 Source Distribution for Unix platforms
+================================================
 
-VNC is Copyright (C) AT&T Laboratories Cambridge.  All Rights Reserved.
+Copyright (C) 2002-2003 RealVNC Ltd.
+Copyright (C) 1994-2000 Olivetti Research Ltd/AT&T Laboratories Cambridge.
+All Rights Reserved.
+
 This software is distributed under the GNU General Public Licence as published
 by the Free Software Foundation.  See the file LICENCE.TXT for the conditions
 under which this software is made available.  VNC also contains code from other
@@ -30,14 +33,20 @@ There are five programs here:
 	       server.  You normally use the vncserver script to start Xvnc.
 
 
-First you must have a reasonably recent version of X installed (this includes
-/usr/openwin on Solaris machines).  To build everything but Xvnc, do:
+To build this distribution you need a C++ compiler as well as a C compiler.
+You also need a reasonably recent version of the X window system installed.
+This come as standard with most unix machines.  If you don't have it installed,
+see http://www.x.org or http://www.xfree86.org
 
-	% xmkmf
-	% make World
+To build everything but Xvnc, do:
 
-This should build first the vncauth library which is used by each of the
-programs, then vncviewer, vncpasswd and vncconnect.
+  % ./configure
+  % make
+
+This should build first some libraries - zlib, rdr and rfb - then vncconnect,
+vncpasswd and vncviewer.  If you already have zlib installed on your system you
+can run "./configure --with-installed-zlib" if you prefer (this is strongly
+advised on FreeBSD, since we've been told there are problems otherwise).
 
 Xvnc differs from the other programs in that it is built inside a cut-down
 version of the X build tree.  This is based around the XFree86 3.3.2 "server
@@ -55,6 +64,11 @@ the vncinstall script to do this for you:
 
 	% cd ..
 	% ./vncinstall /usr/local/bin
+
+This will also attempt to install the manual pages in an appropriate directory.
+You can specify an alternative directory as a second argument to vncinstall:
+
+	% ./vncinstall /usr/local/bin /usr/local/man
 
 If you want to use the Java VNC viewer, you should copy the class files from
 the classes directory to some suitable installation directory such as
@@ -120,6 +134,30 @@ Release 6.3.  This is:
     the X Consortium.
     
     X Window System is a trademark of X Consortium, Inc.
+
+
+This distribution contains zlib compression software.  This is:
+
+  Copyright (C) 1995-2002 Jean-loup Gailly and Mark Adler
+
+  This software is provided 'as-is', without any express or implied
+  warranty.  In no event will the authors be held liable for any damages
+  arising from the use of this software.
+
+  Permission is granted to anyone to use this software for any purpose,
+  including commercial applications, and to alter it and redistribute it
+  freely, subject to the following restrictions:
+
+  1. The origin of this software must not be misrepresented; you must not
+     claim that you wrote the original software. If you use this software
+     in a product, an acknowledgment in the product documentation would be
+     appreciated but is not required.
+  2. Altered source versions must be plainly marked as such, and must not be
+     misrepresented as being the original software.
+  3. This notice may not be removed or altered from any source distribution.
+
+  Jean-loup Gailly        Mark Adler
+  jloup@gzip.org          madler@alumni.caltech.edu
 
 
 This distribution contains Java DES software by Dave Zimmerman

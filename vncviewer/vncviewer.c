@@ -1,4 +1,5 @@
 /*
+ *  Copyright (C) 2002-2003 RealVNC Ltd.
  *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
@@ -29,11 +30,18 @@ Display* dpy;
 
 Widget toplevel;
 
+extern char buildtime[];
+
 int
 main(int argc, char **argv)
 {
   int i;
   programName = argv[0];
+
+  fprintf(stderr,"VNC viewer version 3.3.7 - built %s\n", buildtime);
+  fprintf(stderr,"Copyright (C) 2002-2003 RealVNC Ltd.\n");
+  fprintf(stderr,"Copyright (C) 1994-2000 AT&T Laboratories Cambridge.\n");
+  fprintf(stderr,"See http://www.realvnc.com for information on VNC.\n");
 
   /* The -listen option is used to make us a daemon process which listens for
      incoming connections from servers, rather than actively connecting to a
@@ -85,9 +93,9 @@ main(int argc, char **argv)
 
   CreatePopup();
 
-  /* Find the best pixel format and X visual/colormap to use */
+  /* Find the best X visual/colormap to use */
 
-  SetVisualAndCmap();
+  GetVisualAndCmap();
 
   /* Create the "desktop" widget, and perform initialisation which needs doing
      before the widgets are realized */
@@ -111,7 +119,8 @@ main(int argc, char **argv)
 
   /* Tell the VNC server which pixel format and encodings we want to use */
 
-  SetFormatAndEncodings();
+  SendSetPixelFormat();
+  SendSetEncodings();
 
   /* Now enter the main loop, processing VNC messages.  X events will
      automatically be processed whenever the VNC connection is idle. */

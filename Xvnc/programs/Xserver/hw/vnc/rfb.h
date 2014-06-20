@@ -3,6 +3,7 @@
  */
 
 /*
+ *  Copyright (C) 2002-2003 RealVNC Ltd.
  *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
@@ -25,10 +26,10 @@
 #include "colormapst.h"
 #include "gcstruct.h"
 #include "osdep.h"
-#include <rfbproto.h>
-#include <vncauth.h>
+#include <rfb/rfbproto.h>
+#include <rfb/vncauth.h>
 
-#define MAX_ENCODINGS 10
+#define MAX_ENCODINGS 20
 
 extern char *display;
 
@@ -139,6 +140,7 @@ typedef struct rfbClientRec {
     Bool useCopyRect;
     int preferredEncoding;
     int correMaxWidth, correMaxHeight;
+    void* zrleData;
 
     /* The following member is only used during VNC authentication */
 
@@ -273,6 +275,7 @@ static const int rfbEndianTest = 1;
 #define Swap32IfLE(l) (*(const char *)&rfbEndianTest ? Swap32(l) : (l))
 
 extern char *desktopName;
+extern Bool rfbTrace;
 extern char rfbThisHost[];
 extern Atom VNC_LAST_CLIENT_ID;
 
@@ -290,16 +293,11 @@ extern void rfbLogPerror(char *str);
 
 extern int rfbMaxClientWait;
 
-extern int udpPort;
-extern int udpSock;
-extern Bool udpSockConnected;
-
 extern int rfbPort;
 extern int rfbListenSock;
 extern Bool rfbLocalhostOnly;
 
 extern void rfbInitSockets();
-extern void rfbDisconnectUDPSock();
 extern void rfbCloseSock();
 extern void rfbCheckFds();
 extern void rfbWaitForClient(int sock);
@@ -308,7 +306,6 @@ extern int rfbConnect(char *host, int port);
 extern int ReadExact(int sock, char *buf, int len);
 extern int WriteExact(int sock, char *buf, int len);
 extern int ListenOnTCPPort(int port);
-extern int ListenOnUDPPort(int port);
 extern int ConnectToTcpAddr(char *host, int port);
 
 
@@ -334,6 +331,7 @@ extern void rfbCopyWindow(WindowPtr, DDXPointRec, RegionPtr);
 extern void rfbClearToBackground(WindowPtr, int x, int y, int w,
 				 int h, Bool generateExposures);
 extern RegionPtr rfbRestoreAreas(WindowPtr, RegionPtr);
+extern void rfbScheduleDeferredUpdate(rfbClientPtr cl);
 
 
 /* cutpaste.c */
@@ -343,8 +341,6 @@ extern void rfbGotXCutText(char *str, int len);
 
 
 /* kbdptr.c */
-
-extern unsigned char ptrAcceleration;
 
 extern void PtrDeviceInit();
 extern void PtrDeviceOn();
@@ -377,14 +373,13 @@ extern rfbClientPtr pointerClient;
 extern Bool rfbAlwaysShared;
 extern Bool rfbNeverShared;
 extern Bool rfbDontDisconnect;
+extern int rfbMaxRects;
 
 extern void rfbNewClientConnection(int sock);
 extern rfbClientPtr rfbReverseConnection(char *host, int port);
 extern void rfbClientConnectionGone(int sock);
 extern void rfbProcessClientMessage(int sock);
 extern void rfbClientConnFailed(rfbClientPtr cl, char *reason);
-extern void rfbNewUDPConnection(int sock);
-extern void rfbProcessUDPInput(int sock);
 extern Bool rfbSendFramebufferUpdate(rfbClientPtr cl);
 extern Bool rfbSendRectEncodingRaw(rfbClientPtr cl, int x,int y,int w,int h);
 extern Bool rfbSendUpdateBuf(rfbClientPtr cl);
@@ -425,7 +420,7 @@ extern void httpCheckFds();
 extern char *rfbAuthPasswdFile;
 extern Bool rfbAuthenticating;
 
-extern void rfbAuthNewClientConnection(rfbClientPtr cl);
+extern void rfbAuthNewClient(rfbClientPtr cl);
 extern void rfbAuthProcessClientMessage(rfbClientPtr cl);
 
 
@@ -444,6 +439,11 @@ extern Bool rfbSendRectEncodingCoRRE(rfbClientPtr cl, int x,int y,int w,int h);
 extern Bool rfbSendRectEncodingHextile(rfbClientPtr cl, int x, int y, int w,
 				       int h);
 
+/* zrle.c */
+
+extern Bool rfbSendRectEncodingZRLE(rfbClientPtr cl, int x, int y, int w,
+                                    int h);
+extern void FreeZrleData(rfbClientPtr cl);
 
 /* stats.c */
 

@@ -1,4 +1,5 @@
 /*
+ *  Copyright (C) 2002 RealVNC Ltd.
  *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
@@ -27,7 +28,7 @@
 #include <X11/Xaw/Command.h>
 #include <X11/Xaw/Toggle.h>
 
-Widget popup, fullScreenToggle;
+Widget popup;
 
 void
 ShowPopup(Widget w, XEvent *event, String *params, Cardinal *num_params)
@@ -54,7 +55,7 @@ static XtResource resources[] = {
 void
 CreatePopup()
 {
-  Widget buttonForm, button, prevButton = NULL;
+  Widget buttonForm, button = 0, prevButton = 0;
   int i;
   char buttonName[12];
   String buttonType;

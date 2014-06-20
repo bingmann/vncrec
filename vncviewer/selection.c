@@ -1,4 +1,5 @@
 /*
+ *  Copyright (C) 2002 RealVNC Ltd.
  *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
@@ -21,7 +22,7 @@
  * selection.c - functions to deal with the selection and cut buffer.
  */
 
-#include <vncviewer.h>
+#include "vncviewer.h"
 
 static void GetInitialSelectionTimeCallback(Widget w, XtPointer clientData,
 					    Atom* selection, Atom* type,

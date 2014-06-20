@@ -3,6 +3,7 @@
  */
 
 /*
+ *  Copyright (C) 2002-2003 RealVNC Ltd.
  *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
@@ -51,9 +52,8 @@ from the X Consortium.
 
 */
 
-/* Use ``#define CORBA'' to enable CORBA control interface */
-
 #include <stdio.h>
+#include <stdlib.h>
 #include <stdarg.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -67,6 +67,7 @@ from the X Consortium.
 #include "servermd.h"
 #define PSZ 8
 #include "cfb.h"
+#include "mi.h"
 #include "mibstore.h"
 #include "colormapst.h"
 #include "gcstruct.h"
@@ -79,10 +80,10 @@ from the X Consortium.
 #include <sys/param.h>
 #include "dix.h"
 #include "rfb.h"
+#include "dispcur.h"
 
-#ifdef CORBA
-#include <vncserverctrl.h>
-#endif
+extern Bool cfb16ScreenInit(ScreenPtr, pointer, int, int, int, int, int);
+extern Bool cfb32ScreenInit(ScreenPtr, pointer, int, int, int, int, int);
 
 #define RFB_DEFAULT_WIDTH  640
 #define RFB_DEFAULT_HEIGHT 480
@@ -96,11 +97,13 @@ int rfbGCIndex;
 static Bool initOutputCalled = FALSE;
 static Bool noCursor = FALSE;
 char *desktopName = "x11";
+Bool rfbTrace = FALSE;
 
 char rfbThisHost[256];
 
 Atom VNC_LAST_CLIENT_ID;
 Atom VNC_CONNECT;
+Atom VNC_DEFER_UPDATE;
 
 static HWEventQueueType alwaysCheckForInput[2] = { 0, 1 };
 static HWEventQueueType *mieqCheckForInput[2];
@@ -132,6 +135,8 @@ static miPointerScreenFuncRec rfbPointerCursorFuncs = {
 int inetdSock = -1;
 static char inetdDisplayNumStr[10];
 
+extern char buildtime[];
+
 
 /*
  * ddxProcessArgument is our first entry point and will be called at the
@@ -158,7 +163,7 @@ ddxProcessArgument (argc, argv, i)
         firstTime = FALSE;
     }
 
-    if (strcmp (argv[i], "-geometry") == 0)	/* -geometry WxH */
+    if (strcasecmp (argv[i], "-geometry") == 0)	/* -geometry WxH */
     {
 	if (i + 1 >= argc) UseMsg();
 	if (sscanf(argv[i+1],"%dx%d",
@@ -166,24 +171,17 @@ ddxProcessArgument (argc, argv, i)
 	    ErrorF("Invalid geometry %s\n", argv[i+1]);
 	    UseMsg();
 	}
-#ifdef CORBA
-	screenWidth= rfbScreen.width;
-	screenHeight= rfbScreen.height;
-#endif
 	return 2;
     }
 
-    if (strcmp (argv[i], "-depth") == 0)	/* -depth D */
+    if (strcasecmp (argv[i], "-depth") == 0)	/* -depth D */
     {
 	if (i + 1 >= argc) UseMsg();
 	rfbScreen.depth = atoi(argv[i+1]);
-#ifdef CORBA
-	screenDepth= rfbScreen.depth;
-#endif
 	return 2;
     }
 
-    if (strcmp (argv[i], "-pixelformat") == 0) {
+    if (strcasecmp (argv[i], "-pixelformat") == 0) {
 	if (i + 1 >= argc) UseMsg();
 	if (sscanf(argv[i+1], "%3s%1d%1d%1d", primaryOrder,
 		   &redBits, &greenBits, &blueBits) < 4) {
@@ -203,97 +201,102 @@ ddxProcessArgument (argc, argv, i)
 	return 2;
     }
 
-    if (strcmp (argv[i], "-blackpixel") == 0) {	/* -blackpixel n */
+    if (strcasecmp (argv[i], "-blackpixel") == 0) {	/* -blackpixel n */
 	if (i + 1 >= argc) UseMsg();
 	rfbScreen.blackPixel = atoi(argv[i+1]);
 	return 2;
     }
 
-    if (strcmp (argv[i], "-whitepixel") == 0) {	/* -whitepixel n */
+    if (strcasecmp (argv[i], "-whitepixel") == 0) {	/* -whitepixel n */
 	if (i + 1 >= argc) UseMsg();
 	rfbScreen.whitePixel = atoi(argv[i+1]);
 	return 2;
     }
 
-    if (strcmp(argv[i], "-udpinputport") == 0) { /* -udpinputport port */
-	if (i + 1 >= argc) UseMsg();
-	udpPort = atoi(argv[i+1]);
-	return 2;
-    }
-
-    if (strcmp(argv[i], "-rfbport") == 0) {	/* -rfbport port */
+    if (strcasecmp(argv[i], "-rfbport") == 0) {	/* -rfbport port */
 	if (i + 1 >= argc) UseMsg();
 	rfbPort = atoi(argv[i+1]);
 	return 2;
     }
 
-    if (strcmp(argv[i], "-rfbwait") == 0) {	/* -rfbwait ms */
+    if (strcasecmp(argv[i], "-rfbwait") == 0) {	/* -rfbwait ms */
 	if (i + 1 >= argc) UseMsg();
 	rfbMaxClientWait = atoi(argv[i+1]);
 	return 2;
     }
 
-    if (strcmp(argv[i], "-nocursor") == 0) {
+    if (strcasecmp(argv[i], "-nocursor") == 0) {
 	noCursor = TRUE;
 	return 1;
     }
 
-    if (strcmp(argv[i], "-rfbauth") == 0) {	/* -rfbauth passwd-file */
+    if (strcasecmp(argv[i], "-rfbauth") == 0) {	/* -rfbauth passwd-file */
 	if (i + 1 >= argc) UseMsg();
 	rfbAuthPasswdFile = argv[i+1];
 	return 2;
     }
 
-    if (strcmp(argv[i], "-httpd") == 0) {
+    if (strcasecmp(argv[i], "-httpd") == 0) {
 	if (i + 1 >= argc) UseMsg();
 	httpDir = argv[i+1];
 	return 2;
     }
 
-    if (strcmp(argv[i], "-httpport") == 0) {
+    if (strcasecmp(argv[i], "-httpport") == 0) {
 	if (i + 1 >= argc) UseMsg();
 	httpPort = atoi(argv[i+1]);
 	return 2;
     }
 
-    if (strcmp(argv[i], "-deferupdate") == 0) {	/* -deferupdate ms */
+    if (strcasecmp(argv[i], "-deferupdate") == 0) {	/* -deferupdate ms */
 	if (i + 1 >= argc) UseMsg();
 	rfbDeferUpdateTime = atoi(argv[i+1]);
 	return 2;
     }
 
-    if (strcmp(argv[i], "-economictranslate") == 0) {
+    if (strcasecmp(argv[i], "-economictranslate") == 0) {
 	rfbEconomicTranslate = TRUE;
 	return 1;
     }
 
-    if (strcmp(argv[i], "-desktop") == 0) {	/* -desktop desktop-name */
+    if (strcasecmp(argv[i], "-maxrects") == 0) {
+	if (i + 1 >= argc) UseMsg();
+	rfbMaxRects = atoi(argv[i+1]);
+	return 2;
+    }
+
+    if (strcasecmp(argv[i], "-trace") == 0) {
+        rfbTrace = TRUE;
+	return 1;
+    }
+
+    if (strcasecmp(argv[i], "-desktop") == 0) {	/* -desktop desktop-name */
 	if (i + 1 >= argc) UseMsg();
 	desktopName = argv[i+1];
 	return 2;
     }
 
-    if (strcmp(argv[i], "-alwaysshared") == 0) {
+    if (strcasecmp(argv[i], "-alwaysshared") == 0) {
 	rfbAlwaysShared = TRUE;
 	return 1;
     }
 
-    if (strcmp(argv[i], "-nevershared") == 0) {
+    if (strcasecmp(argv[i], "-nevershared") == 0) {
 	rfbNeverShared = TRUE;
 	return 1;
     }
 
-    if (strcmp(argv[i], "-dontdisconnect") == 0) {
+    if (strcasecmp(argv[i], "-dontdisconnect") == 0) {
 	rfbDontDisconnect = TRUE;
 	return 1;
     }
 
-    if (strcmp(argv[i], "-localhost") == 0) {
+    if (strcasecmp(argv[i], "-localhost") == 0) {
 	rfbLocalhostOnly = TRUE;
 	return 1;
     }
 
-    if (strcmp(argv[i], "-inetd") == 0) {	/* -inetd */ 
+    if (strcasecmp(argv[i], "-inetd") == 0) {	/* -inetd */ 
 	int n;
 	for (n = 1; n < 100; n++) {
 	    if (CheckDisplayNumber(n))
@@ -341,11 +344,11 @@ InitOutput(screenInfo, argc, argv)
 {
     initOutputCalled = TRUE;
 
-    rfbLog("Xvnc version %d.%d.%s\n", rfbProtocolMajorVersion,
-	   rfbProtocolMinorVersion,XVNCRELEASE);
-    rfbLog("Copyright (C) AT&T Laboratories Cambridge.\n");
+    rfbLog("Xvnc version %s - built %s\n", XVNCRELEASE, buildtime);
+    rfbLog("Copyright (C) 2002-2003 RealVNC Ltd.\n");
+    rfbLog("Copyright (C) 1994-2000 AT&T Laboratories Cambridge.\n");
     rfbLog("All Rights Reserved.\n");
-    rfbLog("See http://www.uk.research.att.com/vnc for information on VNC\n");
+    rfbLog("See http://www.realvnc.com for information on VNC\n");
     rfbLog("Desktop name '%s' (%s:%s)\n",desktopName,rfbThisHost,display);
     rfbLog("Protocol version supported %d.%d\n", rfbProtocolMajorVersion,
 	   rfbProtocolMinorVersion);
@@ -353,14 +356,12 @@ InitOutput(screenInfo, argc, argv)
     VNC_LAST_CLIENT_ID = MakeAtom("VNC_LAST_CLIENT_ID",
 				  strlen("VNC_LAST_CLIENT_ID"), TRUE);
     VNC_CONNECT = MakeAtom("VNC_CONNECT", strlen("VNC_CONNECT"), TRUE);
+    VNC_DEFER_UPDATE = MakeAtom("VNC_DEFER_UPDATE",
+                                strlen("VNC_DEFER_UPDATE"), TRUE);
     rfbInitSockets();
     if (inetdSock == -1)
 	httpInitSockets();
    
-
-#ifdef CORBA
-    initialiseCORBA(argc, argv, desktopName);
-#endif
 
     /* initialize pixmap formats */
 
@@ -501,6 +502,20 @@ rfbScreenInit(index, pScreen, argc, argv)
 	exit(1);
     }
 
+    if (strcmp(primaryOrder, "") == 0) {
+      if (prfb->depth == 16) { /* use rgb565 for depth 16 */
+        strcpy(primaryOrder, "rgb");
+        redBits = 5;
+        greenBits = 6;
+        blueBits = 5;
+      } else if (prfb->depth == 24) { /* use rgb888 for depth 24 */
+        strcpy(primaryOrder, "rgb");
+        redBits = 8;
+        greenBits = 8;
+        blueBits = 8;
+      }
+    }
+
     if (strcasecmp(primaryOrder, "rgb") == 0) {
 	vis->offsetBlue = 0;
 	vis->blueMask = (1 << blueBits) - 1;
@@ -567,7 +582,7 @@ InitInput(argc, argv)
     RegisterKeyboardDevice(k);
     RegisterPointerDevice(p);
     miRegisterPointerDevice(screenInfo.screens[0], p);
-    (void)mieqInit (k, p);
+    mieqInit((DevicePtr)k, (DevicePtr)p);
     mieqCheckForInput[0] = checkForInput[0];
     mieqCheckForInput[1] = checkForInput[1];
     SetInputCheck(&alwaysCheckForInput[0], &alwaysCheckForInput[1]);
@@ -662,9 +677,6 @@ ProcessInputEvents()
 {
     rfbCheckFds();
     httpCheckFds();
-#ifdef CORBA
-    corbaCheckFds();
-#endif
     if (*mieqCheckForInput[0] != *mieqCheckForInput[1]) {
 	mieqProcessInputEvents();
 	miPointerUpdate();
@@ -696,6 +708,10 @@ static Bool CheckDisplayNumber(int n)
     if (access(fname, F_OK) == 0)
 	return FALSE;
 
+    sprintf(fname, "/usr/spool/sockets/X11/%d", n);
+    if (access(fname, F_OK) == 0)
+	return FALSE;
+
     return TRUE;
 }
 
@@ -707,31 +723,45 @@ rfbRootPropertyChange(PropertyPtr pProp)
 	&& (pProp->format == 8))
     {
 	rfbGotXCutText(pProp->data, pProp->size);
-	return;
     }
-    if ((pProp->propertyName == VNC_CONNECT) && (pProp->type == XA_STRING)
-	&& (pProp->format == 8))
+    else if ((pProp->propertyName == VNC_CONNECT) && (pProp->type == XA_STRING)
+             && (pProp->format == 8))
     {
-	int i;
-	rfbClientPtr cl;
-	int port = 5500;
-	char *host = (char *)Xalloc(pProp->size+1);
-	memcpy(host, pProp->data, pProp->size);
-	host[pProp->size] = 0;
-	for (i = 0; i < pProp->size; i++) {
+	if (pProp->size == 0) {
+          rfbClientPtr cl, nextCl;
+          rfbLog("VNC_CONNECT message: disconnecting all clients\n");
+          for (cl = rfbClientHead; cl; cl = nextCl) {
+            nextCl = cl->next;
+            rfbCloseSock(cl->sock);
+          }
+        } else {
+          int i;
+          rfbClientPtr cl;
+          int port = 5500;
+          char *host = (char *)Xalloc(pProp->size+1);
+          memcpy(host, pProp->data, pProp->size);
+          host[pProp->size] = 0;
+          for (i = 0; i < pProp->size; i++) {
 	    if (host[i] == ':') {
-		port = atoi(&host[i+1]);
-		host[i] = 0;
+              port = atoi(&host[i+1]);
+              host[i] = 0;
 	    }
-	}
+          }
 
-	cl = rfbReverseConnection(host, port);
+          cl = rfbReverseConnection(host, port);
 
-#ifdef CORBA
-	if (cl != NULL)
-	    newConnection(cl, (KEYBOARD_DEVICE|POINTER_DEVICE), 1, 1, 1);
-#endif
-	free(host);
+          free(host);
+        }
+        return;
+    }
+    else if ((pProp->propertyName == VNC_DEFER_UPDATE) &&
+             (pProp->type == XA_STRING) && (pProp->format == 8))
+    {
+      char *str = (char *)Xalloc(pProp->size+1);
+      memcpy(str, pProp->data, pProp->size);
+      str[pProp->size] = 0;
+      rfbDeferUpdateTime = atoi(str);
+      free(str);
     }
 }
 
@@ -797,12 +827,11 @@ ddxGiveUp()
 {
     Xfree(rfbScreen.pfbMemory);
     if (initOutputCalled) {
-	char unixSocketName[32];
+	char unixSocketName[256];
 	sprintf(unixSocketName,"/tmp/.X11-unix/X%s",display);
 	unlink(unixSocketName);
-#ifdef CORBA
-	shutdownCORBA();
-#endif
+	sprintf(unixSocketName,"/usr/spool/sockets/X11/%s",display);
+	unlink(unixSocketName);
     }
 }
 
@@ -836,10 +865,10 @@ GetTimeInMillis()
 void
 ddxUseMsg()
 {
+    ErrorF("\nXvnc version %s - built %s\n\n", XVNCRELEASE, buildtime);
     ErrorF("-geometry WxH          set framebuffer width & height\n");
     ErrorF("-depth D               set framebuffer depth\n");
     ErrorF("-pixelformat format    set pixel format (BGRnnn or RGBnnn)\n");
-    ErrorF("-udpinputport port     UDP port for keyboard/pointer data\n");
     ErrorF("-rfbport port          TCP port for RFB protocol\n");
     ErrorF("-rfbwait time          max time in ms to wait for RFB client\n");
     ErrorF("-nocursor              don't put up a cursor\n");
@@ -849,6 +878,8 @@ ddxUseMsg()
     ErrorF("-deferupdate time      time in ms to defer updates "
 							     "(default 40)\n");
     ErrorF("-economictranslate     less memory-hungry translation\n");
+    ErrorF("-maxrects num          max number of rectangles in an update "
+							     "(default 50)\n");
     ErrorF("-desktop name          VNC desktop name (default x11)\n");
     ErrorF("-alwaysshared          always treat new clients as shared\n");
     ErrorF("-nevershared           never treat new clients as shared\n");

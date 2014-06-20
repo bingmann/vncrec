@@ -8,6 +8,7 @@
  */
 
 /*
+ *  Copyright (C) 2002-2003 RealVNC Ltd.
  *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
@@ -65,6 +66,13 @@ extern WindowPtr *WindowTable; /* Why isn't this in a header file? */
 
 int rfbDeferUpdateTime = 40; /* ms */
 
+/* MAX_RECTS_PER_OP is the maximum number of rectangles we generate from
+   operations like Polylines and PolySegment.  If the operation is more complex
+   than this, we simply use the bounding box.  Ideally it would be a
+   command-line option, but that would involve an extra malloc each time, so we
+   fix it here. */
+#define MAX_RECTS_PER_OP 5
+
 
 /****************************************************************************/
 /*
@@ -77,17 +85,23 @@ int rfbDeferUpdateTime = 40; /* ms */
 #define WINDOW_CLIP_REGION(_w, _gc) \
   (((mfbPrivGCPtr)((_gc)->devPrivates[mfbGCPrivateIndex].ptr))->pCompositeClip)
 
-#define TRC(x) /* (fprintf x) */
+#define TRC(x) if (rfbTrace) rfbLog x
 
 /* ADD_TO_MODIFIED_REGION adds the given region to the modified region for each
    client */
 
-#define ADD_TO_MODIFIED_REGION(pScreen,reg)				      \
-  {									      \
-      rfbClientPtr cl;							      \
-      for (cl = rfbClientHead; cl; cl = cl->next) {			      \
+#define ADD_TO_MODIFIED_REGION(pScreen,reg)                                   \
+  {                                                                           \
+      rfbClientPtr cl;                                                        \
+      for (cl = rfbClientHead; cl; cl = cl->next) {                           \
+          if (REGION_NUM_RECTS(&cl->modifiedRegion) > rfbMaxRects) {          \
+              BoxRec boundingBox = *(REGION_EXTENTS((pScreen),                \
+                                                    &cl->modifiedRegion));    \
+              REGION_RESET((pScreen), &cl->modifiedRegion, &boundingBox);     \
+          }                                                                   \
+                                                                              \
 	  REGION_UNION((pScreen),&cl->modifiedRegion,&cl->modifiedRegion,reg);\
-      }									      \
+      }                                                                       \
   }
 
 /* SCHEDULE_FB_UPDATE is used at the end of each drawing routine to schedule an
@@ -109,10 +123,8 @@ int rfbDeferUpdateTime = 40; /* ms */
 
 /* function prototypes */
 
-static void rfbScheduleDeferredUpdate(rfbClientPtr cl);
 static void rfbCopyRegion(ScreenPtr pScreen, rfbClientPtr cl,
 			  RegionPtr src, RegionPtr dst, int dx, int dy);
-static void PrintRegion(ScreenPtr pScreen, RegionPtr reg);
 
 /* GC funcs */
 
@@ -207,7 +219,7 @@ rfbCloseScreen (i, pScreen)
     pScreen->ClearToBackground = prfb->ClearToBackground;
     pScreen->RestoreAreas = prfb->RestoreAreas;
 
-    TRC((stderr,"Unwrapped screen functions\n"));
+    TRC(("Unwrapped screen functions\n"));
 
     return (*pScreen->CloseScreen) (i, pScreen);
 }
@@ -230,7 +242,7 @@ rfbCreateGC (pGC)
 
     ret = (*pScreen->CreateGC) (pGC);
 
-    TRC((stderr,"rfbCreateGC called\n"));
+    TRC(("rfbCreateGC called\n"));
 
     pGCPriv->wrapOps = NULL;
     pGCPriv->wrapFuncs = pGC->funcs;
@@ -253,7 +265,7 @@ rfbPaintWindowBackground (pWin, pRegion, what)
 {
     SCREEN_PROLOGUE(pWin->drawable.pScreen,PaintWindowBackground);
 
-    TRC((stderr,"rfbPaintWindowBackground called\n"));
+    TRC(("rfbPaintWindowBackground called\n"));
 
     ADD_TO_MODIFIED_REGION(pScreen,pRegion);
 
@@ -276,7 +288,7 @@ rfbPaintWindowBorder (pWin, pRegion, what)
 {
     SCREEN_PROLOGUE(pWin->drawable.pScreen,PaintWindowBorder);
 
-    TRC((stderr,"rfbPaintWindowBorder called\n"));
+    TRC(("rfbPaintWindowBorder called\n"));
 
     ADD_TO_MODIFIED_REGION(pScreen,pRegion);
 
@@ -307,7 +319,7 @@ rfbCopyWindow (pWin, ptOldOrg, pOldRegion)
     RegionRec srcRegion, dstRegion;
     SCREEN_PROLOGUE(pWin->drawable.pScreen,CopyWindow);
 
-    TRC((stderr,"rfbCopyWindow called\n"));
+    TRC(("rfbCopyWindow called\n"));
 
     REGION_INIT(pScreen,&dstRegion,NullBox,0);
     REGION_COPY(pScreen,&dstRegion,pOldRegion);
@@ -359,7 +371,7 @@ rfbClearToBackground (pWin, x, y, w, h, generateExposures)
     BoxRec box;
     SCREEN_PROLOGUE(pWin->drawable.pScreen,ClearToBackground);
 
-    TRC((stderr,"rfbClearToBackground called\n"));
+    TRC(("rfbClearToBackground called\n"));
 
     if (!generateExposures) {
 	box.x1 = x + pWin->drawable.x;
@@ -398,7 +410,7 @@ rfbRestoreAreas (pWin, prgnExposed)
     RegionPtr result;
     SCREEN_PROLOGUE(pWin->drawable.pScreen,RestoreAreas);
 
-    TRC((stderr,"rfbRestoreAreas called\n"));
+    TRC(("rfbRestoreAreas called\n"));
 
     ADD_TO_MODIFIED_REGION(pScreen, prgnExposed);
 
@@ -450,7 +462,7 @@ rfbValidateGC (pGC, changes, pDrawable)
 {
     GC_FUNC_PROLOGUE(pGC);
 
-    TRC((stderr,"rfbValidateGC called\n"));
+    TRC(("rfbValidateGC called\n"));
 
     (*pGC->funcs->ValidateGC) (pGC, changes, pDrawable);
     
@@ -464,7 +476,7 @@ rfbValidateGC (pGC, changes, pDrawable)
 	    pRegion = &pWin->borderClip;
 	if (REGION_NOTEMPTY(pDrawable->pScreen, pRegion)) {
 	    pGCPriv->wrapOps = pGC->ops;
-	    TRC((stderr,"rfbValidateGC: wrapped GC ops\n"));
+	    TRC(("rfbValidateGC: wrapped GC ops\n"));
 	}
     }
 
@@ -575,7 +587,7 @@ rfbFillSpans(pDrawable, pGC, nInit, pptInit, pwidthInit, fSorted)
 {
     GC_OP_PROLOGUE(pDrawable,pGC);
 
-    TRC((stderr,"rfbFillSpans called\n"));
+    TRC(("rfbFillSpans called\n"));
 
     ADD_TO_MODIFIED_REGION(pDrawable->pScreen,
 			   &((WindowPtr)pDrawable)->borderClip);
@@ -604,7 +616,7 @@ rfbSetSpans(pDrawable, pGC, psrc, ppt, pwidth, nspans, fSorted)
 {
     GC_OP_PROLOGUE(pDrawable,pGC);
 
-    TRC((stderr,"rfbSetSpans called\n"));
+    TRC(("rfbSetSpans called\n"));
 
     ADD_TO_MODIFIED_REGION(pDrawable->pScreen,
 			   &((WindowPtr)pDrawable)->borderClip);
@@ -638,7 +650,7 @@ rfbPutImage(pDrawable, pGC, depth, x, y, w, h, leftPad, format, pBits)
     BoxRec box;
     GC_OP_PROLOGUE(pDrawable, pGC);
 
-    TRC((stderr,"rfbPutImage called\n"));
+    TRC(("rfbPutImage called\n"));
 
     box.x1 = x + pDrawable->x;
     box.y1 = y + pDrawable->y;
@@ -688,7 +700,7 @@ rfbCopyArea (pSrc, pDst, pGC, srcx, srcy, w, h, dstx, dsty)
     BoxRec box;
     GC_OP_PROLOGUE(pDst, pGC);
 
-    TRC((stderr,"rfbCopyArea called\n"));
+    TRC(("rfbCopyArea called\n"));
 
     box.x1 = dstx + pDst->x;
     box.y1 = dsty + pDst->y;
@@ -765,7 +777,7 @@ rfbCopyPlane (pSrc, pDst, pGC, srcx, srcy, w, h, dstx, dsty, plane)
     BoxRec box;
     GC_OP_PROLOGUE(pDst, pGC);
 
-    TRC((stderr,"rfbCopyPlane called\n"));
+    TRC(("rfbCopyPlane called\n"));
 
     box.x1 = dstx + pDst->x;
     box.y1 = dsty + pDst->y;
@@ -809,7 +821,7 @@ rfbPolyPoint (pDrawable, pGC, mode, npt, pts)
     BoxRec box;
     GC_OP_PROLOGUE(pDrawable, pGC);
 
-    TRC((stderr,"rfbPolyPoint called\n"));
+    TRC(("rfbPolyPoint called: %d points\n",npt));
 
     if (npt) {
 	int minX = pts[0].x, maxX = pts[0].x;
@@ -875,12 +887,14 @@ rfbPolylines (pDrawable, pGC, mode, npt, ppts)
     DDXPointPtr	  ppts;
 {
     RegionPtr tmpRegion;
-    xRectangle *rects;
-    int i, extra, nlines, lw;
-    int x1, x2, y1, y2;
+    xRectangle regRects[MAX_RECTS_PER_OP];
+    int i, extra, nregRects, lw;
+    int prevX, prevY, curX, curY;
+    int rectX1, rectY1, rectX2, rectY2;
+    int minX, minY, maxX, maxY;
     GC_OP_PROLOGUE(pDrawable, pGC);
 
-    TRC((stderr,"rfbPolylines called\n"));
+    TRC(("rfbPolylines called: %d points\n",npt));
 
     if (npt) {
 	lw = pGC->lineWidth;
@@ -889,24 +903,15 @@ rfbPolylines (pDrawable, pGC, mode, npt, ppts)
 
 	if (npt == 1)
 	{
-	    nlines = 1;
-	    rects = (xRectangle *)xalloc(sizeof(xRectangle));
-	    if (!rects) {
-		FatalError("rfbPolylines: xalloc failed\n");
-	    }
-
-	    rects[0].x = ppts[0].x - lw + pDrawable->x; /* being safe here */
-	    rects[0].y = ppts[0].y - lw + pDrawable->y;
-	    rects[0].width = 2*lw;
-	    rects[0].height = 2*lw;
+	    nregRects = 1;
+	    regRects[0].x = ppts[0].x - lw + pDrawable->x; /* being safe */
+	    regRects[0].y = ppts[0].y - lw + pDrawable->y;
+	    regRects[0].width = 2*lw;
+	    regRects[0].height = 2*lw;
 	}
 	else
 	{
-	    nlines = npt - 1;
-	    rects = (xRectangle *)xalloc(nlines*sizeof(xRectangle));
-	    if (!rects) {
-		FatalError("rfbPolylines: xalloc failed\n");
-	    }
+	    nregRects = npt - 1;
 
 	    /*
 	     * mitered joins can project quite a way from
@@ -921,46 +926,69 @@ rfbPolylines (pDrawable, pGC, mode, npt, ppts)
 		extra = lw / 2;
 	    }
 
-	    x1 = ppts[0].x + pDrawable->x;
-	    y1 = ppts[0].y + pDrawable->y;
+	    prevX = ppts[0].x + pDrawable->x;
+	    prevY = ppts[0].y + pDrawable->y;
+            minX = maxX = prevX;
+            minY = maxY = prevY;
 
-	    for (i = 0; i < nlines; i++) {
+	    for (i = 0; i < nregRects; i++) {
 		if (mode == CoordModeOrigin) {
-		    x2 = pDrawable->x + ppts[i+1].x;
-		    y2 = pDrawable->y + ppts[i+1].y;
+		    curX = pDrawable->x + ppts[i+1].x;
+		    curY = pDrawable->y + ppts[i+1].y;
 		} else {
-		    x2 = x1 + ppts[i+1].x;
-		    y2 = y1 + ppts[i+1].y;
+		    curX = prevX + ppts[i+1].x;
+		    curY = prevY + ppts[i+1].y;
 		}
 
-		if (x1 > x2) {
-		    rects[i].x = x2 - extra;
-		    rects[i].width = x1 - x2 + 1 + 2 * extra;
+		if (prevX > curX) {
+                    rectX1 = curX - extra;
+                    rectX2 = prevX + extra + 1;
 		} else {
-		    rects[i].x = x1 - extra;
-		    rects[i].width = x2 - x1 + 1 + 2 * extra;
+                    rectX1 = prevX - extra;
+                    rectX2 = curX + extra + 1;
 		}
 
-		if (y1 > y2) {
-		    rects[i].y = y2 - extra;
-		    rects[i].height = y1 - y2 + 1 + 2 * extra;
+		if (prevY > curY) {
+                    rectY1 = curY - extra;
+                    rectY2 = prevY + extra + 1;
 		} else {
-		    rects[i].y = y1 - extra;
-		    rects[i].height = y2 - y1 + 1 + 2 * extra;
+                    rectY1 = prevY - extra;
+                    rectY2 = curY + extra + 1;
 		}
 
-		x1 = x2;
-		y1 = y2;
+                if (nregRects <= MAX_RECTS_PER_OP) {
+		    regRects[i].x = rectX1;
+		    regRects[i].y = rectY1;
+		    regRects[i].width = rectX2 - rectX1;
+		    regRects[i].height = rectY2 - rectY1;
+                } else {
+                    if (rectX1 < minX) minX = rectX1;
+                    if (rectY1 < minY) minY = rectY1;
+                    if (rectX2 > maxX) maxX = rectX2;
+                    if (rectY2 > maxY) maxY = rectY2;
+                }
+
+		prevX = curX;
+		prevY = curY;
 	    }
+
+            if (nregRects > MAX_RECTS_PER_OP) {
+                regRects[0].x = minX;
+                regRects[0].y = minY;
+                regRects[0].width = maxX - minX;
+                regRects[0].height = maxY - minY;
+                nregRects = 1;
+            }
 	}
-	tmpRegion = RECTS_TO_REGION(pDrawable->pScreen, nlines, rects,CT_NONE);
+
+	tmpRegion = RECTS_TO_REGION(pDrawable->pScreen, nregRects, regRects,
+                                    CT_NONE);
 	REGION_INTERSECT(pDrawable->pScreen, tmpRegion, tmpRegion,
 			 WINDOW_CLIP_REGION((WindowPtr)pDrawable,pGC));
 
 	ADD_TO_MODIFIED_REGION(pDrawable->pScreen, tmpRegion);
 
 	REGION_DESTROY(pDrawable->pScreen, tmpRegion);
-	xfree((char *)rects);
     }
 
     (*pGC->ops->Polylines) (pDrawable, pGC, mode, npt, ppts);
@@ -985,52 +1013,70 @@ rfbPolySegment(pDrawable, pGC, nseg, segs)
     xSegment	*segs;
 {
     RegionPtr tmpRegion;
-    xRectangle *rects;
-    int i, extra, lw;
+    xRectangle regRects[MAX_RECTS_PER_OP];
+    int i, extra, lw, nregRects;
+    int rectX1, rectY1, rectX2, rectY2;
+    int minX, minY, maxX, maxY;
 
     GC_OP_PROLOGUE(pDrawable, pGC);
 
-    TRC((stderr,"rfbPolySegment called\n"));
+    TRC(("rfbPolySegment called: %d segments\n",nseg));
 
     if (nseg) {
-	rects = (xRectangle *)xalloc(nseg*sizeof(xRectangle));
-	if (!rects) {
-	    FatalError("rfbPolySegment: xalloc failed\n");
-	}
-
+        nregRects = nseg;
 	lw = pGC->lineWidth;
-	if (lw == 0)
-	    lw = 1;
-
 	extra = lw / 2;
+
+        minX = maxX = segs[0].x1;
+        minY = maxY = segs[0].y1;
 
 	for (i = 0; i < nseg; i++)
 	{
 	    if (segs[i].x1 > segs[i].x2) {
-		rects[i].x = segs[i].x2 - extra + pDrawable->x;
-		rects[i].width = segs[i].x1 - segs[i].x2 + 1 + 2 * extra;
+                rectX1 = pDrawable->x + segs[i].x2 - extra;
+                rectX2 = pDrawable->x + segs[i].x1 + extra + 1;
 	    } else {
-		rects[i].x = segs[i].x1 - extra + pDrawable->x;
-		rects[i].width = segs[i].x2 - segs[i].x1 + 1 + 2 * extra;
+                rectX1 = pDrawable->x + segs[i].x1 - extra;
+                rectX2 = pDrawable->x + segs[i].x2 + extra + 1;
 	    }
 
 	    if (segs[i].y1 > segs[i].y2) {
-		rects[i].y = segs[i].y2 - extra + pDrawable->y;
-		rects[i].height = segs[i].y1 - segs[i].y2 + 1 + 2 * extra;
+                rectY1 = pDrawable->y + segs[i].y2 - extra;
+                rectY2 = pDrawable->y + segs[i].y1 + extra + 1;
 	    } else {
-		rects[i].y = segs[i].y1 - extra + pDrawable->y;
-		rects[i].height = segs[i].y2 - segs[i].y1 + 1 + 2 * extra;
+                rectY1 = pDrawable->y + segs[i].y1 - extra;
+                rectY2 = pDrawable->y + segs[i].y2 + extra + 1;
 	    }
+
+            if (nseg <= MAX_RECTS_PER_OP) {
+                regRects[i].x = rectX1;
+                regRects[i].y = rectY1;
+                regRects[i].width = rectX2 - rectX1;
+                regRects[i].height = rectY2 - rectY1;
+            } else {
+                if (rectX1 < minX) minX = rectX1;
+                if (rectY1 < minY) minY = rectY1;
+                if (rectX2 > maxX) maxX = rectX2;
+                if (rectY2 > maxY) maxY = rectY2;
+            }
 	}
 
-	tmpRegion = RECTS_TO_REGION(pDrawable->pScreen, nseg, rects, CT_NONE);
+        if (nseg > MAX_RECTS_PER_OP) {
+            regRects[0].x = minX;
+            regRects[0].y = minY;
+            regRects[0].width = maxX - minX;
+            regRects[0].height = maxY - minY;
+            nregRects = 1;
+        }
+
+	tmpRegion = RECTS_TO_REGION(pDrawable->pScreen, nregRects, regRects,
+                                    CT_NONE);
 	REGION_INTERSECT(pDrawable->pScreen, tmpRegion, tmpRegion,
 			 WINDOW_CLIP_REGION((WindowPtr)pDrawable,pGC));
 
 	ADD_TO_MODIFIED_REGION(pDrawable->pScreen, tmpRegion);
 
 	REGION_DESTROY(pDrawable->pScreen, tmpRegion);
-	xfree((char *)rects);
     }
 
     (*pGC->ops->PolySegment) (pDrawable, pGC, nseg, segs);
@@ -1054,51 +1100,68 @@ rfbPolyRectangle(pDrawable, pGC, nrects, rects)
     int		nrects;
     xRectangle	*rects;
 {
-    int i, extra, lw;
+    int i, extra, lw, nregRects;
+    int rectX1, rectY1, rectX2, rectY2;
+    int minX, minY, maxX, maxY;
     RegionPtr tmpRegion;
-    xRectangle *regRects;
+    xRectangle regRects[MAX_RECTS_PER_OP*4];
     GC_OP_PROLOGUE(pDrawable, pGC);
 
-    TRC((stderr,"rfbPolyRectangle called\n"));
+    TRC(("rfbPolyRectangle called: %d rects\n",nrects));
 
     if (nrects) {
-	regRects = (xRectangle *)xalloc(nrects*4*sizeof(xRectangle));
-	if (!regRects) {
-	    FatalError("rfbPolyRectangle: xalloc failed\n");
-	}
-
+        nregRects = nrects * 4;
 	lw = pGC->lineWidth;
-	if (lw == 0)
-	    lw = 1;
-
 	extra = lw / 2;
+
+        minX = maxX = rects[0].x;
+        minY = maxY = rects[0].y;
 
 	for (i = 0; i < nrects; i++)
 	{
-	    regRects[i*4].x = rects[i].x - extra + pDrawable->x;
-	    regRects[i*4].y = rects[i].y - extra + pDrawable->y;
-	    regRects[i*4].width = rects[i].width + 1 + 2 * extra;
-	    regRects[i*4].height = 1 + 2 * extra;
+            if (nrects <= MAX_RECTS_PER_OP) {
+                regRects[i*4].x = rects[i].x - extra + pDrawable->x;
+                regRects[i*4].y = rects[i].y - extra + pDrawable->y;
+                regRects[i*4].width = rects[i].width + 1 + 2 * extra;
+                regRects[i*4].height = 1 + 2 * extra;
 
-	    regRects[i*4+1].x = rects[i].x - extra + pDrawable->x;
-	    regRects[i*4+1].y = rects[i].y - extra + pDrawable->y;
-	    regRects[i*4+1].width = 1 + 2 * extra;
-	    regRects[i*4+1].height = rects[i].height + 1 + 2 * extra;
+                regRects[i*4+1].x = rects[i].x - extra + pDrawable->x;
+                regRects[i*4+1].y = rects[i].y - extra + pDrawable->y;
+                regRects[i*4+1].width = 1 + 2 * extra;
+                regRects[i*4+1].height = rects[i].height + 1 + 2 * extra;
 
-	    regRects[i*4+2].x
-		= rects[i].x + rects[i].width - extra + pDrawable->x;
-	    regRects[i*4+2].y = rects[i].y - extra + pDrawable->y;
-	    regRects[i*4+2].width = 1 + 2 * extra;
-	    regRects[i*4+2].height = rects[i].height + 1 + 2 * extra;
+                regRects[i*4+2].x
+                    = rects[i].x + rects[i].width - extra + pDrawable->x;
+                regRects[i*4+2].y = rects[i].y - extra + pDrawable->y;
+                regRects[i*4+2].width = 1 + 2 * extra;
+                regRects[i*4+2].height = rects[i].height + 1 + 2 * extra;
 
-	    regRects[i*4+3].x = rects[i].x - extra + pDrawable->x;
-	    regRects[i*4+3].y
-		= rects[i].y + rects[i].height - extra + pDrawable->y;
-	    regRects[i*4+3].width = rects[i].width + 1 + 2 * extra;
-	    regRects[i*4+3].height = 1 + 2 * extra;
+                regRects[i*4+3].x = rects[i].x - extra + pDrawable->x;
+                regRects[i*4+3].y
+                    = rects[i].y + rects[i].height - extra + pDrawable->y;
+                regRects[i*4+3].width = rects[i].width + 1 + 2 * extra;
+                regRects[i*4+3].height = 1 + 2 * extra;
+            } else {
+                rectX1 = pDrawable->x + rects[i].x - extra;
+                rectY1 = pDrawable->y + rects[i].y - extra;
+                rectX2 = pDrawable->x + rects[i].x + rects[i].width + extra+1;
+                rectY2 = pDrawable->y + rects[i].y + rects[i].height + extra+1;
+                if (rectX1 < minX) minX = rectX1;
+                if (rectY1 < minY) minY = rectY1;
+                if (rectX2 > maxX) maxX = rectX2;
+                if (rectY2 > maxY) maxY = rectY2;
+            }
 	}
 
-	tmpRegion = RECTS_TO_REGION(pDrawable->pScreen, nrects*4,
+        if (nrects > MAX_RECTS_PER_OP) {
+            regRects[0].x = minX;
+            regRects[0].y = minY;
+            regRects[0].width = maxX - minX;
+            regRects[0].height = maxY - minY;
+            nregRects = 1;
+        }
+
+	tmpRegion = RECTS_TO_REGION(pDrawable->pScreen, nregRects,
 				    regRects, CT_NONE);
 	REGION_INTERSECT(pDrawable->pScreen, tmpRegion, tmpRegion,
 			 WINDOW_CLIP_REGION((WindowPtr)pDrawable,pGC));
@@ -1106,7 +1169,6 @@ rfbPolyRectangle(pDrawable, pGC, nrects, rects)
 	ADD_TO_MODIFIED_REGION(pDrawable->pScreen, tmpRegion);
 
 	REGION_DESTROY(pDrawable->pScreen, tmpRegion);
-	xfree((char *)regRects);
     }
 
     (*pGC->ops->PolyRectangle) (pDrawable, pGC, nrects, rects);
@@ -1130,41 +1192,60 @@ rfbPolyArc(pDrawable, pGC, narcs, arcs)
     int		narcs;
     xArc	*arcs;
 {
-    int i, extra, lw;
+    int i, extra, lw, nregRects;
+    int rectX1, rectY1, rectX2, rectY2;
+    int minX, minY, maxX, maxY;
     RegionPtr tmpRegion;
-    xRectangle *rects;
+    xRectangle regRects[MAX_RECTS_PER_OP];
     GC_OP_PROLOGUE(pDrawable, pGC);
 
-    TRC((stderr,"rfbPolyArc called\n"));
+    TRC(("rfbPolyArc called: %d arcs\n",narcs));
 
     if (narcs) {
-	rects = (xRectangle *)xalloc(narcs*sizeof(xRectangle));
-	if (!rects) {
-	    FatalError("rfbPolyArc: xalloc failed\n");
-	}
-
+        nregRects = narcs;
 	lw = pGC->lineWidth;
 	if (lw == 0)
 	    lw = 1;
-
 	extra = lw / 2;
+
+        minX = maxX = arcs[0].x;
+        minY = maxY = arcs[0].y;
 
 	for (i = 0; i < narcs; i++)
 	{
-	    rects[i].x = arcs[i].x - extra + pDrawable->x;
-	    rects[i].y = arcs[i].y - extra + pDrawable->y;
-	    rects[i].width = arcs[i].width + lw;
-	    rects[i].height = arcs[i].height + lw;
+            if (narcs <= MAX_RECTS_PER_OP) {
+                regRects[i].x = arcs[i].x - extra + pDrawable->x;
+                regRects[i].y = arcs[i].y - extra + pDrawable->y;
+                regRects[i].width = arcs[i].width + lw;
+                regRects[i].height = arcs[i].height + lw;
+            } else {
+                rectX1 = pDrawable->x + arcs[i].x - extra;
+                rectY1 = pDrawable->y + arcs[i].y - extra;
+                rectX2 = pDrawable->x + arcs[i].x + arcs[i].width + lw;
+                rectY2 = pDrawable->y + arcs[i].y + arcs[i].height + lw;
+                if (rectX1 < minX) minX = rectX1;
+                if (rectY1 < minY) minY = rectY1;
+                if (rectX2 > maxX) maxX = rectX2;
+                if (rectY2 > maxY) maxY = rectY2;
+            }
 	}
 
-	tmpRegion = RECTS_TO_REGION(pDrawable->pScreen, narcs, rects, CT_NONE);
+        if (narcs > MAX_RECTS_PER_OP) {
+            regRects[0].x = minX;
+            regRects[0].y = minY;
+            regRects[0].width = maxX - minX;
+            regRects[0].height = maxY - minY;
+            nregRects = 1;
+        }
+
+	tmpRegion = RECTS_TO_REGION(pDrawable->pScreen, nregRects, regRects,
+                                    CT_NONE);
 	REGION_INTERSECT(pDrawable->pScreen, tmpRegion, tmpRegion,
 			 WINDOW_CLIP_REGION((WindowPtr)pDrawable,pGC));
 
 	ADD_TO_MODIFIED_REGION(pDrawable->pScreen, tmpRegion);
 
 	REGION_DESTROY(pDrawable->pScreen, tmpRegion);
-	xfree((char *)rects);
     }
 
     (*pGC->ops->PolyArc) (pDrawable, pGC, narcs, arcs);
@@ -1193,7 +1274,7 @@ rfbFillPolygon(pDrawable, pGC, shape, mode, count, pts)
     BoxRec box;
     GC_OP_PROLOGUE(pDrawable, pGC);
 
-    TRC((stderr,"rfbFillPolygon called\n"));
+    TRC(("rfbFillPolygon called\n"));
 
     if (count) {
 	int minX = pts[0].x, maxX = pts[0].x;
@@ -1258,26 +1339,47 @@ rfbPolyFillRect(pDrawable, pGC, nrects, rects)
     xRectangle	*rects;
 {
     RegionPtr tmpRegion;
-    xRectangle *regRects;
-    int i;
+    xRectangle regRects[MAX_RECTS_PER_OP];
+    int i, nregRects;
+    int rectX1, rectY1, rectX2, rectY2;
+    int minX, minY, maxX, maxY;
     GC_OP_PROLOGUE(pDrawable, pGC);
 
-    TRC((stderr,"rfbPolyFillRect called\n"));
+    TRC(("rfbPolyFillRect called: %d rects\n",nrects));
 
     if (nrects) {
-	regRects = (xRectangle *)xalloc(nrects*sizeof(xRectangle));
-	if (!regRects) {
-	    FatalError("rfbPolyFillRect: xalloc failed\n");
-	}
+        nregRects = nrects;
+
+        minX = maxX = rects[0].x;
+        minY = maxY = rects[0].y;
 
 	for (i = 0; i < nrects; i++) {
-	    regRects[i].x = rects[i].x + pDrawable->x;
-	    regRects[i].y = rects[i].y + pDrawable->y;
-	    regRects[i].width = rects[i].width;
-	    regRects[i].height = rects[i].height;
+            if (nrects <= MAX_RECTS_PER_OP) {
+                regRects[i].x = rects[i].x + pDrawable->x;
+                regRects[i].y = rects[i].y + pDrawable->y;
+                regRects[i].width = rects[i].width;
+                regRects[i].height = rects[i].height;
+            } else {
+                rectX1 = pDrawable->x + rects[i].x;
+                rectY1 = pDrawable->y + rects[i].y;
+                rectX2 = pDrawable->x + rects[i].x + rects[i].width;
+                rectY2 = pDrawable->y + rects[i].y + rects[i].height;
+                if (rectX1 < minX) minX = rectX1;
+                if (rectY1 < minY) minY = rectY1;
+                if (rectX2 > maxX) maxX = rectX2;
+                if (rectY2 > maxY) maxY = rectY2;
+            }
 	}
 
-	tmpRegion = RECTS_TO_REGION(pDrawable->pScreen, nrects, regRects,
+        if (nrects > MAX_RECTS_PER_OP) {
+            regRects[0].x = minX;
+            regRects[0].y = minY;
+            regRects[0].width = maxX - minX;
+            regRects[0].height = maxY - minY;
+            nregRects = 1;
+        }
+
+	tmpRegion = RECTS_TO_REGION(pDrawable->pScreen, nregRects, regRects,
 				    CT_NONE);
 	REGION_INTERSECT(pDrawable->pScreen, tmpRegion, tmpRegion,
 			 WINDOW_CLIP_REGION((WindowPtr)pDrawable,pGC));
@@ -1285,7 +1387,6 @@ rfbPolyFillRect(pDrawable, pGC, nrects, rects)
 	ADD_TO_MODIFIED_REGION(pDrawable->pScreen, tmpRegion);
 
 	REGION_DESTROY(pDrawable->pScreen, tmpRegion);
-	xfree((char *)regRects);
     }
 
     (*pGC->ops->PolyFillRect) (pDrawable, pGC, nrects, rects);
@@ -1309,41 +1410,60 @@ rfbPolyFillArc(pDrawable, pGC, narcs, arcs)
     int		narcs;
     xArc	*arcs;
 {
-    int i, extra, lw;
+    int i, extra, lw, nregRects;
+    int rectX1, rectY1, rectX2, rectY2;
+    int minX, minY, maxX, maxY;
     RegionPtr tmpRegion;
-    xRectangle *rects;
+    xRectangle regRects[MAX_RECTS_PER_OP];
     GC_OP_PROLOGUE(pDrawable, pGC);
 
-    TRC((stderr,"rfbPolyFillArc called\n"));
+    TRC(("rfbPolyFillArc called: %d arcs\n",narcs));
 
     if (narcs) {
-	rects = (xRectangle *)xalloc(narcs*sizeof(xRectangle));
-	if (!rects) {
-	    FatalError("rfbPolyFillArc: xalloc failed\n");
-	}
-
+        nregRects = narcs;
 	lw = pGC->lineWidth;
 	if (lw == 0)
 	    lw = 1;
-
 	extra = lw / 2;
+
+        minX = maxX = arcs[0].x;
+        minY = maxY = arcs[0].y;
 
 	for (i = 0; i < narcs; i++)
 	{
-	    rects[i].x = arcs[i].x - extra + pDrawable->x;
-	    rects[i].y = arcs[i].y - extra + pDrawable->y;
-	    rects[i].width = arcs[i].width + lw;
-	    rects[i].height = arcs[i].height + lw;
+            if (narcs <= MAX_RECTS_PER_OP) {
+                regRects[i].x = arcs[i].x - extra + pDrawable->x;
+                regRects[i].y = arcs[i].y - extra + pDrawable->y;
+                regRects[i].width = arcs[i].width + lw;
+                regRects[i].height = arcs[i].height + lw;
+            } else {
+                rectX1 = pDrawable->x + arcs[i].x - extra;
+                rectY1 = pDrawable->y + arcs[i].y - extra;
+                rectX2 = pDrawable->x + arcs[i].x + arcs[i].width + lw;
+                rectY2 = pDrawable->y + arcs[i].y + arcs[i].height + lw;
+                if (rectX1 < minX) minX = rectX1;
+                if (rectY1 < minY) minY = rectY1;
+                if (rectX2 > maxX) maxX = rectX2;
+                if (rectY2 > maxY) maxY = rectY2;
+            }
 	}
 
-	tmpRegion = RECTS_TO_REGION(pDrawable->pScreen, narcs, rects, CT_NONE);
+        if (narcs > MAX_RECTS_PER_OP) {
+            regRects[0].x = minX;
+            regRects[0].y = minY;
+            regRects[0].width = maxX - minX;
+            regRects[0].height = maxY - minY;
+            nregRects = 1;
+        }
+
+	tmpRegion = RECTS_TO_REGION(pDrawable->pScreen, nregRects, regRects,
+                                    CT_NONE);
 	REGION_INTERSECT(pDrawable->pScreen, tmpRegion, tmpRegion,
 			 WINDOW_CLIP_REGION((WindowPtr)pDrawable,pGC));
 
 	ADD_TO_MODIFIED_REGION(pDrawable->pScreen, tmpRegion);
 
 	REGION_DESTROY(pDrawable->pScreen, tmpRegion);
-	xfree((char *)rects);
     }
 
     (*pGC->ops->PolyFillArc) (pDrawable, pGC, narcs, arcs);
@@ -1410,7 +1530,7 @@ rfbPolyText8(pDrawable, pGC, x, y, count, chars)
     BoxRec box;
     GC_OP_PROLOGUE(pDrawable, pGC);
 
-    TRC((stderr,"rfbPolyText8 called '%.*s'\n",count,chars));
+    TRC(("rfbPolyText8 called '%.*s'\n",count,chars));
 
     if (count) {
 	GetTextBoundingBox(pDrawable, pGC->font, x, y, count, &box);
@@ -1452,7 +1572,7 @@ rfbPolyText16(pDrawable, pGC, x, y, count, chars)
     BoxRec box;
     GC_OP_PROLOGUE(pDrawable, pGC);
 
-    TRC((stderr,"rfbPolyText16 called\n"));
+    TRC(("rfbPolyText16 called\n"));
 
     if (count) {
 	GetTextBoundingBox(pDrawable, pGC->font, x, y, count, &box);
@@ -1493,7 +1613,7 @@ rfbImageText8(pDrawable, pGC, x, y, count, chars)
     BoxRec box;
     GC_OP_PROLOGUE(pDrawable, pGC);
 
-    TRC((stderr,"rfbImageText8 called '%.*s'\n",count,chars));
+    TRC(("rfbImageText8 called '%.*s'\n",count,chars));
 
     if (count) {
 	GetTextBoundingBox(pDrawable, pGC->font, x, y, count, &box);
@@ -1533,7 +1653,7 @@ rfbImageText16(pDrawable, pGC, x, y, count, chars)
     BoxRec box;
     GC_OP_PROLOGUE(pDrawable, pGC);
 
-    TRC((stderr,"rfbImageText16 called\n"));
+    TRC(("rfbImageText16 called\n"));
 
     if (count) {
 	GetTextBoundingBox(pDrawable, pGC->font, x, y, count, &box);
@@ -1574,7 +1694,7 @@ rfbImageGlyphBlt(pDrawable, pGC, x, y, nglyph, ppci, pglyphBase)
     BoxRec box;
     GC_OP_PROLOGUE(pDrawable, pGC);
 
-    TRC((stderr,"rfbImageGlyphBlt called\n"));
+    TRC(("rfbImageGlyphBlt called\n"));
 
     if (nglyph) {
 	GetTextBoundingBox(pDrawable, pGC->font, x, y, nglyph, &box);
@@ -1615,7 +1735,7 @@ rfbPolyGlyphBlt(pDrawable, pGC, x, y, nglyph, ppci, pglyphBase)
     BoxRec box;
     GC_OP_PROLOGUE(pDrawable, pGC);
 
-    TRC((stderr,"rfbPolyGlyphBlt called\n"));
+    TRC(("rfbPolyGlyphBlt called\n"));
 
     if (nglyph) {
 	GetTextBoundingBox(pDrawable, pGC->font, x, y, nglyph, &box);
@@ -1655,7 +1775,7 @@ rfbPushPixels(pGC, pBitMap, pDrawable, w, h, x, y)
     BoxRec box;
     GC_OP_PROLOGUE(pDrawable, pGC);
 
-    TRC((stderr,"rfbPushPixels called\n"));
+    TRC(("rfbPushPixels called\n"));
 
     box.x1 = x + pDrawable->x;
     box.y1 = y + pDrawable->y;
@@ -1834,7 +1954,7 @@ rfbDeferredUpdateCallback(OsTimerPtr timer, CARD32 now, pointer arg)
  * to schedule an update.
  */
 
-static void
+void
 rfbScheduleDeferredUpdate(rfbClientPtr cl)
 {
     if (rfbDeferUpdateTime != 0) {
@@ -1852,6 +1972,7 @@ rfbScheduleDeferredUpdate(rfbClientPtr cl)
  * PrintRegion is useful for debugging.
  */
 
+#if 0
 static void
 PrintRegion(pScreen,reg)
     ScreenPtr pScreen;
@@ -1874,3 +1995,4 @@ PrintRegion(pScreen,reg)
 	       REGION_RECTS(reg)[i].y2-REGION_RECTS(reg)[i].y1);
     }
 }
+#endif

@@ -1,4 +1,5 @@
 /*
+ *  Copyright (C) 2002 RealVNC Ltd.
  *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
@@ -26,7 +27,7 @@
 #include <sys/wait.h>
 #include <sys/time.h>
 #include <sys/utsname.h>
-#include <vncviewer.h>
+#include "vncviewer.h"
 
 #define FLASHWIDTH 50	/* pixels */
 #define FLASHDELAY 1	/* seconds */
@@ -164,9 +165,9 @@ listenForIncomingConnections(int *argc, char **argv, int listenArgIndex)
     }
 
     if (FD_ISSET(listenSocket, &fds)) {
-      rfbsock = AcceptTcpConnection(listenSocket);
-      if (rfbsock < 0) exit(1);
-      if (!SetNonBlocking(rfbsock)) exit(1);
+      sock = AcceptTcpConnection(listenSocket);
+      if (sock < 0) exit(1);
+      if (!SetRFBSock(sock)) exit(1);
 
       XCloseDisplay(d);
 
@@ -186,7 +187,7 @@ listenForIncomingConnections(int *argc, char **argv, int listenArgIndex)
 
       default:
 	/* parent - go round and listen again */
-	close(rfbsock); 
+	close(sock); 
 	if (!(d = XOpenDisplay(displayname))) {
 	  fprintf(stderr,"%s: unable to open display %s\n",
 		  programName, XDisplayName(displayname));

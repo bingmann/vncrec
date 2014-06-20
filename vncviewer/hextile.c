@@ -1,4 +1,5 @@
 /*
+ *  Copyright (C) 2002 RealVNC Ltd.
  *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
@@ -66,7 +67,7 @@ HandleHextileBPP (int rx, int ry, int rw, int rh)
 	  return False;
 
 #if (BPP == 8)
-      if (appData.useBGR233)
+      if (usingBGR233)
 	gcv.foreground = BGR233ToPixel[bg];
       else
 #endif
@@ -101,7 +102,7 @@ HandleHextileBPP (int rx, int ry, int rw, int rh)
 	  sh = rfbHextileExtractH(*ptr);
 	  ptr++;
 #if (BPP == 8)
-	  if (appData.useBGR233)
+	  if (usingBGR233)
 	    gcv.foreground = BGR233ToPixel[fg];
 	  else
 #endif
@@ -116,7 +117,7 @@ HandleHextileBPP (int rx, int ry, int rw, int rh)
 	  return False;
 
 #if (BPP == 8)
-	if (appData.useBGR233)
+	if (usingBGR233)
 	  gcv.foreground = BGR233ToPixel[fg];
 	else
 #endif
