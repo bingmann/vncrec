@@ -1,31 +1,31 @@
+    ,
+   / \   xmkmf, make World, su, make install, make install.man
+  / ! \  vncrec -record test.vnc  - behaves like a vnc viewer, at the end
+ /_____\ F8, Quit. vncrec -movie test.vnc > test.y4m, mplayer test.y4m, then
+         transcode from the .y4m using the scripts described below (search
+  QUICK  for -movie below)
+  START
 
-vncrec 0.1 source distribution for Unix platforms
-=================================================
+Twibright vncrec
+================
 
-This program is derived from VNC.  See ChangeLog for changed parts.
+This is basically a patched VNC from AT&T Laboratories Cambridge. Contains a
+patched VNC viewer that allows record (-record), playback (-play), and video
+export (-movie) of VNC sessions. The license is GPL (LICENCE.TXT).
 
-VNC is Copyright (C) AT&T Laboratories Cambridge.  All Rights Reserved.
-This software is distributed under the GNU General Public Licence as published
-by the Free Software Foundation.  See the file LICENCE.TXT for the conditions
-under which this software is made available.  VNC also contains code from other
-sources.  See the Acknowledgements section below, and the individual files for
-details of the conditions under which they are made available.
-
-This distribution does not contain Xvnc in VNC 3.3.3r2 distribution.
-Also, vncviewer directory is renamed to vncrec.  Java client in
-classes directory does not support playing and recording.
-
+> VNC server - you need to have a VNC server on this or other machine to
+  be able to use vncrec. GPL Examples:
+  TightVNC http://www.tightvnc.com/
+  RealVNC http://realvnc.com/
+  x11vnc http://freshmeat.net/projects/x11vnc/
+  OSXvnc http://sourceforge.net/project/downloading.php?group_id=64523&filename=VineServer2.1.dmg
+  
 To build vncrec, do:
   % xmkmf
   % make World
 
-vncrec enhances vncviewer to allow playing and recording of VNC session.
-The new options -play, -record, and -movie are added.  Otherwise, vncrec behaves
-like vncviewer.
-
-To use -record option, you'll need Xvnc, which can be found in original
-VNC 3.3.3r2 distribution.  If you have running Xvnc, you can log a session
-like this:
+Set up the VNC server so you can view with VNC viewer. Then you can record a
+VNC session "video":
 
   % vncrec -record sample.vncrec
 
@@ -33,38 +33,54 @@ Later, you can play it back by:
 
   % vncrec -play sample.vncrec
 
-Or output the session in a series of still images:
+Encode the session quickly into a 4:2:0 Y'CbCr YUV4MPEG2 video stream to
+stdout (this format can be played directly by mplayer, encoded into lots
+of formats using transcode, or encoded into Ogg Theora using the example
+encoder in libtheora):
 
   % vncrec -movie sample.vncrec
 
-The sample rate of the movie is determined by the environment
-variable VNCREC_MOVIE_FRAMERATE, or 10 if not specified.  
+The sample rate of the movie is 10 by default or overriden by
+VNCREC_MOVIE_FRAMERATE environment variable, or 10 if not specified. Some
+formats (MPEG) don't have 10 so you must supply some more common number (24,
+25,...).
 
-Images are output to the current directory in the .xpm format.  
+> No sound: remove the $1.wav mention from the following scripts
 
-This default output behavior can be overridden by setting the VNCREC_MOVIE_CMD 
-environment variable.  Its value is a format string for a shell command, to 
-which the xpm data will be piped.  Exactly one format specifier must appear 
-for the image's sequence number, which is an integer.  For instance, the
-default behavior is given by the string:
+> Sound: download Audacity http://audacity.sourceforge.net/download/ plug the
+  microphone in at the same time you start vncrec (synchronizing click), then
+  cut the track off on the click, export into *.wav 
+  
+> Encoding into Theora: download libtheora http://www.theora.org/
 
-"cat > img_%05d.xpm"
+Example encode line for Theora:
+vncrec -movie $1.vnc | \
+	/home/user/libtheora-1.0alpha7/examples/encoder_example \
+	-o $1.ogg $1.wav -
 
-whereas setting VNCREC_MOVIE_CMD to 
+> Encoding into MPEG4 ASP ("DivX"), Real Video, WMV: download transcode
+  http://www.transcoding.org/cgi-bin/transcode?Download
 
-"convert xpm:- /tmp/image-%05d.png"
+Example encode script for MPEG4 ASP, MSMPEG4, MSMPEG4v2, MPEG4, Real Video 10,
+WMV 7, WMV8:
 
-causes the images to be output to the /tmp directory in .png format (if the
-"convert" program from the ImageMagick package is available).  
-
-Because the movie output command might be compute-intensive, the 
-VNCREC_MOVIE_PARALLEL variable can be set to specify the number of concurrent 
-outputs.  (Should be set to the number of CPUs, defaults to 1).
-
-
-Please read README.vnc for details about VNC.
+pipe=$1.y4m
+rm -f $pipe
+/home/clock/vncrec-0.2/vncrec/vncrec -movie $1.vnc > $pipe
+transcode -x yuv4mpeg -y xvid -i $pipe -p $1.wav -o $1_mpeg4_asp.avi
+transcode -x yuv4mpeg -y ffmpeg -F msmpeg4 -i $pipe -p $1.wav -o \
+	$1_msmpeg4.avi
+transcode -x yuv4mpeg -y ffmpeg -F msmpeg4v2 -i $pipe -p $1.wav -o \
+	$1_msmpeg4v2.avi
+transcode -x yuv4mpeg -y ffmpeg -F mpeg4 -i $pipe -p $1.wav -o $1_mpeg4.avi
+transcode -x yuv4mpeg -y ffmpeg -F rv10 -i $pipe -p $1.wav -o $1_rv10.avi
+transcode -x yuv4mpeg -y ffmpeg -F wmv1 -i $pipe -p $1.wav -o $1_wmv7.avi
+transcode -x yuv4mpeg -y ffmpeg -F wmv2 -i $pipe -p $1.wav -o $1_wmv8.avi
+rm $pipe
 
 -- Yoshiki Hayashi <yoshiki@xemacs.org>
+-- Karel Kulhavy <clock (at) twibright . com> (replaced the original
+                                               XPM output with yuv4mpeg2)
 
 ACKNOWLEDGEMENTS
 ================
@@ -117,23 +133,6 @@ This distribution contains Java DES software by Dave Zimmerman
     documentation for NON-COMMERCIAL or COMMERCIAL purposes and without fee
     is hereby granted, provided that this copyright notice is kept intact.
     
-    WIDGET WORKSHOP MAKES NO REPRESENTATIONS OR WARRANTIES ABOUT THE
-    SUITABILITY OF THE SOFTWARE, EITHER EXPRESS OR IMPLIED, INCLUDING BUT
-    NOT LIMITED TO THE IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-    PARTICULAR PURPOSE, OR NON-INFRINGEMENT. WIDGET WORKSHOP SHALL NOT BE
-    LIABLE FOR ANY DAMAGES SUFFERED BY LICENSEE AS A RESULT OF USING,
-    MODIFYING OR DISTRIBUTING THIS SOFTWARE OR ITS DERIVATIVES.
-    
-    THIS SOFTWARE IS NOT DESIGNED OR INTENDED FOR USE OR RESALE AS ON-LINE
-    CONTROL EQUIPMENT IN HAZARDOUS ENVIRONMENTS REQUIRING FAIL-SAFE
-    PERFORMANCE, SUCH AS IN THE OPERATION OF NUCLEAR FACILITIES, AIRCRAFT
-    NAVIGATION OR COMMUNICATION SYSTEMS, AIR TRAFFIC CONTROL, DIRECT LIFE
-    SUPPORT MACHINES, OR WEAPONS SYSTEMS, IN WHICH THE FAILURE OF THE
-    SOFTWARE COULD LEAD DIRECTLY TO DEATH, PERSONAL INJURY, OR SEVERE
-    PHYSICAL OR ENVIRONMENTAL DAMAGE ("HIGH RISK ACTIVITIES").  WIDGET
-    WORKSHOP SPECIFICALLY DISCLAIMS ANY EXPRESS OR IMPLIED WARRANTY OF
-    FITNESS FOR HIGH RISK ACTIVITIES.
-
     Copyright (C) 1996 by Jef Poskanzer <jef@acme.com>.  All rights
     reserved.
 
@@ -158,5 +157,4 @@ This distribution contains Java DES software by Dave Zimmerman
     OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
     ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-    Visit the ACME Labs Java page for up-to-date versions of this and other
-    fine Java utilities: http://www.acme.com/java/
+    See http://www.acme.com/java for up-to-date versions.

@@ -1,3 +1,9 @@
+2006-12-20 Karel Kulhavy <clock (at) twibright . com>
+
+	* Replaced the cumbersome XPM output with yuv4mpeg2 video stream
+	  to stdout, which can be easily used to encode almost any video
+	  format quickly, including Theora
+
 2003-01-16  Yoshiki Hayashi <yoshiki@xemacs.org>
 
 	* argsresources.c (usage): Identify itself as vncrec 0.2.

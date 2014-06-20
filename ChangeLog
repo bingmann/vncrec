@@ -1,3 +1,13 @@
+2006-12-20 Karel Kulhavy <clock (at) twibright . com>
+
+	* Replaced the cumbersome XPM output with yuv4mpeg2 video stream
+	  to stdout, which can be easily used to encode almost any video
+	  format quickly, including Theora
+	* Changed the intellectually masturbatory README into instructions
+	  meant for humans who actually want to use the software Right Here
+	  And Right Now And Fast (TM).
+	* Renamed to Twibright vncrec
+
 2003-01-16  Yoshiki Hayashi <yoshiki@xemacs.org>
 
 	* Version 0.2 released.

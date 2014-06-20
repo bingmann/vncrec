@@ -1,6 +1,7 @@
 /*
  *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *  Copyright (C) 2001 Yoshiki Hayashi <yoshiki@xemacs.org>
+ *  Copyright (C) 2006 Karel Kulhavy <clock (at) twibright (dot) com>
  *
  *  This is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -20,6 +21,10 @@
 
 /*
  * sockets.c - functions to deal with sockets.
+ * Karel Kulhavy changed the XPM output to yuv4mpeg2 so it can be used easily
+ * to encode Theora (with the example libtheora encoder), Xvid and wmv (with
+ * transcode). Now it encodes at 85% video playback speed on Pentium M 1.5GHz
+ * which is way faster than the original XPM output.
  */
 
 #include <unistd.h>
@@ -33,7 +38,6 @@
 #include <fcntl.h>
 #include <assert.h>
 #include <vncviewer.h>
-#include <X11/xpm.h>
 
 void PrintInHex(char *buf, int len);
 
@@ -44,6 +48,11 @@ static char buf[BUF_SIZE];
 static char *bufoutptr = buf;
 static int buffered = 0;
 Bool vncLogTimeStamp = False;
+
+/* Shifts to obtain the red, green, and blue value
+ * from a long loaded from the memory. These are initialized once before the
+ * first snapshot is taken. */
+unsigned red_shift, green_shift, blue_shift;
 
 /*
  * ReadFromRFBServer is called whenever we want to read some data from the RFB
@@ -78,6 +87,17 @@ ProcessXtEvents()
   }
 }
 
+void my_fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream)
+{
+	if (fwrite(ptr, size, nmemb, stream)
+		!=nmemb){
+		fprintf(stderr,"vncrec: Error occured writing %u bytes"
+			"into a file stream: ", size*nmemb);
+		perror(NULL);
+		exit(1);
+	}
+}
+
 static void
 writeLogHeader (void)
 {
@@ -88,7 +108,7 @@ writeLogHeader (void)
       gettimeofday (&tv, NULL);
       tv.tv_sec = Swap32IfLE (tv.tv_sec);
       tv.tv_usec = Swap32IfLE (tv.tv_usec);
-      fwrite (&tv, sizeof (struct timeval), 1, vncLog);
+      my_fwrite (&tv, sizeof (struct timeval), 1, vncLog);
     }
 }
 
@@ -109,72 +129,223 @@ timeval_subtract (struct timeval x,
   return result;
 }
 
+void scanline(unsigned char *r, unsigned char *g, unsigned char *b, unsigned
+		char *src, unsigned cycles)
+{
+	unsigned long v; /* This will probably work only on 32-bit
+			    architecture */
+
+	for (;cycles;cycles--){
+		v=*(unsigned long *)(void *)src;
+
+		*r++=v>>red_shift;
+		*g++=v>>green_shift;
+		*b++=v>>blue_shift;
+
+		src+=4;
+	}
+}
+
+/* Use on variable names only */
+#define CLIP(x) if (x<0) x=0; else if (x>255) x=255;
+
+/* Converts RGB to the "yuv" that is in yuv4mpeg.
+ * It looks like the unspecified "yuv" that is in yuv4mpeg2 is actually
+ * Y'CbCr, with all 3 components full range 0-255 as in JPEG. If
+ * the reduced range (16-240 etc.) is used here, the result looks washed out. */
+void rgb2yuv(unsigned char *d, unsigned plane)
+{
+	unsigned char *r, *g, *b;
+	int y,u,v;
+
+	r=d;
+	g=r+plane;
+	b=g+plane;
+	for (;plane;plane--){
+		y=((77**r+150**g+29**b+0x80)>>8);
+		u=0x80+((-43**r-85**g+128**b+0x7f)>>8);
+		v=0x80+((128**r-107**g-21**b+0x7f)>>8);
+		CLIP(y);
+		CLIP(u);
+		CLIP(v);
+		*r++=y;
+		*g++=u;
+		*b++=v;
+	}
+}
+
+/* Writes a frame of yuv4mpeg file to the stdout. Repeats writing
+ * the identical frame "times" times. */
+void dump_image(XImage *i, unsigned times)
+{
+	unsigned char frame_header[]="FRAME\n";
+
+	unsigned w=si.framebufferWidth; /* Image size */
+	unsigned h=si.framebufferHeight;
+	unsigned char *d; /* R'G'B' / Y'CbCr data buffer */
+	unsigned x, y; /* Counters */
+	unsigned char *rptr, *gptr, *bptr; /* R'/Cr, green/get, B'/Cb pointer */
+	unsigned char *wptr; /* Write ptr for moving the chroma samples
+				together */
+
+	/* Test that the image has 32-bit pixels */
+	if (i->bitmap_unit!=32){
+		fprintf(stderr,"Sorry, only >= 8 bits per channel colour "
+				"is supported. bitmap_unit=%u\n",
+				i->bitmap_unit);
+		exit(1);
+	}
+
+	/* Allocate a R'G'B' buffer (' values mean gamma-corrected so the
+	 * numbers are linear to the electrical video signal. RGB would mean
+	 * linear photometric space */
+	d=malloc(w*h*3);
+
+	/* Read the data in from the image into the RGB buffer */
+	for (y=0; y<h; y++){
+		rptr=d+y*w;
+		gptr=rptr+w*h;
+		bptr=gptr+w*h;
+		scanline(rptr, gptr, bptr, i->data+i->bytes_per_line*y, w);
+	}
+
+	/* Convert the R'G'B' buffer into an Y'CbCr buffer */
+	rgb2yuv(d, w*h);
+
+	/* Decimate the chroma down to 4:2:0. This is mathematically incorrect,
+	 * but it's the customary way how to do it in TV technology. To be
+	 * mathematically correct, the decimation would have to take place in
+	 * linear photometric space. This way it generates the usual
+	 * chroma-bleeding artifacts on the edges in the colour monoscope */
+	for (y=0;y<h-1;y+=2){
+		bptr=d+(h+y)*w;
+		rptr=bptr+h*w;
+		for (x=0;x<w-1;x+=2, bptr+=2, rptr+=2){
+			bptr[0]=(bptr[0]+bptr[1]+bptr[w]+bptr[w+1])>>2;
+			rptr[0]=(rptr[0]+rptr[1]+rptr[w]+rptr[w+1])>>2;
+		}
+	}
+
+	/* Shuffle the chroma so the data can be written out at once. */
+	bptr=d+w*h; /* Cb */
+	rptr=bptr+w*h; /* Cr */
+	wptr=bptr;
+	for (y=0;y<h-1;y+=2){
+		gptr=bptr+y*w; /* gptr now doesn't mean green pointer,
+				  but get pointer. */
+		for (x=0;x<w-1;x+=2, gptr+=2)
+			*wptr++=*gptr; /* Only subsampling, now the
+					   decimation has already been
+					   done. */
+	}
+	for (y=0;y<h-1;y+=2){
+		gptr=rptr+y*w;
+		for (x=0;x<w-1;x+=2, gptr+=2)
+			*wptr++=*gptr;
+	}
+	/* Now the data to be written begin at d and are wptr-d long. */
+
+	/* Write out the frame, "times" times. */
+	for (;times;times--){
+		my_fwrite(frame_header, sizeof(frame_header)-1,
+				1, stdout);
+		my_fwrite(d, wptr-d, 1, stdout);
+	}
+
+	/* Throw away the formerly R'G'B', now Y'CbCr buffer */
+	free(d);
+}
+
+/* Returns MSBFirst for big endian and LSBFirst for little */
+int test_endian(void)
+{
+	long a=1;
+
+	*((unsigned char *)(void *)&a)=0;
+	return a?MSBFirst:LSBFirst;
+}
+
+unsigned mask2shift(unsigned long in)
+{
+	unsigned shift=0;
+
+	if (!in) return 0;
+
+	while(!(in&1)){
+		in>>=1;
+		shift++;
+	}
+	return shift;
+}
+
+/* Sets the red_shift, green_shift and blue_shift variables. */
+void examine_layout(void)
+{
+	XWindowAttributes attr;
+	Window rootwin;
+	int dummy_i;
+	unsigned dummy_u;
+
+	XGetGeometry(dpy, desktopWin, &rootwin,
+		&dummy_i, &dummy_i, &dummy_u, &dummy_u, &dummy_u, &dummy_u);
+	XGetWindowAttributes(dpy, rootwin, &attr);
+	fprintf(stderr,"red_mask=%x, green_mask=%x, blue_mask=%x, "
+			"CPU endian=%u, dpy endian=%u\n",
+			attr.visual->red_mask,
+			attr.visual->green_mask,
+			attr.visual->blue_mask,
+			test_endian(),
+			ImageByteOrder(dpy));
+	red_shift=mask2shift(attr.visual->red_mask);
+	green_shift=mask2shift(attr.visual->green_mask);
+	blue_shift=mask2shift(attr.visual->blue_mask);
+	if (test_endian()!=ImageByteOrder(dpy)){
+		red_shift=24-red_shift;
+		green_shift=24-green_shift;
+		blue_shift=24-blue_shift;
+	}
+	fprintf(stderr,"Image dump color channel shifts: R=%u, G=%u, B=%u\n",
+			red_shift, green_shift, blue_shift);
+}
+
 void print_movie_frames_up_to_time(struct timeval tv)
 {
-  static int num_frames=0;
   static double framerate;
   static double start_time = 0;
-  static const char * cmd;
   double now = tv.tv_sec + tv.tv_usec / 1e6;
-  char ** data;
-  int success;
-  int num_frames_this_time;
-  static int num_parallel;
+  static double next_dump=0;
+  unsigned times;
+  XImage *image;
 
-  if(start_time == 0) {  // one-time initialization
-    const char * usr_cmd = getenv("VNCREC_MOVIE_CMD");
-    cmd = usr_cmd ? usr_cmd : "cat > img_%05d.xpm";
+  if(next_dump == 0) {  // one-time initialization
     framerate = getenv("VNCREC_MOVIE_FRAMERATE") ? atoi(getenv("VNCREC_MOVIE_FRAMERATE")) : 10;
-    num_parallel = getenv("VNCREC_MOVIE_PARALLEL") ? atoi(getenv("VNCREC_MOVIE_PARALLEL")) : 1;
-    start_time = now;
+	  printf("YUV4MPEG2 W%u H%u F%u:1 Ip A0:0\n",
+		si.framebufferWidth,
+		si.framebufferHeight,
+		(unsigned)framerate);
+
+	  examine_layout(); /* Figure out red_shift, green_shift, blue_shift */
+
+	  next_dump=start_time=now;
   }
 
-  num_frames_this_time = (int)((now - start_time) * framerate - num_frames);
 
-  if(num_frames_this_time <= 0)
-    return; ///// not time for the next frame yet.
+  for (times=0; next_dump<now; next_dump+=1/framerate, times++);
+  if (!times) return; /* not time for the next frame yet. */
 
-  success = XpmCreateDataFromPixmap(dpy, &data, desktopWin, 0, 0);
-  assert(success == XpmSuccess);
+  image = XGetImage(dpy, desktopWin,0, 0, si.framebufferWidth,
+		  si.framebufferHeight, 0xffffffff,
+		ZPixmap);
+  assert(image);
+  if (times==1) fprintf(stderr,"Dumping frame for time %.2f sec.\n",
+		  next_dump-start_time);
+  else fprintf(stderr,"Dumping %u frames for time %.2f sec.\n",
+		  times, next_dump-start_time);
 
-  for(; num_frames_this_time-- > 0; ++num_frames) {
-
-    printf("printing frame for time = %f seconds\n", num_frames/framerate);
-
-    if(fork()) {
-      int status;
-      if(num_frames >= num_parallel-1) {
-	wait(&status);
-	assert(status == 0);
-      }
-    }
-    else {
-      int i;
-      FILE * file;
-      char cmd_buf[1000];
-
-      // since XpmCreateDataFromPixmap didn't return error, we'll assume the first line is valid.
-      char * endptr;
-      const int width = strtol(data[0], &endptr, 10);
-      const int height = strtol(endptr, &endptr, 10);
-      const int num_colors = strtol(endptr, &endptr, 10);
-
-      assert(width ==  si.framebufferWidth);
-      assert(height ==  si.framebufferHeight);
-
-      snprintf(cmd_buf, sizeof(cmd_buf)-1, cmd, num_frames);
-      file = popen(cmd_buf, "w");
-      assert(file);
-
-      fprintf(file, "/* XPM */\nstatic char * x[] = {\n");
-      for(i=0; i < 1+num_colors+height; ++i)
-	fprintf(file, "\"%s\",\n", data[i]);
-      fprintf(file, "};");
-      pclose(file);
-      exit(0);
-    }
-  }
-  XpmFree(data);
+  /* Print the frame(s) */
+  dump_image(image, times);
+  
+  XDestroyImage(image);
 //  printf("all done up to next time\n");
 }
 
@@ -191,10 +362,10 @@ ReadFromRFBServer(char *out, unsigned int n)
 	  static struct timeval prev;
 	  struct timeval tv;
 	  i = fread (&tv, sizeof (struct timeval), 1, vncLog);
+	  if (i < 1)
+	    return False;
 	  tv.tv_sec = Swap32IfLE (tv.tv_sec);
 	  tv.tv_usec = Swap32IfLE (tv.tv_usec);
-	  if (i < 0)
-	    return False;
 	  /* This looks like the best way to adjust time at the moment. */
       if (!appData.movie &&  // print the movie frames as fast as possible
 	  prev.tv_sec)
@@ -219,7 +390,7 @@ ReadFromRFBServer(char *out, unsigned int n)
     memcpy(out, bufoutptr, n);
     if (appData.record)
     {
-      writeLogHeader ();
+      writeLogHeader (); /* writes the timestamp */
       fwrite (bufoutptr, 1, n, vncLog);
     }
     bufoutptr += n;
@@ -230,7 +401,7 @@ ReadFromRFBServer(char *out, unsigned int n)
   memcpy(out, bufoutptr, buffered);
   if (appData.record)
     {
-      writeLogHeader ();
+      writeLogHeader (); /* Writes the timestamp */
       fwrite (bufoutptr, 1, buffered, vncLog);
     }
 
