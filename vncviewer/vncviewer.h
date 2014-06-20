@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 1997, 1998 Olivetti & Oracle Research Laboratory
+ *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -25,10 +25,15 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
-#include <X11/Xlib.h>
+#include <unistd.h>
+#include <X11/IntrinsicP.h>
+#include <X11/StringDefs.h>
+#include <X11/Shell.h>
 #include <X11/Xmd.h>
-#include <rfbproto.h>
-
+#include <X11/keysym.h>
+#include <X11/Xatom.h>
+#include <X11/Xmu/StdSel.h>
+#include "rfbproto.h"
 
 extern int endianTest;
 
@@ -43,43 +48,128 @@ extern int endianTest;
 
 #define MAX_ENCODINGS 10
 
+#define FLASH_PORT_OFFSET 5400
+#define LISTEN_PORT_OFFSET 5500
+#define SERVER_PORT_OFFSET 5900
 
-/* args.c */
 
-extern char *programName;
-extern char hostname[];
-extern int port;
+/* argsresources.c */
+
+typedef struct {
+  Bool shareDesktop;
+  Bool viewOnly;
+  Bool fullScreen;
+
+  String encodingsString;
+
+  Bool useBGR233;
+  int nColours;
+  Bool useSharedColours;
+  Bool forceOwnCmap;
+  Bool forceTrueColour;
+  int requestedDepth;
+
+  Bool useShm;
+
+  int wmDecorationWidth;
+  int wmDecorationHeight;
+
+  char *passwordFile;
+  Bool passwordDialog;
+
+  int rawDelay;
+  int copyRectDelay;
+
+  Bool debug;
+
+  int popupButtonCount;
+
+  int bumpScrollTime;
+  int bumpScrollPixels;
+
+} AppData;
+
+extern AppData appData;
+
+extern char *fallback_resources[];
+extern char vncServerHost[];
+extern int vncServerPort;
 extern Bool listenSpecified;
 extern int listenPort, flashPort;
-extern char *displayname;
-extern Bool shareDesktop;
-extern Bool viewOnly;
-extern CARD32 explicitEncodings[];
-extern int nExplicitEncodings;
-extern Bool addCopyRect;
-extern Bool addRRE;
-extern Bool addCoRRE;
-extern Bool addHextile;
-extern Bool useBGR233;
-extern Bool forceOwnCmap;
-extern Bool forceTruecolour;
-extern int requestedDepth;
-extern char *geometry;
-extern int wmDecorationWidth;
-extern int wmDecorationHeight;
-extern char *passwdFile;
-extern int updateRequestPeriodms;
-extern int updateRequestX;
-extern int updateRequestY;
-extern int updateRequestW;
-extern int updateRequestH;
-extern int rawDelay;
-extern int copyRectDelay;
-extern Bool debug;
 
-extern void processArgs(int argc, char **argv);
-extern void usage();
+extern XrmOptionDescRec cmdLineOptions[];
+extern int numCmdLineOptions;
 
+extern void GetArgsAndResources(int argc, char **argv);
+
+/* colour.c */
+
+extern unsigned long BGR233ToPixel[];
+
+extern Colormap cmap;
+extern Visual *vis;
+extern unsigned int visdepth, visbpp;
+
+extern void SetVisualAndCmap();
+
+/* desktop.c */
+
+extern Atom wmDeleteWindow;
+extern Widget form, viewport, desktop;
+extern Window desktopWin;
+extern GC gc;
+extern GC srcGC, dstGC;
+extern Dimension dpyWidth, dpyHeight;
+
+extern void DesktopInitBeforeRealization();
+extern void DesktopInitAfterRealization();
+extern void SendRFBEvent(Widget w, XEvent *event, String *params,
+			 Cardinal *num_params);
+extern void CopyDataToScreen(char *buf, int x, int y, int width, int height);
+extern void SynchroniseScreen();
+
+/* dialogs.c */
+
+extern void ServerDialogDone(Widget w, XEvent *event, String *params,
+			     Cardinal *num_params);
+extern char *DoServerDialog();
+extern void PasswordDialogDone(Widget w, XEvent *event, String *params,
+			     Cardinal *num_params);
+extern char *DoPasswordDialog();
+
+/* fullscreen.c */
+
+extern void ToggleFullScreen(Widget w, XEvent *event, String *params,
+			     Cardinal *num_params);
+extern void SetFullScreenState(Widget w, XEvent *event, String *params,
+			       Cardinal *num_params);
+extern Bool BumpScroll(XEvent *ev);
+extern void FullScreenOn();
+extern void FullScreenOff();
+
+/* listen.c */
+
+extern void listenForIncomingConnections();
+
+/* misc.c */
+
+extern void ToplevelInitBeforeRealization();
+extern void ToplevelInitAfterRealization();
+extern Time TimeFromEvent(XEvent *ev);
+extern void Pause(Widget w, XEvent *event, String *params,
+		  Cardinal *num_params);
+extern void Quit(Widget w, XEvent *event, String *params,
+		 Cardinal *num_params);
+extern void Cleanup();
+
+/* popup.c */
+
+extern Widget popup;
+extern void ShowPopup(Widget w, XEvent *event, String *params,
+		      Cardinal *num_params);
+extern void HidePopup(Widget w, XEvent *event, String *params,
+		      Cardinal *num_params);
+extern void CreatePopup();
 
 /* rfbproto.c */
 
@@ -89,8 +179,8 @@ extern Bool canUseHextile;
 extern char *desktopName;
 extern rfbPixelFormat myFormat;
 extern rfbServerInitMsg si;
-extern struct timeval updateRequestTime;
-extern Bool sendUpdateRequest;
+extern char *serverCutText;
+extern Bool newServerCutText;
 
 extern Bool ConnectToRFBServer(const char *hostname, int port);
 extern Bool InitialiseRFBConnection();
@@ -103,36 +193,38 @@ extern Bool SendKeyEvent(CARD32 key, Bool down);
 extern Bool SendClientCutText(char *str, int len);
 extern Bool HandleRFBServerMessage();
 
+extern void PrintPixelFormat(rfbPixelFormat *format);
 
-/* x.c */
+/* selection.c */
 
-extern Display *dpy;
-extern Window canvas;
-extern Colormap cmap;
-extern GC gc;
-extern GC srcGC, dstGC;
-extern unsigned long BGR233ToPixel[];
+extern void InitialiseSelection();
+extern void SelectionToVNC(Widget w, XEvent *event, String *params,
+			   Cardinal *num_params);
+extern void SelectionFromVNC(Widget w, XEvent *event, String *params,
+			     Cardinal *num_params);
 
-extern Bool CreateXWindow();
-extern void ShutdownX();
-extern Bool HandleXEvents();
-extern Bool AllXEventsPredicate(Display *dpy, XEvent *ev, char *arg);
-extern void CopyDataToScreen(CARD8 *buf, int x, int y, int width, int height);
+/* shm.c */
 
+extern XImage *CreateShmImage();
+extern void ShmCleanup();
 
 /* sockets.c */
 
-extern Bool errorMessageFromReadExact;
+extern Bool errorMessageOnReadFailure;
 
-extern Bool ReadExact(int sock, char *buf, int n);
+extern Bool ReadFromRFBServer(char *out, unsigned int n);
 extern Bool WriteExact(int sock, char *buf, int n);
 extern int ListenAtTcpPort(int port);
 extern int ConnectToTcpAddr(unsigned int host, int port);
 extern int AcceptTcpConnection(int listenSock);
+extern Bool SetNonBlocking(int sock);
+
 extern int StringToIPAddr(const char *str, unsigned int *addr);
 extern Bool SameMachine(int sock);
 
+/* vncviewer.c */
 
-/* listen.c */
-
-extern void listenForIncomingConnections();
+extern char *programName;
+extern XtAppContext appContext;
+extern Display* dpy;
+extern Widget toplevel;

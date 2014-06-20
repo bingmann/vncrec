@@ -1803,6 +1803,9 @@ SetFontPath(client, npaths, paths, error)
     return err;
 }
 
+/*** TJR - dirty hack - this variable is used in lib/font/fontfile/dirfile.c */
+int settingDefaultFontPath = 0;
+
 int
 SetDefaultFontPath(path)
     char       *path;
@@ -1838,7 +1841,11 @@ SetDefaultFontPath(path)
     }
     *nump = (unsigned char) size;
 
+    settingDefaultFontPath = 1;
+
     err = SetFontPathElements(num, newpath, &bad);
+
+    settingDefaultFontPath = 0;
 
     DEALLOCATE_LOCAL(newpath);
 

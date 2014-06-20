@@ -5,7 +5,7 @@
  */
 
 /*
- *  Copyright (C) 1997, 1998 Olivetti & Oracle Research Laboratory
+ *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -406,7 +406,7 @@ PtrAddEvent(buttonMask, x, y, cl)
 
     miPointerAbsoluteCursor(x, y, time);
 
-    for (i = 0; i < 3; i++) {
+    for (i = 0; i < 5; i++) {
 	if ((buttonMask ^ oldButtonMask) & (1<<i)) {
 	    if (buttonMask & (1<<i)) {
 		ev.u.u.type = ButtonPress;

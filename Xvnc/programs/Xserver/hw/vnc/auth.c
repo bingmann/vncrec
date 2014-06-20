@@ -6,7 +6,7 @@
  */
 
 /*
- *  Copyright (C) 1997, 1998 Olivetti & Oracle Research Laboratory
+ *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -110,7 +110,7 @@ rfbAuthProcessClientMessage(cl)
     vncEncryptBytes(cl->authChallenge, passwd);
 
     /* Lose the password from memory */
-    for (i=0; i<strlen(passwd); i++) {
+    for (i = strlen(passwd); i >= 0; i--) {
 	passwd[i] = '\0';
     }
 

@@ -103,9 +103,9 @@
 #define BuildServersOnly	YES
 #define BuildServer		YES
 
-#define XVendorString		"The Olivetti & Oracle Research Laboratory"
-#define XVendorRelease		3322
-#define XvncRelease		"2r2"
+#define XVendorString		"AT&T Laboratories Cambridge"
+#define XVendorRelease		3330
+#define XvncRelease		"3"
 
 
 /*****************************************************************************/

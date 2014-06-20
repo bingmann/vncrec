@@ -3,7 +3,7 @@
  */
 
 /*
- *  Copyright (C) 1997, 1998 Olivetti & Oracle Research Laboratory
+ *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -418,9 +418,10 @@ rfbSetClientColourMaps(firstColour, nColours)
     int firstColour;
     int nColours;
 {
-    rfbClientPtr cl;
+    rfbClientPtr cl, nextCl;
 
-    for (cl = rfbClientHead; cl; cl = cl->next) {
+    for (cl = rfbClientHead; cl; cl = nextCl) {
+	nextCl = cl->next;
 	rfbSetClientColourMap(cl, firstColour, nColours);
     }
 }

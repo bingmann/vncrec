@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 1997, 1998 Olivetti & Oracle Research Laboratory
+ *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -25,19 +25,24 @@
 #include <errno.h>
 #include <pwd.h>
 #include <vncviewer.h>
-#include <X11/Xatom.h>
 #include <vncauth.h>
 
-static Bool HandleHextileEncoding8(int x, int y, int w, int h);
-static Bool HandleHextileEncoding16(int x, int y, int w, int h);
-static Bool HandleHextileEncoding32(int x, int y, int w, int h);
+static Bool HandleRRE8(int rx, int ry, int rw, int rh);
+static Bool HandleRRE16(int rx, int ry, int rw, int rh);
+static Bool HandleRRE32(int rx, int ry, int rw, int rh);
+static Bool HandleCoRRE8(int rx, int ry, int rw, int rh);
+static Bool HandleCoRRE16(int rx, int ry, int rw, int rh);
+static Bool HandleCoRRE32(int rx, int ry, int rw, int rh);
+static Bool HandleHextile8(int rx, int ry, int rw, int rh);
+static Bool HandleHextile16(int rx, int ry, int rw, int rh);
+static Bool HandleHextile32(int rx, int ry, int rw, int rh);
 
 int rfbsock;
 char *desktopName;
 rfbPixelFormat myFormat;
 rfbServerInitMsg si;
-struct timeval updateRequestTime;
-Bool sendUpdateRequest;
+char *serverCutText = NULL;
+Bool newServerCutText = False;
 
 int endianTest = 1;
 
@@ -50,9 +55,6 @@ int endianTest = 1;
 static char buffer[BUFFER_SIZE];
 
 
-static void PrintPixelFormat(rfbPixelFormat *format);
-
-
 /*
  * ConnectToRFBServer.
  */
@@ -60,23 +62,21 @@ static void PrintPixelFormat(rfbPixelFormat *format);
 Bool
 ConnectToRFBServer(const char *hostname, int port)
 {
-    unsigned int host;
+  unsigned int host;
 
-    if (!StringToIPAddr(hostname, &host)) {
-	fprintf(stderr,"%s: couldn't convert '%s' to host address\n",
-		programName,hostname);
-	return False;
-    }
+  if (!StringToIPAddr(hostname, &host)) {
+    fprintf(stderr,"Couldn't convert '%s' to host address\n", hostname);
+    return False;
+  }
 
-    rfbsock = ConnectToTcpAddr(host, port);
+  rfbsock = ConnectToTcpAddr(host, port);
 
-    if (rfbsock < 0) {
-	fprintf(stderr,"%s: unable to connect to VNC server\n",
-		programName);
-	return False;
-    }
+  if (rfbsock < 0) {
+    fprintf(stderr,"Unable to connect to VNC server\n");
+    return False;
+  }
 
-    return True;
+  return SetNonBlocking(rfbsock);
 }
 
 
@@ -85,181 +85,153 @@ ConnectToRFBServer(const char *hostname, int port)
  */
 
 Bool
-InitialiseRFBConnection(int sock)
+InitialiseRFBConnection()
 {
-    rfbProtocolVersionMsg pv;
-    int major,minor;
-    Bool authWillWork = True;
-    CARD32 authScheme, reasonLen, authResult;
-    char *reason;
-    CARD8 challenge[CHALLENGESIZE];
-    char *passwd;
-    int i;
-    rfbClientInitMsg ci;
+  rfbProtocolVersionMsg pv;
+  int major,minor;
+  CARD32 authScheme, reasonLen, authResult;
+  char *reason;
+  CARD8 challenge[CHALLENGESIZE];
+  char *passwd;
+  int i;
+  rfbClientInitMsg ci;
 
-    /* if the connection is immediately closed, don't report anything, so
+  /* if the connection is immediately closed, don't report anything, so
        that pmw's monitor can make test connections */
 
-    if (listenSpecified)
-	errorMessageFromReadExact = False;
+  if (listenSpecified)
+    errorMessageOnReadFailure = False;
 
-    if (!ReadExact(sock, pv, sz_rfbProtocolVersionMsg)) return False;
+  if (!ReadFromRFBServer(pv, sz_rfbProtocolVersionMsg)) return False;
 
-    errorMessageFromReadExact = True;
+  errorMessageOnReadFailure = True;
 
-    pv[sz_rfbProtocolVersionMsg] = 0;
+  pv[sz_rfbProtocolVersionMsg] = 0;
 
-    if (sscanf(pv,rfbProtocolVersionFormat,&major,&minor) != 2) {
-	fprintf(stderr,"%s: Not a valid VNC server\n",programName);
+  if (sscanf(pv,rfbProtocolVersionFormat,&major,&minor) != 2) {
+    fprintf(stderr,"Not a valid VNC server\n");
+    return False;
+  }
+
+  fprintf(stderr,"VNC server supports protocol version %d.%d (viewer %d.%d)\n",
+	  major, minor, rfbProtocolMajorVersion, rfbProtocolMinorVersion);
+
+  major = rfbProtocolMajorVersion;
+  minor = rfbProtocolMinorVersion;
+
+  sprintf(pv,rfbProtocolVersionFormat,major,minor);
+
+  if (!WriteExact(rfbsock, pv, sz_rfbProtocolVersionMsg)) return False;
+
+  if (!ReadFromRFBServer((char *)&authScheme, 4)) return False;
+
+  authScheme = Swap32IfLE(authScheme);
+
+  switch (authScheme) {
+
+  case rfbConnFailed:
+    if (!ReadFromRFBServer((char *)&reasonLen, 4)) return False;
+    reasonLen = Swap32IfLE(reasonLen);
+
+    reason = malloc(reasonLen);
+
+    if (!ReadFromRFBServer(reason, reasonLen)) return False;
+
+    fprintf(stderr,"VNC connection failed: %.*s\n",(int)reasonLen, reason);
+    return False;
+
+  case rfbNoAuth:
+    fprintf(stderr,"No authentication needed\n");
+    break;
+
+  case rfbVncAuth:
+    if (!ReadFromRFBServer((char *)challenge, CHALLENGESIZE)) return False;
+
+    if (appData.passwordFile) {
+      passwd = vncDecryptPasswdFromFile(appData.passwordFile);
+      if (!passwd) {
+	fprintf(stderr,"Cannot read valid password from file \"%s\"\n",
+		appData.passwordFile);
 	return False;
-    }
-
-    fprintf(stderr,"%s: VNC server supports protocol version %d.%d "
-	    "(viewer %d.%d)\n",
-	    programName,major,minor,rfbProtocolMajorVersion,
-	    rfbProtocolMinorVersion);
-
-    if ((major == 3) && (minor < 3)) {
-	/* if server is before 3.3 authentication won't work */
-	authWillWork = False;
+      }
+    } else if (appData.passwordDialog) {
+      passwd = DoPasswordDialog();
     } else {
-	/* any other server version, just tell it what we want */
-	major = rfbProtocolMajorVersion;
-	minor = rfbProtocolMinorVersion;
+      passwd = getpass("Password: ");
     }
 
-    sprintf(pv,rfbProtocolVersionFormat,major,minor);
+    if ((!passwd) || (strlen(passwd) == 0)) {
+      fprintf(stderr,"Reading password failed\n");
+      return False;
+    }
+    if (strlen(passwd) > 8) {
+      passwd[8] = '\0';
+    }
 
-    if (!WriteExact(sock, pv, sz_rfbProtocolVersionMsg)) return False;
-
-    if (!ReadExact(sock, (char *)&authScheme, 4)) return False;
-
-    authScheme = Swap32IfLE(authScheme);
-
-    switch (authScheme) {
-
-    case rfbConnFailed:
-	if (!ReadExact(sock, (char *)&reasonLen, 4)) return False;
-	reasonLen = Swap32IfLE(reasonLen);
-
-	reason = malloc(reasonLen);
-
-	if (!ReadExact(sock, reason, reasonLen)) return False;
-
-	fprintf(stderr,"%s: VNC connection failed: %.*s\n",
-		programName, (int)reasonLen, reason);
-	return False;
-
-    case rfbNoAuth:
-	fprintf(stderr,"%s: No authentication needed\n",programName);
-	break;
-
-    case rfbVncAuth:
-	if (!authWillWork) {
-	    fprintf(stderr,
-		    "\n%s: VNC server uses the old authentication scheme.\n"
-		    "You should kill your old desktop(s) and restart.\n"
-		    "If you really need to connect to this desktop use "
-		    "vncviewer3.2\n\n",
-		    programName);
-	    return False;
-	}
-
-	if (!ReadExact(sock, (char *)challenge, CHALLENGESIZE)) return False;
-
-	if (passwdFile) {
-	    passwd = vncDecryptPasswdFromFile(passwdFile);
-	} else {
-	    passwd = getpass("Password: ");
-	    if (strlen(passwd) == 0) {
-		fprintf(stderr,"%s: Reading password failed\n",programName);
-		return False;
-	    }
-	    if (strlen(passwd) > 8) {
-		passwd[8] = '\0';
-	    }
-	}
-
-	vncEncryptBytes(challenge, passwd);
+    vncEncryptBytes(challenge, passwd);
 
 	/* Lose the password from memory */
-	for (i=0; i<strlen(passwd); i++) {
-	    passwd[i] = '\0';
-	}
+    for (i = strlen(passwd); i >= 0; i--) {
+      passwd[i] = '\0';
+    }
 
-	if (!WriteExact(sock, challenge, CHALLENGESIZE)) return False;
+    if (!WriteExact(rfbsock, challenge, CHALLENGESIZE)) return False;
 
-	if (!ReadExact(sock, (char *)&authResult, 4)) return False;
+    if (!ReadFromRFBServer((char *)&authResult, 4)) return False;
 
-	authResult = Swap32IfLE(authResult);
+    authResult = Swap32IfLE(authResult);
 
-	switch (authResult) {
-	case rfbVncAuthOK:
-	    fprintf(stderr,"%s: VNC authentication succeeded\n",programName);
-	    break;
-	case rfbVncAuthFailed:
-	    fprintf(stderr,"%s: VNC authentication failed\n",programName);
-	    return False;
-	case rfbVncAuthTooMany:
-	    fprintf(stderr,"%s: VNC authentication failed - too many tries\n",
-		    programName);
-	    return False;
-	default:
-	    fprintf(stderr,"%s: Unknown VNC authentication result: %d\n",
-		    programName,(int)authResult);
-	    return False;
-	}
-	break;
-
+    switch (authResult) {
+    case rfbVncAuthOK:
+      fprintf(stderr,"VNC authentication succeeded\n");
+      break;
+    case rfbVncAuthFailed:
+      fprintf(stderr,"VNC authentication failed\n");
+      return False;
+    case rfbVncAuthTooMany:
+      fprintf(stderr,"VNC authentication failed - too many tries\n");
+      return False;
     default:
-	fprintf(stderr,
-		"%s: Unknown authentication scheme from VNC server: %d\n",
-		programName,(int)authScheme);
-	return False;
+      fprintf(stderr,"Unknown VNC authentication result: %d\n",
+	      (int)authResult);
+      return False;
     }
+    break;
 
-    ci.shared = (shareDesktop ? 1 : 0);
+  default:
+    fprintf(stderr,"Unknown authentication scheme from VNC server: %d\n",
+	    (int)authScheme);
+    return False;
+  }
 
-    if (!WriteExact(sock, (char *)&ci, sz_rfbClientInitMsg)) return False;
+  ci.shared = (appData.shareDesktop ? 1 : 0);
 
-    if (!ReadExact(sock, (char *)&si, sz_rfbServerInitMsg)) return False;
+  if (!WriteExact(rfbsock, (char *)&ci, sz_rfbClientInitMsg)) return False;
 
-    si.framebufferWidth = Swap16IfLE(si.framebufferWidth);
-    si.framebufferHeight = Swap16IfLE(si.framebufferHeight);
-    si.format.redMax = Swap16IfLE(si.format.redMax);
-    si.format.greenMax = Swap16IfLE(si.format.greenMax);
-    si.format.blueMax = Swap16IfLE(si.format.blueMax);
-    si.nameLength = Swap32IfLE(si.nameLength);
+  if (!ReadFromRFBServer((char *)&si, sz_rfbServerInitMsg)) return False;
 
-    if (((updateRequestX + updateRequestW) > si.framebufferWidth) ||
-	((updateRequestY + updateRequestH) > si.framebufferHeight))
-    {
-	fprintf(stderr,
-		"%s: region requested is outside server's framebuffer\n",
-		programName);
-	return False;
-    }
-    if (updateRequestW == 0)
-	updateRequestW = si.framebufferWidth - updateRequestX;
-    if (updateRequestH == 0)
-	updateRequestH = si.framebufferHeight - updateRequestY;
+  si.framebufferWidth = Swap16IfLE(si.framebufferWidth);
+  si.framebufferHeight = Swap16IfLE(si.framebufferHeight);
+  si.format.redMax = Swap16IfLE(si.format.redMax);
+  si.format.greenMax = Swap16IfLE(si.format.greenMax);
+  si.format.blueMax = Swap16IfLE(si.format.blueMax);
+  si.nameLength = Swap32IfLE(si.nameLength);
 
-    desktopName = malloc(si.nameLength + 1);
+  desktopName = malloc(si.nameLength + 1);
 
-    if (!ReadExact(sock, desktopName, si.nameLength)) return False;
+  if (!ReadFromRFBServer(desktopName, si.nameLength)) return False;
 
-    desktopName[si.nameLength] = 0;
+  desktopName[si.nameLength] = 0;
 
-    fprintf(stderr,"%s: Desktop name \"%s\"\n",programName,desktopName);
+  fprintf(stderr,"Desktop name \"%s\"\n",desktopName);
 
-    fprintf(stderr,
-	    "%s: Connected to VNC server, using protocol version %d.%d\n",
-	    programName, rfbProtocolMajorVersion, rfbProtocolMinorVersion);
+  fprintf(stderr,"Connected to VNC server, using protocol version %d.%d\n",
+	  rfbProtocolMajorVersion, rfbProtocolMinorVersion);
 
-    fprintf(stderr,"%s: VNC server default format:\n",programName);
-    PrintPixelFormat(&si.format);
+  fprintf(stderr,"VNC server default format:\n");
+  PrintPixelFormat(&si.format);
 
-    return True;
+  return True;
 }
 
 
@@ -270,49 +242,71 @@ InitialiseRFBConnection(int sock)
 Bool
 SetFormatAndEncodings()
 {
-    rfbSetPixelFormatMsg spf;
-    char buf[sz_rfbSetEncodingsMsg + MAX_ENCODINGS * 4];
-    rfbSetEncodingsMsg *se = (rfbSetEncodingsMsg *)buf;
-    CARD32 *encs = (CARD32 *)(&buf[sz_rfbSetEncodingsMsg]);
-    int len = 0;
-    int i;
+  rfbSetPixelFormatMsg spf;
+  char buf[sz_rfbSetEncodingsMsg + MAX_ENCODINGS * 4];
+  rfbSetEncodingsMsg *se = (rfbSetEncodingsMsg *)buf;
+  CARD32 *encs = (CARD32 *)(&buf[sz_rfbSetEncodingsMsg]);
+  int len = 0;
 
-    spf.type = rfbSetPixelFormat;
-    spf.format = myFormat;
-    spf.format.redMax = Swap16IfLE(spf.format.redMax);
-    spf.format.greenMax = Swap16IfLE(spf.format.greenMax);
-    spf.format.blueMax = Swap16IfLE(spf.format.blueMax);
+  spf.type = rfbSetPixelFormat;
+  spf.format = myFormat;
+  spf.format.redMax = Swap16IfLE(spf.format.redMax);
+  spf.format.greenMax = Swap16IfLE(spf.format.greenMax);
+  spf.format.blueMax = Swap16IfLE(spf.format.blueMax);
 
-    if (!WriteExact(rfbsock, (char *)&spf, sz_rfbSetPixelFormatMsg))
-	return False;
+  if (!WriteExact(rfbsock, (char *)&spf, sz_rfbSetPixelFormatMsg))
+    return False;
 
-    se->type = rfbSetEncodings;
-    se->nEncodings = 0;
+  se->type = rfbSetEncodings;
+  se->nEncodings = 0;
 
-    for (i = 0; i < nExplicitEncodings; i++) {
-	encs[se->nEncodings++] = Swap32IfLE(explicitEncodings[i]);
-    }
+  if (appData.encodingsString) {
+    char *encStr = appData.encodingsString;
+    int encStrLen;
+    do {
+      char *nextEncStr = strchr(encStr, ' ');
+      if (nextEncStr) {
+	encStrLen = nextEncStr - encStr;
+	nextEncStr++;
+      } else {
+	encStrLen = strlen(encStr);
+      }
 
-    if (SameMachine(rfbsock)) {
+      if (strncasecmp(encStr,"raw",encStrLen) == 0) {
 	encs[se->nEncodings++] = Swap32IfLE(rfbEncodingRaw);
+      } else if (strncasecmp(encStr,"copyrect",encStrLen) == 0) {
+	encs[se->nEncodings++] = Swap32IfLE(rfbEncodingCopyRect);
+      } else if (strncasecmp(encStr,"hextile",encStrLen) == 0) {
+	encs[se->nEncodings++] = Swap32IfLE(rfbEncodingHextile);
+      } else if (strncasecmp(encStr,"corre",encStrLen) == 0) {
+	encs[se->nEncodings++] = Swap32IfLE(rfbEncodingCoRRE);
+      } else if (strncasecmp(encStr,"rre",encStrLen) == 0) {
+	encs[se->nEncodings++] = Swap32IfLE(rfbEncodingRRE);
+      } else {
+	fprintf(stderr,"Unknown encoding '%.*s'\n",encStrLen,encStr);
+      }
+
+      encStr = nextEncStr;
+    } while (encStr && se->nEncodings < MAX_ENCODINGS);
+  } else {
+    if (SameMachine(rfbsock)) {
+      fprintf(stderr,"Same machine: preferring raw encoding\n");
+      encs[se->nEncodings++] = Swap32IfLE(rfbEncodingRaw);
     }
 
-    if (addCopyRect)
-	encs[se->nEncodings++] = Swap32IfLE(rfbEncodingCopyRect);
-    if (addHextile)
-	encs[se->nEncodings++] = Swap32IfLE(rfbEncodingHextile);
-    if (addCoRRE)
-	encs[se->nEncodings++] = Swap32IfLE(rfbEncodingCoRRE);
-    if (addRRE)
-	encs[se->nEncodings++] = Swap32IfLE(rfbEncodingRRE);
+    encs[se->nEncodings++] = Swap32IfLE(rfbEncodingCopyRect);
+    encs[se->nEncodings++] = Swap32IfLE(rfbEncodingHextile);
+    encs[se->nEncodings++] = Swap32IfLE(rfbEncodingCoRRE);
+    encs[se->nEncodings++] = Swap32IfLE(rfbEncodingRRE);
+  }
 
-    len = sz_rfbSetEncodingsMsg + se->nEncodings * 4;
+  len = sz_rfbSetEncodingsMsg + se->nEncodings * 4;
 
-    se->nEncodings = Swap16IfLE(se->nEncodings);
+  se->nEncodings = Swap16IfLE(se->nEncodings);
 
-    if (!WriteExact(rfbsock, buf, len)) return False;
+  if (!WriteExact(rfbsock, buf, len)) return False;
 
-    return True;
+  return True;
 }
 
 
@@ -323,8 +317,8 @@ SetFormatAndEncodings()
 Bool
 SendIncrementalFramebufferUpdateRequest()
 {
-    return SendFramebufferUpdateRequest(updateRequestX, updateRequestY,
-					updateRequestW, updateRequestH, True);
+  return SendFramebufferUpdateRequest(0, 0, si.framebufferWidth,
+				      si.framebufferHeight, True);
 }
 
 
@@ -335,23 +329,19 @@ SendIncrementalFramebufferUpdateRequest()
 Bool
 SendFramebufferUpdateRequest(int x, int y, int w, int h, Bool incremental)
 {
-    rfbFramebufferUpdateRequestMsg fur;
+  rfbFramebufferUpdateRequestMsg fur;
 
-    fur.type = rfbFramebufferUpdateRequest;
-    fur.incremental = incremental ? 1 : 0;
-    fur.x = Swap16IfLE(x);
-    fur.y = Swap16IfLE(y);
-    fur.w = Swap16IfLE(w);
-    fur.h = Swap16IfLE(h);
+  fur.type = rfbFramebufferUpdateRequest;
+  fur.incremental = incremental ? 1 : 0;
+  fur.x = Swap16IfLE(x);
+  fur.y = Swap16IfLE(y);
+  fur.w = Swap16IfLE(w);
+  fur.h = Swap16IfLE(h);
 
-    if (!WriteExact(rfbsock, (char *)&fur, sz_rfbFramebufferUpdateRequestMsg))
-	return False;
+  if (!WriteExact(rfbsock, (char *)&fur, sz_rfbFramebufferUpdateRequestMsg))
+    return False;
 
-    gettimeofday(&updateRequestTime, NULL);
-
-    sendUpdateRequest = False;
-
-    return True;
+  return True;
 }
 
 
@@ -362,15 +352,15 @@ SendFramebufferUpdateRequest(int x, int y, int w, int h, Bool incremental)
 Bool
 SendPointerEvent(int x, int y, int buttonMask)
 {
-    rfbPointerEventMsg pe;
+  rfbPointerEventMsg pe;
 
-    pe.type = rfbPointerEvent;
-    pe.buttonMask = buttonMask;
-    if (x < 0) x = 0;
-    if (y < 0) y = 0;
-    pe.x = Swap16IfLE(x);
-    pe.y = Swap16IfLE(y);
-    return WriteExact(rfbsock, (char *)&pe, sz_rfbPointerEventMsg);
+  pe.type = rfbPointerEvent;
+  pe.buttonMask = buttonMask;
+  if (x < 0) x = 0;
+  if (y < 0) y = 0;
+  pe.x = Swap16IfLE(x);
+  pe.y = Swap16IfLE(y);
+  return WriteExact(rfbsock, (char *)&pe, sz_rfbPointerEventMsg);
 }
 
 
@@ -381,12 +371,12 @@ SendPointerEvent(int x, int y, int buttonMask)
 Bool
 SendKeyEvent(CARD32 key, Bool down)
 {
-    rfbKeyEventMsg ke;
+  rfbKeyEventMsg ke;
 
-    ke.type = rfbKeyEvent;
-    ke.down = down ? 1 : 0;
-    ke.key = Swap32IfLE(key);
-    return WriteExact(rfbsock, (char *)&ke, sz_rfbKeyEventMsg);
+  ke.type = rfbKeyEvent;
+  ke.down = down ? 1 : 0;
+  ke.key = Swap32IfLE(key);
+  return WriteExact(rfbsock, (char *)&ke, sz_rfbKeyEventMsg);
 }
 
 
@@ -397,12 +387,16 @@ SendKeyEvent(CARD32 key, Bool down)
 Bool
 SendClientCutText(char *str, int len)
 {
-    rfbClientCutTextMsg cct;
+  rfbClientCutTextMsg cct;
 
-    cct.type = rfbClientCutText;
-    cct.length = Swap32IfLE(len);
-    return  (WriteExact(rfbsock, (char *)&cct, sz_rfbClientCutTextMsg) &&
-	     WriteExact(rfbsock, str, len));
+  if (serverCutText)
+    free(serverCutText);
+  serverCutText = NULL;
+
+  cct.type = rfbClientCutText;
+  cct.length = Swap32IfLE(len);
+  return  (WriteExact(rfbsock, (char *)&cct, sz_rfbClientCutTextMsg) &&
+	   WriteExact(rfbsock, str, len));
 }
 
 
@@ -414,418 +408,243 @@ SendClientCutText(char *str, int len)
 Bool
 HandleRFBServerMessage()
 {
-    rfbServerToClientMsg msg;
+  rfbServerToClientMsg msg;
 
-    if (!ReadExact(rfbsock, (char *)&msg, 1))
+  if (!ReadFromRFBServer((char *)&msg, 1))
+    return False;
+
+  switch (msg.type) {
+
+  case rfbSetColourMapEntries:
+  {
+    int i;
+    CARD16 rgb[3];
+    XColor xc;
+
+    if (!ReadFromRFBServer(((char *)&msg) + 1,
+			   sz_rfbSetColourMapEntriesMsg - 1))
+      return False;
+
+    msg.scme.firstColour = Swap16IfLE(msg.scme.firstColour);
+    msg.scme.nColours = Swap16IfLE(msg.scme.nColours);
+
+    for (i = 0; i < msg.scme.nColours; i++) {
+      if (!ReadFromRFBServer((char *)rgb, 6))
+	return False;
+      xc.pixel = msg.scme.firstColour + i;
+      xc.red = Swap16IfLE(rgb[0]);
+      xc.green = Swap16IfLE(rgb[1]);
+      xc.blue = Swap16IfLE(rgb[2]);
+      xc.flags = DoRed|DoGreen|DoBlue;
+      XStoreColor(dpy, cmap, &xc);
+    }
+
+    break;
+  }
+
+  case rfbFramebufferUpdate:
+  {
+    rfbFramebufferUpdateRectHeader rect;
+    int linesToRead;
+    int bytesPerLine;
+    int i;
+    int usecs;
+
+    if (!ReadFromRFBServer(((char *)&msg.fu) + 1,
+			   sz_rfbFramebufferUpdateMsg - 1))
+      return False;
+
+    msg.fu.nRects = Swap16IfLE(msg.fu.nRects);
+
+    for (i = 0; i < msg.fu.nRects; i++) {
+      if (!ReadFromRFBServer((char *)&rect, sz_rfbFramebufferUpdateRectHeader))
 	return False;
 
-    switch (msg.type) {
+      rect.r.x = Swap16IfLE(rect.r.x);
+      rect.r.y = Swap16IfLE(rect.r.y);
+      rect.r.w = Swap16IfLE(rect.r.w);
+      rect.r.h = Swap16IfLE(rect.r.h);
 
-    case rfbSetColourMapEntries:
-    {
-	int i;
-	CARD16 rgb[3];
-	XColor xc;
+      rect.encoding = Swap32IfLE(rect.encoding);
 
-	if (!ReadExact(rfbsock, ((char *)&msg) + 1,
-			 sz_rfbSetColourMapEntriesMsg - 1))
-	    return False;
-
-	msg.scme.firstColour = Swap16IfLE(msg.scme.firstColour);
-	msg.scme.nColours = Swap16IfLE(msg.scme.nColours);
-
-	for (i = 0; i < msg.scme.nColours; i++) {
-	    if (!ReadExact(rfbsock, (char *)rgb, 6))
-		return False;
-	    xc.pixel = msg.scme.firstColour + i;
-	    xc.red = Swap16IfLE(rgb[0]);
-	    xc.green = Swap16IfLE(rgb[1]);
-	    xc.blue = Swap16IfLE(rgb[2]);
-	    xc.flags = DoRed|DoGreen|DoBlue;
-	    XStoreColor(dpy, cmap, &xc);
+      if ((rect.r.x + rect.r.w > si.framebufferWidth) ||
+	  (rect.r.y + rect.r.h > si.framebufferHeight))
+	{
+	  fprintf(stderr,"Rect too large: %dx%d at (%d, %d)\n",
+		  rect.r.w, rect.r.h, rect.r.x, rect.r.y);
+	  return False;
 	}
 
-	break;
-    }
+      if ((rect.r.h * rect.r.w) == 0) {
+	fprintf(stderr,"Zero size rect - ignoring\n");
+	continue;
+      }
 
-    case rfbFramebufferUpdate:
-    {
-	rfbFramebufferUpdateRectHeader rect;
-	int linesToRead;
-	int bytesPerLine;
-	int i;
+      switch (rect.encoding) {
 
-	if (!ReadExact(rfbsock, ((char *)&msg.fu) + 1,
-			 sz_rfbFramebufferUpdateMsg - 1))
+      case rfbEncodingRaw:
+
+	bytesPerLine = rect.r.w * myFormat.bitsPerPixel / 8;
+	linesToRead = BUFFER_SIZE / bytesPerLine;
+
+	while (rect.r.h > 0) {
+	  if (linesToRead > rect.r.h)
+	    linesToRead = rect.r.h;
+
+	  if (!ReadFromRFBServer(buffer,bytesPerLine * linesToRead))
 	    return False;
 
-	msg.fu.nRects = Swap16IfLE(msg.fu.nRects);
+	  CopyDataToScreen(buffer, rect.r.x, rect.r.y, rect.r.w,
+			   linesToRead);
 
-	for (i = 0; i < msg.fu.nRects; i++) {
-	    if (!ReadExact(rfbsock, (char *)&rect,
-			     sz_rfbFramebufferUpdateRectHeader))
-		return False;
+	  rect.r.h -= linesToRead;
+	  rect.r.y += linesToRead;
 
-	    rect.r.x = Swap16IfLE(rect.r.x);
-	    rect.r.y = Swap16IfLE(rect.r.y);
-	    rect.r.w = Swap16IfLE(rect.r.w);
-	    rect.r.h = Swap16IfLE(rect.r.h);
+	}
+	break;
 
-	    rect.encoding = Swap32IfLE(rect.encoding);
+      case rfbEncodingCopyRect:
+      {
+	rfbCopyRect cr;
 
-	    if ((rect.r.x + rect.r.w > si.framebufferWidth) ||
-		(rect.r.y + rect.r.h > si.framebufferHeight))
-	    {
-		fprintf(stderr,"%s: rect too large: %dx%d at (%d, %d)\n",
-		       programName, rect.r.w, rect.r.h, rect.r.x, rect.r.y);
-		return False;
-	    }
+	if (!ReadFromRFBServer((char *)&cr, sz_rfbCopyRect))
+	  return False;
 
-	    if ((rect.r.h * rect.r.w) == 0) {
-		fprintf(stderr,"%s: zero size rect - ignoring\n",programName);
-		continue;
-	    }
+	cr.srcX = Swap16IfLE(cr.srcX);
+	cr.srcY = Swap16IfLE(cr.srcY);
 
-	    switch (rect.encoding) {
-
-	    case rfbEncodingRaw:
-
-		bytesPerLine = rect.r.w * myFormat.bitsPerPixel / 8;
-		linesToRead = BUFFER_SIZE / bytesPerLine;
-
-		while (rect.r.h > 0) {
-		    if (linesToRead > rect.r.h)
-			linesToRead = rect.r.h;
-
-		    if (!ReadExact(rfbsock, buffer,bytesPerLine * linesToRead))
-			return False;
-
-		    CopyDataToScreen((CARD8 *)buffer, rect.r.x, rect.r.y,
-				     rect.r.w, linesToRead);
-
-		    rect.r.h -= linesToRead;
-		    rect.r.y += linesToRead;
-
-		}
-		break;
-
-	    case rfbEncodingCopyRect:
-	    {
-		rfbCopyRect cr;
-
-		if (!ReadExact(rfbsock, (char *)&cr, sz_rfbCopyRect))
-		    return False;
-
-		cr.srcX = Swap16IfLE(cr.srcX);
-		cr.srcY = Swap16IfLE(cr.srcY);
-
-		if (copyRectDelay != 0) {
-		    XFillRectangle(dpy, canvas, srcGC, cr.srcX, cr.srcY,
-				   rect.r.w, rect.r.h);
-		    XFillRectangle(dpy, canvas, dstGC, rect.r.x, rect.r.y,
-				   rect.r.w, rect.r.h);
-		    XSync(dpy,False);
-		    usleep(copyRectDelay * 1000);
-		    XFillRectangle(dpy, canvas, dstGC, rect.r.x, rect.r.y,
-				   rect.r.w, rect.r.h);
-		    XFillRectangle(dpy, canvas, srcGC, cr.srcX, cr.srcY,
-				   rect.r.w, rect.r.h);
-		}
-
-		XCopyArea(dpy, canvas, canvas, gc, cr.srcX, cr.srcY,
-			  rect.r.w, rect.r.h, rect.r.x, rect.r.y);
-
-		break;
-	    }
-
-	    case rfbEncodingRRE:
-	    {
-		rfbRREHeader hdr;
-		CARD8 pix8;
-		CARD16 pix16;
-		CARD32 pix32;
-		XGCValues gcv;
-		rfbRectangle subrect;
-		int j;
-
-		if (!ReadExact(rfbsock, (char *)&hdr, sz_rfbRREHeader))
-		    return False;
-
-		hdr.nSubrects = Swap32IfLE(hdr.nSubrects);
-
-		switch (myFormat.bitsPerPixel) {
-
-		case 8:
-		    if (!ReadExact(rfbsock, (char *)&pix8, 1))
-			return False;
-
-		    gcv.foreground = (useBGR233 ? BGR233ToPixel[pix8]
-				      : pix8);
-		    XChangeGC(dpy, gc, GCForeground, &gcv);
-		    XFillRectangle(dpy, canvas, gc, rect.r.x, rect.r.y,
-				   rect.r.w, rect.r.h);
-
-		    for (j = 0; j < hdr.nSubrects; j++) {
-			if (!ReadExact(rfbsock, (char *)&pix8, 1))
-			    return False;
-
-			if (!ReadExact(rfbsock, (char *)&subrect,
-					 sz_rfbRectangle))
-			    return False;
-
-			subrect.x = Swap16IfLE(subrect.x);
-			subrect.y = Swap16IfLE(subrect.y);
-			subrect.w = Swap16IfLE(subrect.w);
-			subrect.h = Swap16IfLE(subrect.h);
-
-			gcv.foreground = (useBGR233 ? BGR233ToPixel[pix8]
-					  : pix8);
-			XChangeGC(dpy, gc, GCForeground, &gcv);
-			XFillRectangle(dpy, canvas, gc, rect.r.x + subrect.x,
-				       rect.r.y + subrect.y, subrect.w,
-				       subrect.h);
-		    }
-		    break;
-
-		case 16:
-		    if (!ReadExact(rfbsock, (char *)&pix16, 2))
-			return False;
-
-		    gcv.foreground = pix16;
-		    XChangeGC(dpy, gc, GCForeground, &gcv);
-		    XFillRectangle(dpy, canvas, gc, rect.r.x, rect.r.y,
-				   rect.r.w, rect.r.h);
-
-		    for (j = 0; j < hdr.nSubrects; j++) {
-			if (!ReadExact(rfbsock, (char *)&pix16, 2))
-			    return False;
-
-			if (!ReadExact(rfbsock, (char *)&subrect,
-					 sz_rfbRectangle))
-			    return False;
-
-			subrect.x = Swap16IfLE(subrect.x);
-			subrect.y = Swap16IfLE(subrect.y);
-			subrect.w = Swap16IfLE(subrect.w);
-			subrect.h = Swap16IfLE(subrect.h);
-
-			gcv.foreground = pix16;
-			XChangeGC(dpy, gc, GCForeground, &gcv);
-			XFillRectangle(dpy, canvas, gc, rect.r.x + subrect.x,
-				       rect.r.y + subrect.y, subrect.w,
-				       subrect.h);
-		    }
-		    break;
-
-		case 32:
-		    if (!ReadExact(rfbsock, (char *)&pix32, 4))
-			return False;
-
-		    gcv.foreground = pix32;
-		    XChangeGC(dpy, gc, GCForeground, &gcv);
-		    XFillRectangle(dpy, canvas, gc, rect.r.x, rect.r.y,
-				   rect.r.w, rect.r.h);
-
-		    for (j = 0; j < hdr.nSubrects; j++) {
-			if (!ReadExact(rfbsock, (char *)&pix32, 4))
-			    return False;
-
-			if (!ReadExact(rfbsock, (char *)&subrect,
-					 sz_rfbRectangle))
-			    return False;
-
-			subrect.x = Swap16IfLE(subrect.x);
-			subrect.y = Swap16IfLE(subrect.y);
-			subrect.w = Swap16IfLE(subrect.w);
-			subrect.h = Swap16IfLE(subrect.h);
-
-			gcv.foreground = pix32;
-			XChangeGC(dpy, gc, GCForeground, &gcv);
-			XFillRectangle(dpy, canvas, gc, rect.r.x + subrect.x,
-				       rect.r.y + subrect.y, subrect.w,
-				       subrect.h);
-		    }
-		    break;
-		}
-		break;
-	    }
-
-	    case rfbEncodingCoRRE:
-	    {
-		rfbRREHeader hdr;
-		CARD8 pix8;
-		CARD16 pix16;
-		CARD32 pix32;
-		XGCValues gcv;
-		int j;
-		CARD8 *ptr;
-		register int x, y, w, h;
-
-		if (!ReadExact(rfbsock, (char *)&hdr, sz_rfbRREHeader))
-		    return False;
-
-		hdr.nSubrects = Swap32IfLE(hdr.nSubrects);
-
-		switch (myFormat.bitsPerPixel) {
-
-		case 8:
-		    if (!ReadExact(rfbsock, (char *)&pix8, 1))
-			return False;
-
-		    gcv.foreground = (useBGR233 ? BGR233ToPixel[pix8]
-				      : pix8);
-		    XChangeGC(dpy, gc, GCForeground, &gcv);
-		    XFillRectangle(dpy, canvas, gc, rect.r.x, rect.r.y,
-				   rect.r.w, rect.r.h);
-
-		    if (!ReadExact(rfbsock, buffer, hdr.nSubrects * 5))
-			return False;
-
-		    ptr = (CARD8 *)buffer;
-
-		    for (j = 0; j < hdr.nSubrects; j++) {
-			pix8 = *ptr++;
-			x = *ptr++;
-			y = *ptr++;
-			w = *ptr++;
-			h = *ptr++;
-			gcv.foreground = (useBGR233 ? BGR233ToPixel[pix8]
-					  : pix8);
-			XChangeGC(dpy, gc, GCForeground, &gcv);
-			XFillRectangle(dpy, canvas, gc, rect.r.x + x,
-				       rect.r.y + y, w, h);
-		    }
-		    break;
-
-		case 16:
-		    if (!ReadExact(rfbsock, (char *)&pix16, 2))
-			return False;
-
-		    gcv.foreground = pix16;
-		    XChangeGC(dpy, gc, GCForeground, &gcv);
-		    XFillRectangle(dpy, canvas, gc, rect.r.x, rect.r.y,
-				   rect.r.w, rect.r.h);
-
-		    if (!ReadExact(rfbsock, buffer, hdr.nSubrects * 6))
-			return False;
-
-		    ptr = (CARD8 *)buffer;
-
-		    for (j = 0; j < hdr.nSubrects; j++) {
-			pix16 = *(CARD16 *)ptr;
-			ptr += 2;
-			x = *ptr++;
-			y = *ptr++;
-			w = *ptr++;
-			h = *ptr++;
-			gcv.foreground = pix16;
-			XChangeGC(dpy, gc, GCForeground, &gcv);
-			XFillRectangle(dpy, canvas, gc, rect.r.x + x,
-				       rect.r.y + y, w, h);
-		    }
-		    break;
-
-		case 32:
-		    if (!ReadExact(rfbsock, (char *)&pix32, 4))
-			return False;
-
-		    gcv.foreground = pix32;
-		    XChangeGC(dpy, gc, GCForeground, &gcv);
-		    XFillRectangle(dpy, canvas, gc, rect.r.x, rect.r.y,
-				   rect.r.w, rect.r.h);
-
-		    if (!ReadExact(rfbsock, buffer, hdr.nSubrects * 8))
-			return False;
-
-		    ptr = (CARD8 *)buffer;
-
-		    for (j = 0; j < hdr.nSubrects; j++) {
-			pix32 = *(CARD32 *)ptr;
-			ptr += 4;
-			x = *ptr++;
-			y = *ptr++;
-			w = *ptr++;
-			h = *ptr++;
-			gcv.foreground = pix32;
-			XChangeGC(dpy, gc, GCForeground, &gcv);
-			XFillRectangle(dpy, canvas, gc, rect.r.x + x,
-				       rect.r.y + y, w, h);
-		    }
-		    break;
-		}
-		break;
-	    }
-
-	    case rfbEncodingHextile:
-	    {
-		switch (myFormat.bitsPerPixel) {
-		case 8:
-		    if (!HandleHextileEncoding8(rect.r.x, rect.r.y,
-						rect.r.w, rect.r.h))
-			return False;
-		    break;
-		case 16:
-		    if (!HandleHextileEncoding16(rect.r.x, rect.r.y,
-						 rect.r.w, rect.r.h))
-			return False;
-		    break;
-		case 32:
-		    if (!HandleHextileEncoding32(rect.r.x, rect.r.y,
-						 rect.r.w, rect.r.h))
-			return False;
-		    break;
-		}
-		break;
-	    }
-
-	    default:
-		fprintf(stderr,"%s: unknown rect encoding %d\n",programName,
-		       (int)rect.encoding);
-		return False;
-	    }
+	if (appData.copyRectDelay != 0) {
+	  XFillRectangle(dpy, desktopWin, srcGC, cr.srcX, cr.srcY,
+			 rect.r.w, rect.r.h);
+	  XFillRectangle(dpy, desktopWin, dstGC, rect.r.x, rect.r.y,
+			 rect.r.w, rect.r.h);
+	  XSync(dpy,False);
+	  usleep(appData.copyRectDelay * 1000);
+	  XFillRectangle(dpy, desktopWin, dstGC, rect.r.x, rect.r.y,
+			 rect.r.w, rect.r.h);
+	  XFillRectangle(dpy, desktopWin, srcGC, cr.srcX, cr.srcY,
+			 rect.r.w, rect.r.h);
 	}
 
-	sendUpdateRequest = True;
+	XCopyArea(dpy, desktopWin, desktopWin, gc, cr.srcX, cr.srcY,
+		  rect.r.w, rect.r.h, rect.r.x, rect.r.y);
 
 	break;
-    }
+      }
 
-    case rfbBell:
-	XBell(dpy,100);
-	break;
-
-    case rfbServerCutText:
-    {
-	char *str;
-
-	if (!ReadExact(rfbsock, ((char *)&msg) + 1,
-			 sz_rfbServerCutTextMsg - 1))
+      case rfbEncodingRRE:
+      {
+	switch (myFormat.bitsPerPixel) {
+	case 8:
+	  if (!HandleRRE8(rect.r.x,rect.r.y,rect.r.w,rect.r.h))
 	    return False;
-
-	msg.sct.length = Swap32IfLE(msg.sct.length);
-
-	str = malloc(msg.sct.length);
-
-	if (!ReadExact(rfbsock, str, msg.sct.length))
+	  break;
+	case 16:
+	  if (!HandleRRE16(rect.r.x,rect.r.y,rect.r.w,rect.r.h))
 	    return False;
-
-	XSelectInput(dpy, DefaultRootWindow(dpy), 0);
-	XStoreBytes(dpy, str, msg.sct.length);
-	XSetSelectionOwner(dpy, XA_PRIMARY, None, CurrentTime);
-	XSelectInput(dpy, DefaultRootWindow(dpy), PropertyChangeMask);
-
-	free(str);
-
+	  break;
+	case 32:
+	  if (!HandleRRE32(rect.r.x,rect.r.y,rect.r.w,rect.r.h))
+	    return False;
+	  break;
+	}
 	break;
-    }
+      }
 
-    default:
-	fprintf(stderr,"%s: unknown message type %d from VNC server\n",
-	       programName,msg.type);
+      case rfbEncodingCoRRE:
+      {
+	switch (myFormat.bitsPerPixel) {
+	case 8:
+	  if (!HandleCoRRE8(rect.r.x,rect.r.y,rect.r.w,rect.r.h))
+	    return False;
+	  break;
+	case 16:
+	  if (!HandleCoRRE16(rect.r.x,rect.r.y,rect.r.w,rect.r.h))
+	    return False;
+	  break;
+	case 32:
+	  if (!HandleCoRRE32(rect.r.x,rect.r.y,rect.r.w,rect.r.h))
+	    return False;
+	  break;
+	}
+	break;
+      }
+
+      case rfbEncodingHextile:
+      {
+	switch (myFormat.bitsPerPixel) {
+	case 8:
+	  if (!HandleHextile8(rect.r.x,rect.r.y,rect.r.w,rect.r.h))
+	    return False;
+	  break;
+	case 16:
+	  if (!HandleHextile16(rect.r.x,rect.r.y,rect.r.w,rect.r.h))
+	    return False;
+	  break;
+	case 32:
+	  if (!HandleHextile32(rect.r.x,rect.r.y,rect.r.w,rect.r.h))
+	    return False;
+	  break;
+	}
+	break;
+      }
+
+      default:
+	fprintf(stderr,"Unknown rect encoding %d\n",
+		(int)rect.encoding);
 	return False;
+      }
     }
 
-    return True;
+#ifdef MITSHM
+    /* if using shared memory PutImage, make sure that the X server has
+       updated its framebuffer before we reuse the shared memory.  This is
+       mainly to avoid copyrect using invalid screen contents - not sure
+       if we'd need it otherwise. */
+
+    if (appData.useShm)
+      XSync(dpy, False);
+#endif
+
+    if (!SendIncrementalFramebufferUpdateRequest())
+      return False;
+
+    break;
+  }
+
+  case rfbBell:
+    XBell(dpy,100);
+    break;
+
+  case rfbServerCutText:
+  {
+    if (!ReadFromRFBServer(((char *)&msg) + 1,
+			   sz_rfbServerCutTextMsg - 1))
+      return False;
+
+    msg.sct.length = Swap32IfLE(msg.sct.length);
+
+    if (serverCutText)
+      free(serverCutText);
+
+    serverCutText = malloc(msg.sct.length+1);
+
+    if (!ReadFromRFBServer(serverCutText, msg.sct.length))
+      return False;
+
+    serverCutText[msg.sct.length] = 0;
+
+    newServerCutText = True;
+
+    break;
+  }
+
+  default:
+    fprintf(stderr,"Unknown message type %d from VNC server\n",msg.type);
+    return False;
+  }
+
+  return True;
 }
 
 
@@ -839,142 +658,55 @@ HandleRFBServerMessage()
 			       ((CARD8*)&(pix))[2] = *(ptr)++, \
 			       ((CARD8*)&(pix))[3] = *(ptr)++)
 
-#define DEFINE_HEXTILE(bpp)                                                   \
-static Bool                                                                   \
-HandleHextileEncoding##bpp(int rx, int ry, int rw, int rh)                    \
-{                                                                             \
-    CARD##bpp bg, fg;                                                         \
-    XGCValues gcv;                                                            \
-    int i;                                                                    \
-    CARD8 *ptr;                                                               \
-    int x, y, w, h;                                                           \
-    int sx, sy, sw, sh;                                                       \
-    CARD8 subencoding;                                                        \
-    CARD8 nSubrects;                                                          \
-                                                                              \
-    for (y = ry; y < ry+rh; y += 16) {                                        \
-        for (x = rx; x < rx+rw; x += 16) {                                    \
-            w = h = 16;                                                       \
-            if (rx+rw - x < 16)                                               \
-                w = rx+rw - x;                                                \
-            if (ry+rh - y < 16)                                               \
-                h = ry+rh - y;                                                \
-                                                                              \
-            if (!ReadExact(rfbsock, (char *)&subencoding, 1))                 \
-                return False;                                                 \
-                                                                              \
-            if (subencoding & rfbHextileRaw) {                                \
-                if (!ReadExact(rfbsock, buffer, w * h * (bpp / 8)))           \
-                    return False;                                             \
-                                                                              \
-                CopyDataToScreen((CARD8 *)buffer, x, y, w, h);                \
-                continue;                                                     \
-            }                                                                 \
-                                                                              \
-            if (subencoding & rfbHextileBackgroundSpecified)                  \
-                if (!ReadExact(rfbsock, (char *)&bg, (bpp/8)))                \
-                    return False;                                             \
-                                                                              \
-            if ((bpp == 8) && useBGR233)                                      \
-                gcv.foreground = BGR233ToPixel[bg];                           \
-            else                                                              \
-                gcv.foreground = bg;                                          \
-                                                                              \
-            XChangeGC(dpy, gc, GCForeground, &gcv);                           \
-            XFillRectangle(dpy, canvas, gc, x, y, w, h);                      \
-                                                                              \
-            if (subencoding & rfbHextileForegroundSpecified)                  \
-                if (!ReadExact(rfbsock, (char *)&fg, (bpp/8)))                \
-                    return False;                                             \
-                                                                              \
-            if (!(subencoding & rfbHextileAnySubrects)) {                     \
-                continue;                                                     \
-            }                                                                 \
-                                                                              \
-            if (!ReadExact(rfbsock, (char *)&nSubrects, 1))                   \
-                return False;                                                 \
-                                                                              \
-            ptr = (CARD8 *)buffer;                                            \
-                                                                              \
-            if (subencoding & rfbHextileSubrectsColoured) {                   \
-                if (!ReadExact(rfbsock, buffer, nSubrects * (2 + (bpp / 8)))) \
-                    return False;                                             \
-                                                                              \
-                for (i = 0; i < nSubrects; i++) {                             \
-                    GET_PIXEL##bpp(fg, ptr);                                  \
-                    sx = rfbHextileExtractX(*ptr);                            \
-                    sy = rfbHextileExtractY(*ptr);                            \
-                    ptr++;                                                    \
-                    sw = rfbHextileExtractW(*ptr);                            \
-                    sh = rfbHextileExtractH(*ptr);                            \
-                    ptr++;                                                    \
-                    if ((bpp == 8) && useBGR233)                              \
-                        gcv.foreground = BGR233ToPixel[fg];                   \
-                    else                                                      \
-                        gcv.foreground = fg;                                  \
-                                                                              \
-                    XChangeGC(dpy, gc, GCForeground, &gcv);                   \
-                    XFillRectangle(dpy, canvas, gc, x+sx, y+sy, sw, sh);      \
-                }                                                             \
-                                                                              \
-            } else {                                                          \
-                if (!ReadExact(rfbsock, buffer, nSubrects * 2))               \
-                    return False;                                             \
-                                                                              \
-                if ((bpp == 8) && useBGR233)                                  \
-                    gcv.foreground = BGR233ToPixel[fg];                       \
-                else                                                          \
-                    gcv.foreground = fg;                                      \
-                                                                              \
-                XChangeGC(dpy, gc, GCForeground, &gcv);                       \
-                                                                              \
-                for (i = 0; i < nSubrects; i++) {                             \
-                    sx = rfbHextileExtractX(*ptr);                            \
-                    sy = rfbHextileExtractY(*ptr);                            \
-                    ptr++;                                                    \
-                    sw = rfbHextileExtractW(*ptr);                            \
-                    sh = rfbHextileExtractH(*ptr);                            \
-                    ptr++;                                                    \
-                    XFillRectangle(dpy, canvas, gc, x+sx, y+sy, sw, sh);      \
-                }                                                             \
-            }                                                                 \
-        }                                                                     \
-    }                                                                         \
-                                                                              \
-    return True;                                                              \
-}
+/* CONCAT2 concatenates its two arguments.  CONCAT2E does the same but also
+   expands its arguments if they are macros */
 
-DEFINE_HEXTILE(8)
-DEFINE_HEXTILE(16)
-DEFINE_HEXTILE(32)
+#define CONCAT2(a,b) a##b
+#define CONCAT2E(a,b) CONCAT2(a,b)
+
+#define BPP 8
+#include "rre.c"
+#include "corre.c"
+#include "hextile.c"
+#undef BPP
+#define BPP 16
+#include "rre.c"
+#include "corre.c"
+#include "hextile.c"
+#undef BPP
+#define BPP 32
+#include "rre.c"
+#include "corre.c"
+#include "hextile.c"
+#undef BPP
 
 
 /*
  * PrintPixelFormat.
  */
 
-static void
+void
 PrintPixelFormat(format)
     rfbPixelFormat *format;
 {
-    if (format->bitsPerPixel == 1) {
-	fprintf(stderr,"Single bit per pixel.\n");
-	fprintf(stderr,
-		"%s significant bit in each byte is leftmost on the screen.\n",
-		(format->bigEndian ? "Most" : "Least"));
-    } else {
-	fprintf(stderr,"%d bits per pixel.\n",format->bitsPerPixel);
-	if (format->bitsPerPixel != 8) {
-	    fprintf(stderr,"%s significant byte first in each pixel.\n",
-		    (format->bigEndian ? "Most" : "Least"));
-	}
-	if (format->trueColour) {
-	    fprintf(stderr,"True colour: max red %d green %d blue %d\n",
-		    format->redMax, format->greenMax, format->blueMax);
-	    fprintf(stderr,"            shift red %d green %d blue %d\n",
-		    format->redShift, format->greenShift, format->blueShift);
-	} else {
-	    fprintf(stderr,"Uses a colour map (not true colour).\n");
-	}
+  if (format->bitsPerPixel == 1) {
+    fprintf(stderr,"  Single bit per pixel.\n");
+    fprintf(stderr,
+	    "  %s significant bit in each byte is leftmost on the screen.\n",
+	    (format->bigEndian ? "Most" : "Least"));
+  } else {
+    fprintf(stderr,"  %d bits per pixel.\n",format->bitsPerPixel);
+    if (format->bitsPerPixel != 8) {
+      fprintf(stderr,"  %s significant byte first in each pixel.\n",
+	      (format->bigEndian ? "Most" : "Least"));
     }
+    if (format->trueColour) {
+      fprintf(stderr,"  True colour: max red %d green %d blue %d",
+	      format->redMax, format->greenMax, format->blueMax);
+      fprintf(stderr,", shift red %d green %d blue %d\n",
+	      format->redShift, format->greenShift, format->blueShift);
+    } else {
+      fprintf(stderr,"  Colour map (not true colour).\n");
+    }
+  }
 }

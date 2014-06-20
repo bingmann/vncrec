@@ -3,7 +3,7 @@
  */
 
 /*
- *  Copyright (C) 1997, 1998 Olivetti & Oracle Research Laboratory
+ *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -46,6 +46,10 @@ int ublen;
 
 rfbClientPtr rfbClientHead = NULL;
 rfbClientPtr pointerClient = NULL;  /* Mutex for pointer events */
+
+Bool rfbAlwaysShared = FALSE;
+Bool rfbNeverShared = FALSE;
+Bool rfbDontDisconnect = FALSE;
 
 static rfbClientPtr rfbNewClient(int sock);
 static void rfbProcessClientProtocolVersion(rfbClientPtr cl);
@@ -397,13 +401,26 @@ rfbProcessClientInitMessage(cl)
 
     cl->state = RFB_NORMAL;
 
-    if (!ci.shared && !cl->reverseConnection) {
-	for (otherCl = rfbClientHead; otherCl; otherCl = nextCl) {
-	    nextCl = otherCl->next;
-	    if ((otherCl != cl) && (otherCl->state == RFB_NORMAL)) {
-		rfbLog("Not shared - closing connection to client %s\n",
-		       otherCl->host);
-		rfbCloseSock(otherCl->sock);
+    if (!cl->reverseConnection &&
+			(rfbNeverShared || (!rfbAlwaysShared && !ci.shared))) {
+
+	if (rfbDontDisconnect) {
+	    for (otherCl = rfbClientHead; otherCl; otherCl = otherCl->next) {
+		if ((otherCl != cl) && (otherCl->state == RFB_NORMAL)) {
+		    rfbLog("-dontdisconnect: Not shared & existing client\n");
+		    rfbLog("  refusing new client %s\n", cl->host);
+		    rfbCloseSock(cl->sock);
+		    return;
+		}
+	    }
+	} else {
+	    for (otherCl = rfbClientHead; otherCl; otherCl = nextCl) {
+		nextCl = otherCl->next;
+		if ((otherCl != cl) && (otherCl->state == RFB_NORMAL)) {
+		    rfbLog("Not shared - closing connection to client %s\n",
+			   otherCl->host);
+		    rfbCloseSock(otherCl->sock);
+		}
 	    }
 	}
     }
@@ -568,7 +585,7 @@ rfbProcessClientNormalMessage(cl)
 	box.y1 = Swap16IfLE(msg.fur.y);
 	box.x2 = box.x1 + Swap16IfLE(msg.fur.w);
 	box.y2 = box.y1 + Swap16IfLE(msg.fur.h);
-	REGION_INIT(pScreen,&tmpRegion,&box,0);
+	SAFE_REGION_INIT(pScreen,&tmpRegion,&box,0);
 
 	REGION_UNION(pScreen, &cl->requestedRegion, &cl->requestedRegion,
 		     &tmpRegion);
@@ -816,9 +833,14 @@ rfbSendFramebufferUpdate(cl)
     ublen = sz_rfbFramebufferUpdateMsg;
 
     if (REGION_NOTEMPTY(pScreen,&updateCopyRegion)) {
-	if (!rfbSendCopyRegion(cl,&updateCopyRegion,dx,dy))
+	if (!rfbSendCopyRegion(cl,&updateCopyRegion,dx,dy)) {
+	    REGION_UNINIT(pScreen,&updateRegion);
+	    REGION_UNINIT(pScreen,&updateCopyRegion);
 	    return FALSE;
+	}
     }
+
+    REGION_UNINIT(pScreen,&updateCopyRegion);
 
     for (i = 0; i < REGION_NUM_RECTS(&updateRegion); i++) {
 	int x = REGION_RECTS(&updateRegion)[i].x1;
@@ -831,23 +853,33 @@ rfbSendFramebufferUpdate(cl)
 
 	switch (cl->preferredEncoding) {
 	case rfbEncodingRaw:
-	    if (!rfbSendRectEncodingRaw(cl, x, y, w, h))
+	    if (!rfbSendRectEncodingRaw(cl, x, y, w, h)) {
+		REGION_UNINIT(pScreen,&updateRegion);
 		return FALSE;
+	    }
 	    break;
 	case rfbEncodingRRE:
-	    if (!rfbSendRectEncodingRRE(cl, x, y, w, h))
+	    if (!rfbSendRectEncodingRRE(cl, x, y, w, h)) {
+		REGION_UNINIT(pScreen,&updateRegion);
 		return FALSE;
+	    }
 	    break;
 	case rfbEncodingCoRRE:
-	    if (!rfbSendRectEncodingCoRRE(cl, x, y, w, h))
+	    if (!rfbSendRectEncodingCoRRE(cl, x, y, w, h)) {
+		REGION_UNINIT(pScreen,&updateRegion);
 		return FALSE;
+	    }
 	    break;
 	case rfbEncodingHextile:
-	    if (!rfbSendRectEncodingHextile(cl, x, y, w, h))
+	    if (!rfbSendRectEncodingHextile(cl, x, y, w, h)) {
+		REGION_UNINIT(pScreen,&updateRegion);
 		return FALSE;
+	    }
 	    break;
 	}
     }
+
+    REGION_UNINIT(pScreen,&updateRegion);
 
     if (!rfbSendUpdateBuf(cl))
 	return FALSE;
@@ -896,9 +928,9 @@ rfbSendCopyRegion(cl, reg, dx, dy)
 	firstInNextBand = thisRect;
 	nrectsInBand = 0;
 
-	while ((REGION_RECTS(reg)[firstInNextBand].y1
-		== REGION_RECTS(reg)[thisRect].y1) &&
-	       (nrects > 0))
+	while ((nrects > 0) &&
+	       (REGION_RECTS(reg)[firstInNextBand].y1
+		== REGION_RECTS(reg)[thisRect].y1))
 	{
 	    firstInNextBand += y_inc;
 	    nrects--;
@@ -1106,10 +1138,11 @@ rfbSendSetColourMapEntries(cl, firstColour, nColours)
 void
 rfbSendBell()
 {
-    rfbClientPtr cl;
+    rfbClientPtr cl, nextCl;
     rfbBellMsg b;
 
-    for (cl = rfbClientHead; cl; cl = cl->next) {
+    for (cl = rfbClientHead; cl; cl = nextCl) {
+	nextCl = cl->next;
 	b.type = rfbBell;
 	if (WriteExact(cl->sock, (char *)&b, sz_rfbBellMsg) < 0) {
 	    rfbLogPerror("rfbSendBell: write");
@@ -1126,10 +1159,11 @@ rfbSendBell()
 void
 rfbSendServerCutText(char *str, int len)
 {
-    rfbClientPtr cl;
+    rfbClientPtr cl, nextCl;
     rfbServerCutTextMsg sct;
 
-    for (cl = rfbClientHead; cl; cl = cl->next) {
+    for (cl = rfbClientHead; cl; cl = nextCl) {
+	nextCl = cl->next;
 	sct.type = rfbServerCutText;
 	sct.length = Swap32IfLE(len);
 	if (WriteExact(cl->sock, (char *)&sct,

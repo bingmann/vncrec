@@ -1,3 +1,5 @@
+Only in .: DIFFS
+Only in .: README
 diff -cr ../../../../../XFree86/3.3.2/lean-xc/config/cf/linux.cf ./config/cf/linux.cf
 *** ../../../../../XFree86/3.3.2/lean-xc/config/cf/linux.cf	Mon Mar  2 11:55:22 1998
 --- ./config/cf/linux.cf	Mon May 11 17:38:06 1998
@@ -96,11 +98,107 @@ diff -cr ../../../../../XFree86/3.3.2/lean-xc/config/cf/site.def ./config/cf/sit
 + ================================================================*/
   
   #endif /* AfterVendorCF */
+diff -cr ../../../../../XFree86/3.3.2/lean-xc/config/cf/ultrix.cf ./config/cf/ultrix.cf
+*** ../../../../../XFree86/3.3.2/lean-xc/config/cf/ultrix.cf	Sun Dec 22 03:15:23 1996
+--- ./config/cf/ultrix.cf	Mon Aug 16 10:22:57 1999
+***************
+*** 38,45 ****
+  
+  #ifdef MipsArchitecture
+  #if OSMajorVersion > 4 || (OSMajorVersion == 4 && OSMinorVersion >= 2)
+! #define XdecServer YES
+! #define ServerOSDefines -DDDXTIME
+  /* Even under ultrix 4.2, the compiler miscompiles some alloca calls */
+  #define AllocateLocalDefines /* -DINCLUDE_ALLOCA_H */
+  #else
+--- 38,45 ----
+  
+  #ifdef MipsArchitecture
+  #if OSMajorVersion > 4 || (OSMajorVersion == 4 && OSMinorVersion >= 2)
+! /*#define XdecServer YES
+! #define ServerOSDefines -DDDXTIME*/
+  /* Even under ultrix 4.2, the compiler miscompiles some alloca calls */
+  #define AllocateLocalDefines /* -DINCLUDE_ALLOCA_H */
+  #else
 Only in ./config/cf: vnc.def
 Only in ./config/cf: vnclibs.def
+diff -cr ../../../../../XFree86/3.3.2/lean-xc/lib/font/bitmap/bitscale.c ./lib/font/bitmap/bitscale.c
+*** ../../../../../XFree86/3.3.2/lean-xc/lib/font/bitmap/bitscale.c	Wed Jun 11 13:08:40 1997
+--- ./lib/font/bitmap/bitscale.c	Mon Aug 16 10:20:56 1999
+***************
+*** 577,583 ****
+  	       the matrix appropriately */
+  	    vals->pixel_matrix[0] *= rescale_x;
+  	    vals->pixel_matrix[1] *= rescale_x;
+!     #ifdef NOTDEF
+  	    /* This would force the pointsize and pixelsize fields in the
+  	       FONT property to display as matrices to more accurately
+  	       report the font being supplied.  It might also break existing
+--- 577,583 ----
+  	       the matrix appropriately */
+  	    vals->pixel_matrix[0] *= rescale_x;
+  	    vals->pixel_matrix[1] *= rescale_x;
+! #ifdef NOTDEF
+  	    /* This would force the pointsize and pixelsize fields in the
+  	       FONT property to display as matrices to more accurately
+  	       report the font being supplied.  It might also break existing
+***************
+*** 585,593 ****
+  	    vals->values_supplied =
+  		vals->values_supplied & ~(PIXELSIZE_MASK | POINTSIZE_MASK) |
+  		PIXELSIZE_ARRAY;
+!     #else /* NOTDEF */
+  	    vals->values_supplied = vals->values_supplied & ~POINTSIZE_MASK;
+!     #endif /* NOTDEF */
+  	    /* Recompute and reround the FontScalablePtr values after
+  	       rescaling for the new width. */
+  	    FontFileCompleteXLFD(vals, vals);
+--- 585,593 ----
+  	    vals->values_supplied =
+  		vals->values_supplied & ~(PIXELSIZE_MASK | POINTSIZE_MASK) |
+  		PIXELSIZE_ARRAY;
+! #else /* NOTDEF */
+  	    vals->values_supplied = vals->values_supplied & ~POINTSIZE_MASK;
+! #endif /* NOTDEF */
+  	    /* Recompute and reround the FontScalablePtr values after
+  	       rescaling for the new width. */
+  	    FontFileCompleteXLFD(vals, vals);
+diff -cr ../../../../../XFree86/3.3.2/lean-xc/lib/font/fontfile/dirfile.c ./lib/font/fontfile/dirfile.c
+*** ../../../../../XFree86/3.3.2/lean-xc/lib/font/fontfile/dirfile.c	Mon Jan 27 06:56:28 1997
+--- ./lib/font/fontfile/dirfile.c	Tue Aug 17 14:25:22 1999
+***************
+*** 140,147 ****
+  	    FontFileFreeDir (dir);
+  	return status;
+      }
+!     if (!dir)
+! 	return BadFontPath;
+  
+      FontFileSortDir(dir);
+  
+--- 140,158 ----
+  	    FontFileFreeDir (dir);
+  	return status;
+      }
+!     if (!dir) {
+!         /*** TJR - dirty hack - this variable is set in
+! 	     programs/Xserver/dix/dixfont.c when setting default font path  */
+! 	extern int settingDefaultFontPath;
+! 	if (settingDefaultFontPath) {
+! 	    fprintf(stderr,"Font directory '%s' not found - ignoring\n",
+! 		    directory);
+! 	    dir = FontFileMakeDir(directory, 0);
+! 	}
+! 
+! 	if (!dir)
+! 	    return BadFontPath;
+!     }
+  
+      FontFileSortDir(dir);
+  
 diff -cr ../../../../../XFree86/3.3.2/lean-xc/programs/Xserver/Imakefile ./programs/Xserver/Imakefile
 *** ../../../../../XFree86/3.3.2/lean-xc/programs/Xserver/Imakefile	Mon Mar  2 11:55:22 1998
---- ./programs/Xserver/Imakefile	Tue May 19 09:20:55 1998
+--- ./programs/Xserver/Imakefile	Thu Nov 26 16:27:31 1998
 ***************
 *** 1696,1701 ****
 --- 1696,1721 ----
@@ -130,6 +228,40 @@ diff -cr ../../../../../XFree86/3.3.2/lean-xc/programs/Xserver/Imakefile ./progr
   #if UseXserverWrapper
   SetUIDProgramTarget(Xwrapper,os/wrapper.o,NullParameter,NullParameter,NullParameter)
   InstallProgramWithFlags(Xwrapper,$(BINDIR),$(INSTUIDFLAGS))
+diff -cr ../../../../../XFree86/3.3.2/lean-xc/programs/Xserver/cfb/cfb8line.c ./programs/Xserver/cfb/cfb8line.c
+*** ../../../../../XFree86/3.3.2/lean-xc/programs/Xserver/cfb/cfb8line.c	Sat Jul 19 05:59:19 1997
+--- ./programs/Xserver/cfb/cfb8line.c	Tue Jun  8 17:56:52 1999
+***************
+*** 688,704 ****
+  # if PSZ == 24
+  	    y1_or_e1 = xOffset & 3;
+  # else
+! 	    y1_or_e1 = ((long) addrp) & PIM;
+! 	    addrp = (PixelType *) (((unsigned char *) addrp) - y1_or_e1);
+! #if PGSZ == 32
+! #  if PWSH != 2
+! 	    y1_or_e1 >>= (2 - PWSH);
+! #  endif
+! #else /* PGSZ == 64 */
+! #  if PWSH != 3
+! 	    y1_or_e1 >>= (3 - PWSH);
+! #  endif
+! #endif /* PGSZ */
+  # endif /* PSZ == 24 */
+  #if PSZ == 24
+  	    {
+--- 688,698 ----
+  # if PSZ == 24
+  	    y1_or_e1 = xOffset & 3;
+  # else
+! 	    /* Round addrp down to the next PixelGroup boundary, and
+! 	     * set y1_or_e1 to the excess (in pixels)
+! 	     * (assumes PGSZB is a power of 2). */
+! 	    y1_or_e1 = (((unsigned long) addrp) & (PGSZB - 1)) / (PSZ / 8);
+! 	    addrp -= y1_or_e1;
+  # endif /* PSZ == 24 */
+  #if PSZ == 24
+  	    {
 diff -cr ../../../../../XFree86/3.3.2/lean-xc/programs/Xserver/cfb/cfbmskbits.h ./programs/Xserver/cfb/cfbmskbits.h
 *** ../../../../../XFree86/3.3.2/lean-xc/programs/Xserver/cfb/cfbmskbits.h	Tue May 27 07:28:09 1997
 --- ./programs/Xserver/cfb/cfbmskbits.h	Thu May  7 17:13:09 1998
@@ -172,6 +304,35 @@ diff -cr ../../../../../XFree86/3.3.2/lean-xc/programs/Xserver/cfb/cfbmskbits.h 
   #if PSZ == 24
   # if 0
   #define getstipplepixels24( psrcstip,xt,w,ones,psrcpix,destpix,stipindex,srcindex,dstindex) \
+diff -cr ../../../../../XFree86/3.3.2/lean-xc/programs/Xserver/dix/dixfonts.c ./programs/Xserver/dix/dixfonts.c
+*** ../../../../../XFree86/3.3.2/lean-xc/programs/Xserver/dix/dixfonts.c	Mon Dec 23 06:29:40 1996
+--- ./programs/Xserver/dix/dixfonts.c	Mon Aug 16 15:51:54 1999
+***************
+*** 1803,1808 ****
+--- 1803,1811 ----
+      return err;
+  }
+  
++ /*** TJR - dirty hack - this variable is used in lib/font/fontfile/dirfile.c */
++ int settingDefaultFontPath = 0;
++ 
+  int
+  SetDefaultFontPath(path)
+      char       *path;
+***************
+*** 1838,1844 ****
+--- 1841,1851 ----
+      }
+      *nump = (unsigned char) size;
+  
++     settingDefaultFontPath = 1;
++ 
+      err = SetFontPathElements(num, newpath, &bad);
++ 
++     settingDefaultFontPath = 0;
+  
+      DEALLOCATE_LOCAL(newpath);
+  
 diff -cr ../../../../../XFree86/3.3.2/lean-xc/programs/Xserver/dix/property.c ./programs/Xserver/dix/property.c
 *** ../../../../../XFree86/3.3.2/lean-xc/programs/Xserver/dix/property.c	Tue Dec 24 11:52:04 1996
 --- ./programs/Xserver/dix/property.c	Tue Jun  2 19:11:39 1998

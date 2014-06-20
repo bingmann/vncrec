@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 #
-#  Copyright (C) 1997, 1998 Olivetti & Oracle Research Laboratory
+#  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
 #
 #  This is free software; you can redistribute it and/or modify
 #  it under the terms of the GNU General Public License as published by
@@ -63,7 +63,7 @@ chop($host = `uname -n`);
 # &GetXDisplayDefaults();
 
 if ($opt{'-geometry'}) {
-    $geometry = $opt{'-geometry'}
+    $geometry = $opt{'-geometry'};
 }
 if ($opt{'-depth'}) {
     $depth = $opt{'-depth'};
@@ -117,10 +117,12 @@ $vncPort = 5900 + $displayNumber;
 
 $desktopLog = "$vncUserDir/$host:$displayNumber.log";
 unlink($desktopLog);
-        
-# Make an X server cookie
 
-srand(time+$$);
+# Make an X server cookie - use as the seed the sum of the current time, our
+# PID and part of the encrypted form of the password.  Ideally we'd use
+# /dev/urandom, but that's only available on Linux.
+
+srand(time+$$+unpack("L",`cat $vncUserDir/passwd`));
 $cookie = "";
 for (1..16) {
     $cookie .= sprintf("%02x", int(rand(256)));
@@ -218,12 +220,6 @@ sub CheckGeometryAndDepth
     if (($depth < 8) || ($depth > 32)) {
 	die "Depth must be between 8 and 32\n";
     }
-
-    if (($os eq "SunOS") && ($depth >= 9) && ($depth <= 16)) {
-	warn "\nWarning: 16-bit-per-pixel support on Solaris X servers is ".
-	     "known to be buggy.\n".
-	     "If you find a problem, try using depth 8 or 24 instead.\n";
-    }
 }
 
 
@@ -237,7 +233,7 @@ sub GetDisplayNumber
 {
     foreach $n (1..99) {
 	if (&CheckDisplayNumber($n)) {
-	    return $n;
+	    return $n+0; # Bruce Mah's workaround for bug in perl 5.005_02
 	}
     }
     
@@ -511,20 +507,31 @@ sub SanityCheck
     }
 
     #
-    # Check for socket constants and attempt to define suitable defaults
+    # Find socket constants. 'use Socket' is a perl5-ism, so we wrap it in an
+    # eval, and if it fails we try 'require "sys/socket.ph"'.  If this fails,
+    # we just guess at the values.  If you find perl moaning here, just
+    # hard-code the values of AF_INET and SOCK_STREAM.  You can find these out
+    # for your platform by looking in /usr/include/sys/socket.h and related
+    # files.
     #
 
     chop($os = `uname`);
     chop($osrev = `uname -r`);
 
-    eval 'require "sys/socket.ph"';
+    eval 'use Socket';
     if ($@) {
-	if (($os eq "SunOS") && ($osrev !~ /^4/)) {
-	    $AF_INET = 2;
-	    $SOCK_STREAM = 2;
+	eval 'require "sys/socket.ph"';
+	if ($@) {
+	    if (($os eq "SunOS") && ($osrev !~ /^4/)) {
+		$AF_INET = 2;
+		$SOCK_STREAM = 2;
+	    } else {
+		$AF_INET = 2;
+		$SOCK_STREAM = 1;
+	    }
 	} else {
-	    $AF_INET = 2;
-	    $SOCK_STREAM = 1;
+	    $AF_INET = &AF_INET;
+	    $SOCK_STREAM = &SOCK_STREAM;
 	}
     } else {
 	$AF_INET = &AF_INET;

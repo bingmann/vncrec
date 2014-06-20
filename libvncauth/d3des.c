@@ -4,7 +4,8 @@
  * has been reversed so that the most significant bit in each byte of the
  * key is ignored, not the least significant.
  *
- * These changes are Copyright (C) 1998 Olivetti & Oracle Research Laboratory
+ * These changes are:
+ *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  * This software is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -70,7 +71,7 @@ static unsigned char pc2[48] = {
 
 void deskey(key, edf)	/* Thanks to James Gillogly & Phil Karn! */
 unsigned char *key;
-short edf;
+int edf;
 {
 	register int i, j, l, m, n;
 	unsigned char pc1m[56], pcr[56];

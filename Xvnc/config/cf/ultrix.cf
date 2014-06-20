@@ -38,8 +38,8 @@ XCOMM operating system: OSName (OSMajorVersion.OSMinorVersion)
 
 #ifdef MipsArchitecture
 #if OSMajorVersion > 4 || (OSMajorVersion == 4 && OSMinorVersion >= 2)
-#define XdecServer YES
-#define ServerOSDefines -DDDXTIME
+/*#define XdecServer YES
+#define ServerOSDefines -DDDXTIME*/
 /* Even under ultrix 4.2, the compiler miscompiles some alloca calls */
 #define AllocateLocalDefines /* -DINCLUDE_ALLOCA_H */
 #else

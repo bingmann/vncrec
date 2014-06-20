@@ -2,7 +2,8 @@
  * This is D3DES (V5.09) by Richard Outerbridge with the double and
  * triple-length support removed for use in VNC.
  *
- * These changes are Copyright (C) 1998 Olivetti & Oracle Research Laboratory
+ * These changes are:
+ *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  * This software is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -21,7 +22,7 @@
 #define EN0	0	/* MODE == encrypt */
 #define DE1	1	/* MODE == decrypt */
 
-extern void deskey(unsigned char *, short);
+extern void deskey(unsigned char *, int);
 /*		      hexkey[8]     MODE
  * Sets the internal key register according to the hexadecimal
  * key contained in the 8 bytes of hexkey, according to the DES,

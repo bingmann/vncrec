@@ -577,7 +577,7 @@ FindPmfToScale(fpe, entry, vals, best, dxp, dyp, sdxp, sdyp, fpep)
 	       the matrix appropriately */
 	    vals->pixel_matrix[0] *= rescale_x;
 	    vals->pixel_matrix[1] *= rescale_x;
-    #ifdef NOTDEF
+#ifdef NOTDEF
 	    /* This would force the pointsize and pixelsize fields in the
 	       FONT property to display as matrices to more accurately
 	       report the font being supplied.  It might also break existing
@@ -585,9 +585,9 @@ FindPmfToScale(fpe, entry, vals, best, dxp, dyp, sdxp, sdyp, fpep)
 	    vals->values_supplied =
 		vals->values_supplied & ~(PIXELSIZE_MASK | POINTSIZE_MASK) |
 		PIXELSIZE_ARRAY;
-    #else /* NOTDEF */
+#else /* NOTDEF */
 	    vals->values_supplied = vals->values_supplied & ~POINTSIZE_MASK;
-    #endif /* NOTDEF */
+#endif /* NOTDEF */
 	    /* Recompute and reround the FontScalablePtr values after
 	       rescaling for the new width. */
 	    FontFileCompleteXLFD(vals, vals);

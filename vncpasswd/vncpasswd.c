@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 1997, 1998 Olivetti & Oracle Research Laboratory
+ *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -58,6 +58,10 @@ int main(int argc, char *argv[]) {
 
   while (1) {  
     passwd = getpass("Password: ");
+    if (!passwd) {
+      fprintf(stderr,"Can't get password: not a tty?\n");
+      exit(1);
+    }   
     if (strlen(passwd) < 6) {
       fprintf(stderr,"Password too short\n");
       exit(1);
@@ -74,7 +78,10 @@ int main(int argc, char *argv[]) {
     }
 
     if (strcmp(passwd1, passwd) == 0) {
-      vncEncryptAndStorePasswd(passwd, passwdFile);
+      if (vncEncryptAndStorePasswd(passwd, passwdFile) != 0) {
+	fprintf(stderr,"Cannot write password file %s\n",passwdFile);
+	exit(1);
+      }
       for (i = 0; i < strlen(passwd); i++)
 	passwd[i] = passwd1[i] = '\0';
       return;

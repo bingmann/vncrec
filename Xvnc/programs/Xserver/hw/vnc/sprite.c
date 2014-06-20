@@ -5,7 +5,7 @@
  */
 
 /*
- *  Copyright (C) 1997, 1998 Olivetti & Oracle Research Laboratory
+ *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -1875,7 +1875,7 @@ rfbSpriteSetCursor (pScreen, pCursor, x, y)
     CursorPtr	pCursor;
 {
     rfbSpriteScreenPtr	pScreenPriv;
-    rfbClientPtr cl;
+    rfbClientPtr cl, nextCl;
 
     pScreenPriv
 	= (rfbSpriteScreenPtr) pScreen->devPrivates[rfbSpriteScreenIndex].ptr;
@@ -1895,7 +1895,8 @@ rfbSpriteSetCursor (pScreen, pCursor, x, y)
     pScreenPriv->y = y;
     pScreenPriv->pCursor = pCursor;
 
-    for (cl = rfbClientHead; cl; cl = cl->next) {
+    for (cl = rfbClientHead; cl; cl = nextCl) {
+	nextCl = cl->next;
 	if (REGION_NOTEMPTY(pScreen,&cl->requestedRegion)) {
 	    /* cursorIsDrawn is guaranteed to be FALSE here, so we definitely
 	       want to send a screen update to the client, even if that's only

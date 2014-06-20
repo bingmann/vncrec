@@ -19,7 +19,7 @@
  */
 
 /*
- *  Copyright (C) 1997, 1998 Olivetti & Oracle Research Laboratory
+ *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -55,6 +55,7 @@ int rfbMaxClientWait = 20000;	/* time (ms) after which we decide client has
 
 int rfbPort = 0;
 int rfbListenSock = -1;
+Bool rfbLocalhostOnly = FALSE;
 
 int udpPort = 0;
 int udpSock = -1;
@@ -63,6 +64,9 @@ static struct sockaddr_in udpRemoteAddr;
 
 static fd_set allFds;
 static int maxFd = 0;
+
+static Bool SameMachine(int sock);
+
 
 /*
  * rfbInitSockets sets up the TCP and UDP sockets to listen for RFB
@@ -160,6 +164,15 @@ rfbCheckFds()
 	    rfbLogPerror("rfbCheckFds: setsockopt");
 	    close(sock);
 	    return;
+	}
+
+	if (rfbLocalhostOnly) {
+	    if (!SameMachine(sock)) {
+		rfbLog("WARNING: -localhost: refusing connection from %s\n",
+		       inet_ntoa(addr.sin_addr));
+		close(sock);
+		return;
+	    }
 	}
 
 	fprintf(stderr,"\n");
@@ -515,4 +528,21 @@ ListenOnUDPPort(port)
     }
 
     return sock;
+}
+
+
+/*
+ * Test if the other end of a socket is on the same machine.
+ */
+
+static Bool
+SameMachine(int sock)
+{
+  struct sockaddr_in peeraddr, myaddr;
+  int addrlen = sizeof(struct sockaddr_in);
+
+  getpeername(sock, (struct sockaddr *)&peeraddr, &addrlen);
+  getsockname(sock, (struct sockaddr *)&myaddr, &addrlen);
+
+  return (peeraddr.sin_addr.s_addr == myaddr.sin_addr.s_addr);
 }

@@ -8,7 +8,7 @@
  */
 
 /*
- *  Copyright (C) 1997, 1998 Olivetti & Oracle Research Laboratory
+ *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -101,8 +101,9 @@ extern WindowPtr *WindowTable; /* Why isn't this in a header file? */
 
 #define SEND_FB_UPDATE(pScreen,prfb)					\
   if (!prfb->dontSendFramebufferUpdate) {				\
-      rfbClientPtr cl;							\
-      for (cl = rfbClientHead; cl; cl = cl->next) {			\
+      rfbClientPtr cl, nextCl;						\
+      for (cl = rfbClientHead; cl; cl = nextCl) {			\
+	  nextCl = cl->next;						\
 	  if (FB_UPDATE_PENDING(cl)) {					\
 	      if (REGION_NOTEMPTY(pScreen,&cl->requestedRegion)) {	\
 		  rfbSendFramebufferUpdate(cl);				\
@@ -353,7 +354,7 @@ rfbClearToBackground (pWin, x, y, w, h, generateExposures)
 	box.x2 = w ? (box.x1 + w) : (pWin->drawable.x + pWin->drawable.width);
 	box.y2 = h ? (box.y1 + h) : (pWin->drawable.y + pWin->drawable.height);
 
-	REGION_INIT(pScreen, &tmpRegion, &box, 0);
+	SAFE_REGION_INIT(pScreen, &tmpRegion, &box, 0);
 
 	REGION_INTERSECT(pScreen, &tmpRegion, &tmpRegion, &pWin->clipList);
 
@@ -631,7 +632,7 @@ rfbPutImage(pDrawable, pGC, depth, x, y, w, h, leftPad, format, pBits)
     box.x2 = box.x1 + w;
     box.y2 = box.y1 + h;
 
-    REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
+    SAFE_REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
 
     REGION_INTERSECT(pDrawable->pScreen, &tmpRegion, &tmpRegion,
 		     WINDOW_CLIP_REGION((WindowPtr)pDrawable,pGC));
@@ -681,7 +682,7 @@ rfbCopyArea (pSrc, pDst, pGC, srcx, srcy, w, h, dstx, dsty)
     box.x2 = box.x1 + w;
     box.y2 = box.y1 + h;
 
-    REGION_INIT(pDst->pScreen, &dstRegion, &box, 0);
+    SAFE_REGION_INIT(pDst->pScreen, &dstRegion, &box, 0);
     REGION_INTERSECT(pDst->pScreen, &dstRegion, &dstRegion,
 		     WINDOW_CLIP_REGION((WindowPtr)pDst,pGC));
 
@@ -693,7 +694,7 @@ rfbCopyArea (pSrc, pDst, pGC, srcx, srcy, w, h, dstx, dsty)
 
 	for (cl = rfbClientHead; cl; cl = cl->next) {
 	    if (cl->useCopyRect) {
-		REGION_INIT(pSrc->pScreen, &srcRegion, &box, 0);
+		SAFE_REGION_INIT(pSrc->pScreen, &srcRegion, &box, 0);
 		REGION_INTERSECT(pSrc->pScreen, &srcRegion, &srcRegion,
 				 &((WindowPtr)pSrc)->clipList);
 
@@ -884,7 +885,7 @@ rfbCopyPlane (pSrc, pDst, pGC, srcx, srcy, w, h, dstx, dsty, plane)
     box.x2 = box.x1 + w;
     box.y2 = box.y1 + h;
 
-    REGION_INIT(pDst->pScreen, &tmpRegion, &box, 0);
+    SAFE_REGION_INIT(pDst->pScreen, &tmpRegion, &box, 0);
 
     REGION_INTERSECT(pDst->pScreen, &tmpRegion, &tmpRegion,
 		     WINDOW_CLIP_REGION((WindowPtr)pDst,pGC));
@@ -955,7 +956,7 @@ rfbPolyPoint (pDrawable, pGC, mode, npt, pts)
 	box.x2 = maxX + 1 + pDrawable->x;
 	box.y2 = maxY + 1 + pDrawable->y;
 
-	REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
+	SAFE_REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
 
 	REGION_INTERSECT(pDrawable->pScreen, &tmpRegion, &tmpRegion,
 			 WINDOW_CLIP_REGION(((WindowPtr)pDrawable),pGC));
@@ -1339,7 +1340,7 @@ rfbFillPolygon(pDrawable, pGC, shape, mode, count, pts)
 	box.x2 = maxX + 1 + pDrawable->x;
 	box.y2 = maxY + 1 + pDrawable->y;
 
-	REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
+	SAFE_REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
 
 	REGION_INTERSECT(pDrawable->pScreen, &tmpRegion, &tmpRegion,
 			 WINDOW_CLIP_REGION(((WindowPtr)pDrawable),pGC));
@@ -1527,7 +1528,7 @@ rfbPolyText8(pDrawable, pGC, x, y, count, chars)
     if (count) {
 	GetTextBoundingBox(pDrawable, pGC->font, x, y, count, &box);
 
-	REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
+	SAFE_REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
 
 	REGION_INTERSECT(pDrawable->pScreen, &tmpRegion, &tmpRegion,
 			 WINDOW_CLIP_REGION(((WindowPtr)pDrawable),pGC));
@@ -1569,7 +1570,7 @@ rfbPolyText16(pDrawable, pGC, x, y, count, chars)
     if (count) {
 	GetTextBoundingBox(pDrawable, pGC->font, x, y, count, &box);
 
-	REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
+	SAFE_REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
 
 	REGION_INTERSECT(pDrawable->pScreen, &tmpRegion, &tmpRegion,
 			 WINDOW_CLIP_REGION(((WindowPtr)pDrawable),pGC));
@@ -1610,7 +1611,7 @@ rfbImageText8(pDrawable, pGC, x, y, count, chars)
     if (count) {
 	GetTextBoundingBox(pDrawable, pGC->font, x, y, count, &box);
 
-	REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
+	SAFE_REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
 
 	REGION_INTERSECT(pDrawable->pScreen, &tmpRegion, &tmpRegion,
 			 WINDOW_CLIP_REGION(((WindowPtr)pDrawable),pGC));
@@ -1650,7 +1651,7 @@ rfbImageText16(pDrawable, pGC, x, y, count, chars)
     if (count) {
 	GetTextBoundingBox(pDrawable, pGC->font, x, y, count, &box);
 
-	REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
+	SAFE_REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
 
 	REGION_INTERSECT(pDrawable->pScreen, &tmpRegion, &tmpRegion,
 			 WINDOW_CLIP_REGION(((WindowPtr)pDrawable),pGC));
@@ -1691,7 +1692,7 @@ rfbImageGlyphBlt(pDrawable, pGC, x, y, nglyph, ppci, pglyphBase)
     if (nglyph) {
 	GetTextBoundingBox(pDrawable, pGC->font, x, y, nglyph, &box);
 
-	REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
+	SAFE_REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
 
 	REGION_INTERSECT(pDrawable->pScreen, &tmpRegion, &tmpRegion,
 			 WINDOW_CLIP_REGION(((WindowPtr)pDrawable),pGC));
@@ -1732,7 +1733,7 @@ rfbPolyGlyphBlt(pDrawable, pGC, x, y, nglyph, ppci, pglyphBase)
     if (nglyph) {
 	GetTextBoundingBox(pDrawable, pGC->font, x, y, nglyph, &box);
 
-	REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
+	SAFE_REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
 
 	REGION_INTERSECT(pDrawable->pScreen, &tmpRegion, &tmpRegion,
 			 WINDOW_CLIP_REGION(((WindowPtr)pDrawable),pGC));
@@ -1774,7 +1775,7 @@ rfbPushPixels(pGC, pBitMap, pDrawable, w, h, x, y)
     box.x2 = box.x1 + w;
     box.y2 = box.y1 + h;
 
-    REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
+    SAFE_REGION_INIT(pDrawable->pScreen, &tmpRegion, &box, 0);
 
     REGION_INTERSECT(pDrawable->pScreen, &tmpRegion, &tmpRegion,
 		     WINDOW_CLIP_REGION(((WindowPtr)pDrawable),pGC));

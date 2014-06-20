@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 1997, 1998 Olivetti & Oracle Research Laboratory
+ *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -18,95 +18,110 @@
  */
 
 /*
- * vncviewer.c - VNC viewer for X.
+ * vncviewer.c - the Xt-based VNC viewer.
  */
 
-#include <vncviewer.h>
+#include "vncviewer.h"
+
+char *programName;
+XtAppContext appContext;
+Display* dpy;
+
+Widget toplevel;
 
 int
 main(int argc, char **argv)
 {
-    fd_set fds;
-    struct timeval tv, *tvp;
-    int msWait;
+  int i;
+  programName = argv[0];
 
-    processArgs(argc, argv);
+  /* The -listen option is used to make us a daemon process which listens for
+     incoming connections from servers, rather than actively connecting to a
+     given server.  We must test for this option before invoking any Xt
+     functions - this is because we deal with each incoming connection by
+     forking, and Xt doesn't seem to cope with forking very well.  When a
+     successful incoming connection has been accepted,
+     listenForIncomingConnections() returns, setting the listenSpecified
+     flag. */
 
-    if (listenSpecified) {
-
-	listenForIncomingConnections();
-	/* returns only with a succesful connection */
-
-    } else {
-	if (!ConnectToRFBServer(hostname, port)) exit(1);
+  for (i = 1; i < argc; i++) {
+    if (strcmp(argv[i], "-listen") == 0) {
+      listenForIncomingConnections(&argc, argv, i);
+      break;
     }
+  }
 
-    if (!InitialiseRFBConnection(rfbsock)) exit(1);
+  /* Call the main Xt initialisation function.  It parses command-line options,
+     generating appropriate resource specs, and makes a connection to the X
+     display. */
 
-    if (!CreateXWindow()) exit(1);
+  toplevel = XtVaAppInitialize(&appContext, "Vncviewer",
+			       cmdLineOptions, numCmdLineOptions,
+			       &argc, argv, fallback_resources,
+			       XtNborderWidth, 0, NULL);
 
-    if (!SetFormatAndEncodings()) {
-	ShutdownX();
-	exit(1);
-    }
+  dpy = XtDisplay(toplevel);
 
-    if (!SendFramebufferUpdateRequest(updateRequestX, updateRequestY,
-				      updateRequestW, updateRequestH, False)) {
-	ShutdownX();
-	exit(1);
-    }
+  /* Interpret resource specs and process any remaining command-line arguments
+     (i.e. the VNC server name).  If the server name isn't specified on the
+     command line, getArgsAndResources() will pop up a dialog box and wait
+     for one to be entered. */
 
-    while (True) {
-	/*
-	 * Always handle all X events before doing select.  This is the
-	 * simplest way of ensuring that we don't block in select while
-	 * Xlib has some events on its queue.
-	 */
+  GetArgsAndResources(argc, argv);
 
-	if (!HandleXEvents()) {
-	    ShutdownX();
-	    exit(1);
-	}
+  /* Unless we accepted an incoming connection, make a TCP connection to the
+     given VNC server */
 
-	tvp = NULL;
+  if (!listenSpecified) {
+    if (!ConnectToRFBServer(vncServerHost, vncServerPort)) exit(1);
+  }
 
-	if (sendUpdateRequest) {
-	    gettimeofday(&tv, NULL);
+  /* Initialise the VNC connection, including reading the password */
 
-	    msWait = (updateRequestPeriodms +
-		      ((updateRequestTime.tv_sec - tv.tv_sec) * 1000) +
-		      ((updateRequestTime.tv_usec - tv.tv_usec) / 1000));
+  if (!InitialiseRFBConnection()) exit(1);
 
-	    if (msWait > 0) {
-		tv.tv_sec = msWait / 1000;
-		tv.tv_usec = (msWait % 1000) * 1000;
+  /* Find the best pixel format and X visual/colormap to use */
 
-		tvp = &tv;
-	    } else {
-		if (!SendIncrementalFramebufferUpdateRequest()) {
-		    ShutdownX();
-		    exit(1);
-		}
-	    }
-	}
+  SetVisualAndCmap();
 
-	FD_ZERO(&fds);
-	FD_SET(ConnectionNumber(dpy),&fds);
-	FD_SET(rfbsock,&fds);
+  /* Create the "popup" widget - this won't actually appear on the screen until
+     some user-defined event causes the "ShowPopup" action to be invoked */
 
-	if (select(FD_SETSIZE, &fds, NULL, NULL, tvp) < 0) {
-	    perror("select");
-	    ShutdownX();
-	    exit(1);
-	}
+  CreatePopup();
 
-	if (FD_ISSET(rfbsock, &fds)) {
-	    if (!HandleRFBServerMessage()) {
-		ShutdownX();
-		exit(1);
-	    }
-	}
-    }
+  /* Create the "desktop" widget, and perform initialisation which needs doing
+     before the widgets are realized */
 
-    return 0;
+  ToplevelInitBeforeRealization();
+
+  DesktopInitBeforeRealization();
+
+  /* "Realize" all the widgets, i.e. actually create and map their X windows */
+
+  XtRealizeWidget(toplevel);
+
+  /* Perform initialisation that needs doing after realization, now that the X
+     windows exist */
+
+  InitialiseSelection();
+
+  ToplevelInitAfterRealization();
+
+  DesktopInitAfterRealization();
+
+  /* Tell the VNC server which pixel format and encodings we want to use */
+
+  SetFormatAndEncodings();
+
+  /* Now enter the main loop, processing VNC messages.  X events will
+     automatically be processed whenever the VNC connection is idle. */
+
+  while (1) {
+    if (!HandleRFBServerMessage())
+      break;
+  }
+
+  Cleanup();
+
+  return 0;
 }

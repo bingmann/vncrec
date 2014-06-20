@@ -140,8 +140,19 @@ FontFileReadDirectory (directory, pdir)
 	    FontFileFreeDir (dir);
 	return status;
     }
-    if (!dir)
-	return BadFontPath;
+    if (!dir) {
+        /*** TJR - dirty hack - this variable is set in
+	     programs/Xserver/dix/dixfont.c when setting default font path  */
+	extern int settingDefaultFontPath;
+	if (settingDefaultFontPath) {
+	    fprintf(stderr,"Font directory '%s' not found - ignoring\n",
+		    directory);
+	    dir = FontFileMakeDir(directory, 0);
+	}
+
+	if (!dir)
+	    return BadFontPath;
+    }
 
     FontFileSortDir(dir);
 

@@ -3,7 +3,7 @@
  */
 
 /*
- *  Copyright (C) 1997, 1998 Olivetti & Oracle Research Laboratory
+ *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -213,6 +213,23 @@ typedef struct rfbClientRec {
      REGION_NOTEMPTY((pScreen),&(cl)->copyRegion) ||	\
      REGION_NOTEMPTY((pScreen),&(cl)->modifiedRegion))
 
+/*
+ * This macro creates an empty region (ie. a region with no areas) if it is
+ * given a rectangle with a width or height of zero. It appears that 
+ * REGION_INTERSECT does not quite do the right thing with zero-width
+ * rectangles, but it should with completely empty regions.
+ */
+
+#define SAFE_REGION_INIT(pscreen, preg, rect, size)          \
+{                                                            \
+      if ( ( (rect) ) &&                                     \
+           ( ( (rect)->x2 == (rect)->x1 ) ||                 \
+	     ( (rect)->y2 == (rect)->y1 ) ) ) {              \
+	  REGION_INIT( (pscreen), (preg), NullBox, 0 );      \
+      } else {                                               \
+	  REGION_INIT( (pscreen), (preg), (rect), (size) );  \
+      }                                                      \
+}
 
 /*
  * An rfbGCRec is where we store the pointers to the original GC funcs and ops
@@ -268,6 +285,7 @@ extern Bool udpSockConnected;
 
 extern int rfbPort;
 extern int rfbListenSock;
+extern Bool rfbLocalhostOnly;
 
 extern void rfbInitSockets();
 extern void rfbDisconnectUDPSock();
@@ -341,6 +359,10 @@ extern int ublen;
 
 extern rfbClientPtr rfbClientHead;
 extern rfbClientPtr pointerClient;
+
+extern Bool rfbAlwaysShared;
+extern Bool rfbNeverShared;
+extern Bool rfbDontDisconnect;
 
 extern void rfbNewClientConnection(int sock);
 extern rfbClientPtr rfbReverseConnection(char *host, int port);

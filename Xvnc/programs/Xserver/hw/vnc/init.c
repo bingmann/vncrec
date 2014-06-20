@@ -3,7 +3,7 @@
  */
 
 /*
- *  Copyright (C) 1997, 1998 Olivetti & Oracle Research Laboratory
+ *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -259,6 +259,26 @@ ddxProcessArgument (argc, argv, i)
 	return 2;
     }
 
+    if (strcmp(argv[i], "-alwaysshared") == 0) {
+	rfbAlwaysShared = TRUE;
+	return 1;
+    }
+
+    if (strcmp(argv[i], "-nevershared") == 0) {
+	rfbNeverShared = TRUE;
+	return 1;
+    }
+
+    if (strcmp(argv[i], "-dontdisconnect") == 0) {
+	rfbDontDisconnect = TRUE;
+	return 1;
+    }
+
+    if (strcmp(argv[i], "-localhost") == 0) {
+	rfbLocalhostOnly = TRUE;
+	return 1;
+    }
+
     return 0;
 }
 
@@ -279,8 +299,9 @@ InitOutput(screenInfo, argc, argv)
 
     rfbLog("Xvnc version %d.%d.%s\n", rfbProtocolMajorVersion,
 	   rfbProtocolMinorVersion,XVNCRELEASE);
-    rfbLog("Copyright (C) 1997-8 Olivetti & Oracle Research Laboratory\n");
-    rfbLog("See http://www.orl.co.uk/vnc for information about VNC\n");
+    rfbLog("Copyright (C) 1999 AT&T Laboratories Cambridge.\n");
+    rfbLog("All Rights Reserved.\n");
+    rfbLog("See http://www.uk.research.att.com/vnc for information on VNC\n");
     rfbLog("Desktop name '%s' (%s:%s)\n",desktopName,rfbThisHost,display);
     rfbLog("Protocol version supported %d.%d\n", rfbProtocolMajorVersion,
 	   rfbProtocolMinorVersion);
@@ -336,7 +357,7 @@ rfbScreenInit(index, pScreen, argc, argv)
     char ** argv;
 {
     rfbScreenInfoPtr prfb = &rfbScreen;
-    int dpix = 100, dpiy = 100;
+    int dpix = 75, dpiy = 75;
     int ret;
     char *pbits;
     VisualPtr vis;
@@ -544,7 +565,7 @@ rfbMouseProc(pDevice, onoff)
     DeviceIntPtr pDevice;
     int onoff;
 {
-    BYTE map[4];
+    BYTE map[6];
     DevicePtr pDev = (DevicePtr)pDevice;
 
     switch (onoff)
@@ -554,7 +575,9 @@ rfbMouseProc(pDevice, onoff)
 	map[1] = 1;
 	map[2] = 2;
 	map[3] = 3;
-	InitPointerDeviceStruct(pDev, map, 3, miPointerGetMotionEvents,
+	map[4] = 4;
+	map[5] = 5;
+	InitPointerDeviceStruct(pDev, map, 5, miPointerGetMotionEvents,
 				PtrDeviceControl,
 				miPointerGetMotionBufferSize());
 	break;
@@ -703,7 +726,7 @@ void
 ddxUseMsg()
 {
     ErrorF("-geometry WxH          set framebuffer width & height\n");
-    ErrorF("-depth D		   set framebuffer depth\n");
+    ErrorF("-depth D               set framebuffer depth\n");
     ErrorF("-pixelformat format    set pixel format (BGRnnn or RGBnnn)\n");
     ErrorF("-udpinputport port     UDP port for keyboard/pointer data\n");
     ErrorF("-rfbport port          TCP port for RFB protocol\n");
@@ -714,9 +737,15 @@ ddxUseMsg()
     ErrorF("-httpport port         port for HTTP\n");
     ErrorF("-economictranslate     less memory-hungry translation\n");
     ErrorF("-desktop name          VNC desktop name (default x11)\n");
+    ErrorF("-alwaysshared          always treat new clients as shared\n");
+    ErrorF("-nevershared           never treat new clients as shared\n");
+    ErrorF("-dontdisconnect        don't disconnect existing clients when a "
+                                                             "new non-shared\n"
+	   "                       connection comes in (refuse new connection "
+								 "instead)\n");
+    ErrorF("-localhost             only allow connections from localhost\n");
     exit(1);
 }
-
 
 /*
  * rfbLog prints a time-stamped message to the log file (stderr).
