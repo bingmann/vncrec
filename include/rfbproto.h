@@ -1,4 +1,6 @@
 /*
+ *  Copyright (C) 2000-2002 Constantin Kaplinsky.  All Rights Reserved.
+ *  Copyright (C) 2000 Tridia Corporation.  All Rights Reserved.
  *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
@@ -289,7 +291,47 @@ typedef struct {
 #define rfbEncodingRRE 2
 #define rfbEncodingCoRRE 4
 #define rfbEncodingHextile 5
+#define rfbEncodingZlib 6
+#define rfbEncodingTight 7
+#define rfbEncodingZlibHex 8
 
+/*
+ * Special encoding numbers:
+ *   0xFFFFFF00 .. 0xFFFFFF0F -- encoding-specific compression levels;
+ *   0xFFFFFF10 .. 0xFFFFFF1F -- mouse cursor shape data;
+ *   0xFFFFFF20 .. 0xFFFFFF2F -- various protocol extensions;
+ *   0xFFFFFF30 .. 0xFFFFFFDF -- not allocated yet;
+ *   0xFFFFFFE0 .. 0xFFFFFFEF -- quality level for JPEG compressor;
+ *   0xFFFFFFF0 .. 0xFFFFFFFF -- cross-encoding compression levels.
+ */
+
+#define rfbEncodingCompressLevel0  0xFFFFFF00
+#define rfbEncodingCompressLevel1  0xFFFFFF01
+#define rfbEncodingCompressLevel2  0xFFFFFF02
+#define rfbEncodingCompressLevel3  0xFFFFFF03
+#define rfbEncodingCompressLevel4  0xFFFFFF04
+#define rfbEncodingCompressLevel5  0xFFFFFF05
+#define rfbEncodingCompressLevel6  0xFFFFFF06
+#define rfbEncodingCompressLevel7  0xFFFFFF07
+#define rfbEncodingCompressLevel8  0xFFFFFF08
+#define rfbEncodingCompressLevel9  0xFFFFFF09
+
+#define rfbEncodingXCursor         0xFFFFFF10
+#define rfbEncodingRichCursor      0xFFFFFF11
+#define rfbEncodingPointerPos      0xFFFFFF18
+
+#define rfbEncodingLastRect        0xFFFFFF20
+
+#define rfbEncodingQualityLevel0   0xFFFFFFE0
+#define rfbEncodingQualityLevel1   0xFFFFFFE1
+#define rfbEncodingQualityLevel2   0xFFFFFFE2
+#define rfbEncodingQualityLevel3   0xFFFFFFE3
+#define rfbEncodingQualityLevel4   0xFFFFFFE4
+#define rfbEncodingQualityLevel5   0xFFFFFFE5
+#define rfbEncodingQualityLevel6   0xFFFFFFE6
+#define rfbEncodingQualityLevel7   0xFFFFFFE7
+#define rfbEncodingQualityLevel8   0xFFFFFFE8
+#define rfbEncodingQualityLevel9   0xFFFFFFE9
 
 
 /*****************************************************************************
@@ -435,6 +477,200 @@ typedef struct {
 #define rfbHextileExtractY(byte) ((byte) & 0xf)
 #define rfbHextileExtractW(byte) (((byte) >> 4) + 1)
 #define rfbHextileExtractH(byte) (((byte) & 0xf) + 1)
+
+
+/*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ * zlib - zlib compressed Encoding.  We have an rfbZlibHeader structure
+ * giving the number of bytes following.  Finally the data follows is
+ * zlib compressed version of the raw pixel data as negotiated.
+ */
+
+typedef struct {
+    CARD32 nBytes;
+} rfbZlibHeader;
+
+#define sz_rfbZlibHeader 4
+
+
+/*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ * Tight Encoding.
+ *
+ *-- The first byte of each Tight-encoded rectangle is a "compression control
+ *   byte". Its format is as follows (bit 0 is the least significant one):
+ *
+ *   bit 0:    if 1, then compression stream 0 should be reset;
+ *   bit 1:    if 1, then compression stream 1 should be reset;
+ *   bit 2:    if 1, then compression stream 2 should be reset;
+ *   bit 3:    if 1, then compression stream 3 should be reset;
+ *   bits 7-4: if 1000 (0x08), then the compression type is "fill",
+ *             if 1001 (0x09), then the compression type is "jpeg",
+ *             if 0xxx, then the compression type is "basic",
+ *             values greater than 1001 are not valid.
+ *
+ * If the compression type is "basic", then bits 6..4 of the
+ * compression control byte (those xxx in 0xxx) specify the following:
+ *
+ *   bits 5-4:  decimal representation is the index of a particular zlib
+ *              stream which should be used for decompressing the data;
+ *   bit 6:     if 1, then a "filter id" byte is following this byte.
+ *
+ *-- The data that follows after the compression control byte described
+ * above depends on the compression type ("fill", "jpeg" or "basic").
+ *
+ *-- If the compression type is "fill", then the only pixel value follows, in
+ * client pixel format (see NOTE 1). This value applies to all pixels of the
+ * rectangle.
+ *
+ *-- If the compression type is "jpeg", the following data stream looks like
+ * this:
+ *
+ *   1..3 bytes:  data size (N) in compact representation;
+ *   N bytes:     JPEG image.
+ *
+ * Data size is compactly represented in one, two or three bytes, according
+ * to the following scheme:
+ *
+ *  0xxxxxxx                    (for values 0..127)
+ *  1xxxxxxx 0yyyyyyy           (for values 128..16383)
+ *  1xxxxxxx 1yyyyyyy zzzzzzzz  (for values 16384..4194303)
+ *
+ * Here each character denotes one bit, xxxxxxx are the least significant 7
+ * bits of the value (bits 0-6), yyyyyyy are bits 7-13, and zzzzzzzz are the
+ * most significant 8 bits (bits 14-21). For example, decimal value 10000
+ * should be represented as two bytes: binary 10010000 01001110, or
+ * hexadecimal 90 4E.
+ *
+ *-- If the compression type is "basic" and bit 6 of the compression control
+ * byte was set to 1, then the next (second) byte specifies "filter id" which
+ * tells the decoder what filter type was used by the encoder to pre-process
+ * pixel data before the compression. The "filter id" byte can be one of the
+ * following:
+ *
+ *   0:  no filter ("copy" filter);
+ *   1:  "palette" filter;
+ *   2:  "gradient" filter.
+ *
+ *-- If bit 6 of the compression control byte is set to 0 (no "filter id"
+ * byte), or if the filter id is 0, then raw pixel values in the client
+ * format (see NOTE 1) will be compressed. See below details on the
+ * compression.
+ *
+ *-- The "gradient" filter pre-processes pixel data with a simple algorithm
+ * which converts each color component to a difference between a "predicted"
+ * intensity and the actual intensity. Such a technique does not affect
+ * uncompressed data size, but helps to compress photo-like images better. 
+ * Pseudo-code for converting intensities to differences is the following:
+ *
+ *   P[i,j] := V[i-1,j] + V[i,j-1] - V[i-1,j-1];
+ *   if (P[i,j] < 0) then P[i,j] := 0;
+ *   if (P[i,j] > MAX) then P[i,j] := MAX;
+ *   D[i,j] := V[i,j] - P[i,j];
+ *
+ * Here V[i,j] is the intensity of a color component for a pixel at
+ * coordinates (i,j). MAX is the maximum value of intensity for a color
+ * component.
+ *
+ *-- The "palette" filter converts true-color pixel data to indexed colors
+ * and a palette which can consist of 2..256 colors. If the number of colors
+ * is 2, then each pixel is encoded in 1 bit, otherwise 8 bits is used to
+ * encode one pixel. 1-bit encoding is performed such way that the most
+ * significant bits correspond to the leftmost pixels, and each raw of pixels
+ * is aligned to the byte boundary. When "palette" filter is used, the
+ * palette is sent before the pixel data. The palette begins with an unsigned
+ * byte which value is the number of colors in the palette minus 1 (i.e. 1
+ * means 2 colors, 255 means 256 colors in the palette). Then follows the
+ * palette itself which consist of pixel values in client pixel format (see
+ * NOTE 1).
+ *
+ *-- The pixel data is compressed using the zlib library. But if the data
+ * size after applying the filter but before the compression is less then 12,
+ * then the data is sent as is, uncompressed. Four separate zlib streams
+ * (0..3) can be used and the decoder should read the actual stream id from
+ * the compression control byte (see NOTE 2).
+ *
+ * If the compression is not used, then the pixel data is sent as is,
+ * otherwise the data stream looks like this:
+ *
+ *   1..3 bytes:  data size (N) in compact representation;
+ *   N bytes:     zlib-compressed data.
+ *
+ * Data size is compactly represented in one, two or three bytes, just like
+ * in the "jpeg" compression method (see above).
+ *
+ *-- NOTE 1. If the color depth is 24, and all three color components are
+ * 8-bit wide, then one pixel in Tight encoding is always represented by
+ * three bytes, where the first byte is red component, the second byte is
+ * green component, and the third byte is blue component of the pixel color
+ * value. This applies to colors in palettes as well.
+ *
+ *-- NOTE 2. The decoder must reset compression streams' states before
+ * decoding the rectangle, if some of bits 0,1,2,3 in the compression control
+ * byte are set to 1. Note that the decoder must reset zlib streams even if
+ * the compression type is "fill" or "jpeg".
+ *
+ *-- NOTE 3. The "gradient" filter and "jpeg" compression may be used only
+ * when bits-per-pixel value is either 16 or 32, not 8.
+ *
+ *-- NOTE 4. The width of any Tight-encoded rectangle cannot exceed 2048
+ * pixels. If a rectangle is wider, it must be split into several rectangles
+ * and each one should be encoded separately.
+ *
+ */
+
+#define rfbTightExplicitFilter         0x04
+#define rfbTightFill                   0x08
+#define rfbTightJpeg                   0x09
+#define rfbTightMaxSubencoding         0x09
+
+/* Filters to improve compression efficiency */
+#define rfbTightFilterCopy             0x00
+#define rfbTightFilterPalette          0x01
+#define rfbTightFilterGradient         0x02
+
+
+/*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ * XCursor encoding. This is a special encoding used to transmit X-style
+ * cursor shapes from server to clients. Note that for this encoding,
+ * coordinates in rfbFramebufferUpdateRectHeader structure hold hotspot
+ * position (r.x, r.y) and cursor size (r.w, r.h). If (w * h != 0), two RGB
+ * samples are sent after header in the rfbXCursorColors structure. They
+ * denote foreground and background colors of the cursor. If a client
+ * supports only black-and-white cursors, it should ignore these colors and
+ * assume that foreground is black and background is white. Next, two bitmaps
+ * (1 bits per pixel) follow: first one with actual data (value 0 denotes
+ * background color, value 1 denotes foreground color), second one with
+ * transparency data (bits with zero value mean that these pixels are
+ * transparent). Both bitmaps represent cursor data in a byte stream, from
+ * left to right, from top to bottom, and each row is byte-aligned. Most
+ * significant bits correspond to leftmost pixels. The number of bytes in
+ * each row can be calculated as ((w + 7) / 8). If (w * h == 0), cursor
+ * should be hidden (or default local cursor should be set by the client).
+ */
+
+typedef struct {
+    CARD8 foreRed;
+    CARD8 foreGreen;
+    CARD8 foreBlue;
+    CARD8 backRed;
+    CARD8 backGreen;
+    CARD8 backBlue;
+} rfbXCursorColors;
+
+#define sz_rfbXCursorColors 6
+
+
+/*- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+ * RichCursor encoding. This is a special encoding used to transmit cursor
+ * shapes from server to clients. It is similar to the XCursor encoding but
+ * uses client pixel format instead of two RGB colors to represent cursor
+ * image. For this encoding, coordinates in rfbFramebufferUpdateRectHeader
+ * structure hold hotspot position (r.x, r.y) and cursor size (r.w, r.h).
+ * After header, two pixmaps follow: first one with cursor image in current
+ * client pixel format (like in raw encoding), second with transparency data
+ * (1 bit per pixel, exactly the same format as used for transparency bitmap
+ * in the XCursor encoding). If (w * h == 0), cursor should be hidden (or
+ * default local cursor should be set by the client).
+ */
 
 
 /*-----------------------------------------------------------------------------

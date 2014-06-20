@@ -269,6 +269,9 @@ in this Software without prior written authorization from the X Consortium.
 /* expects cpp in PATH */
 #define DEFAULT_CPP "cpp"
 #endif
+#ifdef __MACH__
+#define DEFAULT_CPP "/usr/bin/cpp"
+#endif
 
 /*
  * Step 5:  cpp_argv
@@ -294,9 +297,15 @@ char *cpp_argv[ARGUMENTS] = {
 #ifdef unix
 	"-Uunix",	/* remove unix symbol so that filename unix.c okay */
 #endif
-#if defined(__386BSD__) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__FreeBSD__) || defined(MACH)
+#if defined(__386BSD__) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__FreeBSD__) || defined(MACH) || defined(linux) || defined(__GNU__)
 # ifdef __i386__
 	"-D__i386__",
+# endif
+# ifdef __sparc__
+	"-D__sparc__",
+# endif
+# ifdef __alpha__
+       "-D__alpha__",
 # endif
 # ifdef __GNUC__
 	"-traditional",
@@ -465,9 +474,18 @@ char *cpp_argv[ARGUMENTS] = {
 # ifdef __i386__
 	"-D__i386__",
 # endif
+# ifdef __s390__
+	"-D__s390__",
+# endif
 # ifdef __GNUC__
 	"-traditional",
 # endif
+#endif
+#ifdef __s390__
+    "-D__s390__",
+#endif
+#ifdef __s390x__
+    "-D__s390x__",
 #endif
 #ifdef Oki
 	"-DOki",

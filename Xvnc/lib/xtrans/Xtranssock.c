@@ -940,8 +940,8 @@ char *port;
     oldUmask = umask (0);
 
 #ifdef UNIX_DIR
-    if (!mkdir (UNIX_DIR, 0777))
-        chmod (UNIX_DIR, 0777);
+    if (!mkdir (UNIX_DIR, 01777))
+        chmod (UNIX_DIR, 01777);
 #endif
 
     sockname.sun_family = AF_UNIX;
@@ -1029,8 +1029,8 @@ XtransConnInfo ciptr;
 	int oldUmask = umask (0);
 
 #ifdef UNIX_DIR
-	if (!mkdir (UNIX_DIR, 0777))
-	    chmod (UNIX_DIR, 0777);
+	if (!mkdir (UNIX_DIR, 01777))
+	    chmod (UNIX_DIR, 01777);
 #endif
 
 	close (ciptr->fd);

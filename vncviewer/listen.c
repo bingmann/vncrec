@@ -40,17 +40,6 @@ static void getFlashFont(Display *d);
 static void flashDisplay(Display *d, char *user);
 static Bool AllXEventsPredicate(Display *d, XEvent *ev, char *arg);
 
-static void
-removeArgs(int *argc, char** argv, int idx, int nargs)
-{
-  int i;
-  if ((idx+nargs) > *argc) return;
-  for (i = idx+nargs; i < *argc; i++) {
-    argv[i-nargs] = argv[i];
-  }
-  *argc -= nargs;
-}
-
 /*
  * listenForIncomingConnections() - listen for incoming connections from
  * servers, and fork a new process to deal with each connection.  We must do
@@ -233,7 +222,7 @@ flashDisplay(Display *d, char *user)
   Window w1, w2, w3, w4;
   XSetWindowAttributes attr;
 
-  XBell(d, 100);
+  XBell(d, 0);
 
   XForceScreenSaver(d, ScreenSaverReset);
 

@@ -23,6 +23,7 @@
 
 #include <vncviewer.h>
 #include <signal.h>
+#include <fcntl.h>
 
 static void CleanupSignalHandler(int sig);
 static int CleanupXErrorHandler(Display *dpy, XErrorEvent *error);
@@ -203,6 +204,59 @@ Pause(Widget w, XEvent *event, String *params, Cardinal *num_params)
   }
 
   usleep(msec * 1000);
+}
+
+
+/*
+ * Run an arbitrary command via execvp()
+ */
+void
+RunCommand(Widget w, XEvent *event, String *params, Cardinal *num_params)
+{
+  int childstatus;
+
+  if (*num_params == 0)
+    return;
+
+  if (fcntl (ConnectionNumber (dpy), F_SETFD, 1L) == -1)
+      fprintf(stderr, "warning: file descriptor %d unusable for spawned program", ConnectionNumber(dpy));
+  
+  if (fcntl (rfbsock, F_SETFD, 1L) == -1)
+      fprintf(stderr, "warning: file descriptor %d unusable for spawned program", rfbsock);
+
+  switch (fork()) {
+  case -1: 
+    perror("fork"); 
+    break;
+  case 0:
+      /* Child 1. Fork again. */
+      switch (fork()) {
+      case -1:
+	  perror("fork");
+	  break;
+
+      case 0:
+	  /* Child 2. Do some work. */
+	  execvp(params[0], params);
+	  perror("exec");
+	  exit(1);
+	  break;  
+
+      default:
+	  break;
+      }
+
+      /* Child 1. Exit, and let init adopt our child */
+      exit(0);
+
+  default:
+    break;
+  }
+
+  /* Wait for Child 1 to die */
+  wait(&childstatus);
+  
+  return;
 }
 
 

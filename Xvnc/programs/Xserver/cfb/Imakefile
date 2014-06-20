@@ -205,10 +205,10 @@ clean::
 	$(RM) stipsparcte.s
 
 stipsparc.o: stipsparc.s
-	$(CPP) stipsparc.s | $(AS) -o $@ -
+	$(CPP) AsmDefines stipsparc.s | $(AS) -o $@ -
 
 stipsparcte.o: stipsparcte.s
-	$(CPP) -DTETEXT stipsparcte.s | $(AS) -o $@ -
+	$(CPP) AsmDefines -DTETEXT stipsparcte.s | $(AS) -o $@ -
 #endif
 #endif
 
@@ -221,10 +221,10 @@ clean::
 	$(RM) stipsprcte32.s
 
 stipsprc32.o: stipsprc32.s
-	$(CPP) stipsprc32.s | $(AS) -o $@ -
+	$(CPP) AsmDefines stipsprc32.s | $(AS) -o $@ -
 
 stipsprcte32.o: stipsprcte32.s
-	$(CPP) -DTETEXT stipsprcte32.s | $(AS) -o $@ -
+	$(CPP) AsmDefines -DTETEXT stipsprcte32.s | $(AS) -o $@ -
 #endif
 #endif
 

@@ -11,7 +11,7 @@ static char *programName;
 static void usage()
 {
     fprintf(stderr, "usage: %s [-display Xvnc-display] host[:port]\n"
-	    "Tells Xvnc to connects to a listening VNC viewer on the given"
+	    "Tells Xvnc to connect to a listening VNC viewer on the given"
 							    " host and port\n",
 	    programName);
     exit(1);

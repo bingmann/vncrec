@@ -65,7 +65,7 @@ int bdfFileLineNum;
 
 /***====================================================================***/
 
-/* VARARGS1 */
+/*VARARGS1*/
 void
 bdfError(message, a0, a1, a2, a3, a4, a5)
     char       *message;
@@ -82,7 +82,7 @@ bdfError(message, a0, a1, a2, a3, a4, a5)
 
 /***====================================================================***/
 
-/* VARARGS1 */
+/*VARARGS1*/
 void
 bdfWarning(message, a0, a1, a2, a3, a4, a5)
     char       *message;

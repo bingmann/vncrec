@@ -1296,6 +1296,8 @@ XpFreeClient(data, id)
     XID id;
 {
     FreeXpClient((XpClientPtr)data, FALSE);
+
+    return Success;
 }
 
 /*

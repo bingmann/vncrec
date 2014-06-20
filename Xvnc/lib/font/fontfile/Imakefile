@@ -2,7 +2,10 @@ XCOMM $XConsortium: Imakefile /main/14 1996/11/03 19:58:41 kaleb $
 XCOMM $XFree86: xc/lib/font/fontfile/Imakefile,v 3.4 1996/12/26 03:41:32 dawes Exp $
 #include <Server.tmpl>
 
-   INCLUDES = -I$(FONTINCSRC) -I../include -I$(SERVERSRC)/include -I$(TOP)/lib/zlib
+#if !HasZlib
+    ZLIBINC = /usr/local/include
+#endif
+   INCLUDES = -I$(FONTINCSRC) -I../include -I$(SERVERSRC)/include -I$(ZLIBINC)
     HEADERS = 
 #ifdef FontFormatDefines
 FORMAT_DEFS = FontFormatDefines

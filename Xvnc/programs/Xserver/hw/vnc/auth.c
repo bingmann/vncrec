@@ -93,9 +93,13 @@ void
 rfbAuthProcessClientMessage(cl)
     rfbClientPtr cl;
 {
-    char *passwd;
+    char passwdFullControl[9];
+    char passwdViewOnly[9];
+    int numPasswords;
     Bool ok;
     int i, n;
+    CARD8 encryptedChallenge1[CHALLENGESIZE];
+    CARD8 encryptedChallenge2[CHALLENGESIZE];
     CARD8 response[CHALLENGESIZE];
     CARD32 authResult;
 
@@ -106,9 +110,10 @@ rfbAuthProcessClientMessage(cl)
 	return;
     }
 
-    passwd = vncDecryptPasswdFromFile(rfbAuthPasswdFile);
-
-    if (passwd == NULL) {
+    numPasswords = vncDecryptPasswdFromFile2(rfbAuthPasswdFile,
+					     passwdFullControl,
+					     passwdViewOnly);
+    if (numPasswords == 0) {
 	rfbLog("rfbAuthProcessClientMessage: could not get password from %s\n",
 	       rfbAuthPasswdFile);
 
@@ -121,16 +126,28 @@ rfbAuthProcessClientMessage(cl)
 	return;
     }
 
-    vncEncryptBytes(cl->authChallenge, passwd);
+    memcpy(encryptedChallenge1, cl->authChallenge, CHALLENGESIZE);
+    vncEncryptBytes(encryptedChallenge1, passwdFullControl);
+    memcpy(encryptedChallenge2, cl->authChallenge, CHALLENGESIZE);
+    vncEncryptBytes(encryptedChallenge2,
+		    (numPasswords == 2) ? passwdViewOnly : passwdFullControl);
 
-    /* Lose the password from memory */
-    for (i = strlen(passwd); i >= 0; i--) {
-	passwd[i] = '\0';
+    /* Lose the passwords from memory */
+    memset(passwdFullControl, 0, 9);
+    memset(passwdViewOnly, 0, 9);
+
+    ok = FALSE;
+    if (memcmp(encryptedChallenge1, response, CHALLENGESIZE) == 0) {
+	rfbLog("Full-control authentication passed by %s\n", cl->host);
+	ok = TRUE;
+	cl->viewOnly = FALSE;
+    } else if (memcmp(encryptedChallenge2, response, CHALLENGESIZE) == 0) {
+	rfbLog("View-only authentication passed by %s\n", cl->host);
+	ok = TRUE;
+	cl->viewOnly = TRUE;
     }
 
-    free((char *)passwd);
-
-    if (memcmp(cl->authChallenge, response, CHALLENGESIZE) != 0) {
+    if (!ok) {
 	rfbLog("rfbAuthProcessClientMessage: authentication failed from %s\n",
 	       cl->host);
 

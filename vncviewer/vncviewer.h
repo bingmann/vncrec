@@ -1,4 +1,6 @@
 /*
+ *  Copyright (C) 2000, 2001 Const Kaplinsky.  All Rights Reserved.
+ *  Copyright (C) 2000 Tridia Corporation.  All Rights Reserved.
  *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
@@ -46,11 +48,18 @@ extern int endianTest;
 			     (((l) & 0x0000ff00) << 8)  | \
 			     (((l) & 0x000000ff) << 24))  : (l))
 
-#define MAX_ENCODINGS 10
+#define MAX_ENCODINGS 20
 
 #define FLASH_PORT_OFFSET 5400
 #define LISTEN_PORT_OFFSET 5500
+#define TUNNEL_PORT_OFFSET 5500
 #define SERVER_PORT_OFFSET 5900
+
+#define DEFAULT_SSH_CMD "/usr/bin/ssh"
+#define DEFAULT_TUNNEL_CMD  \
+  (DEFAULT_SSH_CMD " -f -L %L:localhost:%R %H sleep 20")
+#define DEFAULT_VIA_CMD     \
+  (DEFAULT_SSH_CMD " -f -L %L:%H:%R %G sleep 20")
 
 
 /* argsresources.c */
@@ -59,6 +68,8 @@ typedef struct {
   Bool shareDesktop;
   Bool viewOnly;
   Bool fullScreen;
+  Bool grabKeyboard;
+  Bool raiseOnBeep;
 
   String encodingsString;
 
@@ -87,6 +98,12 @@ typedef struct {
   int bumpScrollTime;
   int bumpScrollPixels;
 
+  int compressLevel;
+  int qualityLevel;
+  Bool enableJPEG;
+  Bool useRemoteCursor;
+  Bool useX11Cursor;
+
 } AppData;
 
 extern AppData appData;
@@ -100,6 +117,8 @@ extern int listenPort, flashPort;
 extern XrmOptionDescRec cmdLineOptions[];
 extern int numCmdLineOptions;
 
+extern void removeArgs(int *argc, char** argv, int idx, int nargs);
+extern void usage(void);
 extern void GetArgsAndResources(int argc, char **argv);
 
 /* colour.c */
@@ -112,11 +131,20 @@ extern unsigned int visdepth, visbpp;
 
 extern void SetVisualAndCmap();
 
+/* cursor.c */
+
+extern Bool HandleCursorShape(int xhot, int yhot, int width, int height,
+                              CARD32 enc);
+extern void SoftCursorLockArea(int x, int y, int w, int h);
+extern void SoftCursorUnlockScreen(void);
+extern void SoftCursorMove(int x, int y);
+
 /* desktop.c */
 
 extern Atom wmDeleteWindow;
 extern Widget form, viewport, desktop;
 extern Window desktopWin;
+extern Cursor dotCursor;
 extern GC gc;
 extern GC srcGC, dstGC;
 extern Dimension dpyWidth, dpyHeight;
@@ -158,6 +186,8 @@ extern void ToplevelInitAfterRealization();
 extern Time TimeFromEvent(XEvent *ev);
 extern void Pause(Widget w, XEvent *event, String *params,
 		  Cardinal *num_params);
+extern void RunCommand(Widget w, XEvent *event, String *params,
+		       Cardinal *num_params);
 extern void Quit(Widget w, XEvent *event, String *params,
 		 Cardinal *num_params);
 extern void Cleanup();
@@ -214,6 +244,7 @@ extern Bool errorMessageOnReadFailure;
 
 extern Bool ReadFromRFBServer(char *out, unsigned int n);
 extern Bool WriteExact(int sock, char *buf, int n);
+extern int FindFreeTcpPort(void);
 extern int ListenAtTcpPort(int port);
 extern int ConnectToTcpAddr(unsigned int host, int port);
 extern int AcceptTcpConnection(int listenSock);
@@ -221,6 +252,12 @@ extern Bool SetNonBlocking(int sock);
 
 extern int StringToIPAddr(const char *str, unsigned int *addr);
 extern Bool SameMachine(int sock);
+
+/* tunnel.c */
+
+extern Bool tunnelSpecified;
+
+extern Bool createTunnel(int *argc, char **argv, int tunnelArgIndex);
 
 /* vncviewer.c */
 

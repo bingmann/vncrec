@@ -69,6 +69,7 @@ typedef struct {
     ClearToBackgroundProcPtr		ClearToBackground;
     SaveDoomedAreasProcPtr		SaveDoomedAreas;
     RestoreAreasProcPtr			RestoreAreas;
+    DisplayCursorProcPtr		DisplayCursor;
 
     CursorPtr	    pCursor;
     int		    x;

@@ -348,7 +348,8 @@ fs_close_conn(conn)
     if (conn->trans_conn)
         (void) _FontTransClose (conn->trans_conn);
 
-    FD_CLR(conn->fs_fd, &_fs_fd_mask);
+    if (conn->fs_fd != -1)
+        FD_CLR(conn->fs_fd, &_fs_fd_mask);
 
     for (client = conn->clients; client; client = nclient) 
     {
@@ -1230,6 +1231,10 @@ fs_wakeup(fpe, LastSelectMask)
     FSFpePtr    conn = (FSFpePtr) fpe->private;
     int         err;
     fsGenericReply rep;
+
+    if (awaiting_reconnect) {
+	_fs_try_reconnect();
+    }
 
     /* see if there's any data to be read */
 

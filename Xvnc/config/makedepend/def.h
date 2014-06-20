@@ -137,7 +137,7 @@ char			*realloc();
 
 char			*copy();
 char			*base_name();
-char			*getline();
+char			*x_getline();
 struct symtab		**slookup();
 struct symtab		**isdefined();
 struct symtab		**fdefined();

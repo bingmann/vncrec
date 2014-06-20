@@ -61,8 +61,6 @@ clean::
 	$(RM) -r $(BUILDLIBDIR)
 	$(RM) -r $(BUILDBINDIR)
 
-      MAKE_OPTS = -f xmakefile
-
 World::
 	$(MAKE) $(MFLAGS) $(MAKE_OPTS) $(PARALLELOPTS) all
 
@@ -77,8 +75,6 @@ Everything::
 	else \
 	    $(MAKE) $(MFLAGS) -f Makefile.ini BOOTSTRAPCFLAGS="$(BOOTSTRAPCFLAGS)"; \
 	fi
-	-$(RM) xmakefile.bak; $(MV) xmakefile xmakefile.bak
-	$(MAKE) $(MFLAGS) xmakefile
 	$(MAKE) $(MFLAGS) $(MAKE_OPTS) Makefiles
 	$(MAKE) $(MFLAGS) $(MAKE_OPTS) includes
 	$(MAKE) $(MFLAGS) $(MAKE_OPTS) depend
@@ -166,8 +162,6 @@ Everything::
 	cd $(IMAKESRC)
 	$(MAKE) $(MFLAGS) -f Makefile.ini imake.exe
 	cd ..\..
-	RMoveToBakFile(xmakefile)
-	$(MAKE) $(MFLAGS) xmakefile
 	$(MAKE) $(MFLAGS) $(MAKE_OPTS) Makefiles
 	$(MAKE) $(MFLAGS) $(MAKE_OPTS) includes
 	$(MAKE) $(MFLAGS) $(MAKE_OPTS) depend
@@ -188,11 +182,6 @@ install::
 	MakeDir($(LIBDIR:/=\))
 
 #endif /* not Win32Architecture else */
-
-XCOMM special target to determine if the xmakefile exists. 
-XCOMM Works on both Unix and NMAKE.EXE
-xmakefile-exists::
-
 
 #ifndef MakeManKeywords
 #define MakeManKeywords YES	/* install.man rebuilds "man -k" database? */

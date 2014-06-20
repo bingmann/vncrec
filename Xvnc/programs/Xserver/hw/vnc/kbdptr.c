@@ -44,6 +44,9 @@ static void XConvertCase(KeySym sym, KeySym *lower, KeySym *upper);
 
 static DeviceIntPtr kbdDevice;
 
+/* If TRUE, then keys META == ALT as in the original AT&T version. */
+Bool compatibleKbd = FALSE;
+
 unsigned char ptrAcceleration = 50;
 
 #define MIN_KEY_CODE		8
@@ -192,8 +195,13 @@ KbdDeviceInit(pDevice, pKeySyms, pModMap)
     pModMap[CONTROL_R_KEY_CODE] = ControlMask;
     pModMap[SHIFT_L_KEY_CODE] = ShiftMask;
     pModMap[SHIFT_R_KEY_CODE] = ShiftMask;
-    pModMap[META_L_KEY_CODE] = Mod1Mask;
-    pModMap[META_R_KEY_CODE] = Mod1Mask;
+    if (compatibleKbd) {
+	pModMap[META_L_KEY_CODE] = Mod1Mask;
+	pModMap[META_R_KEY_CODE] = Mod1Mask;
+    } else {
+	pModMap[META_L_KEY_CODE] = Mod4Mask;
+	pModMap[META_R_KEY_CODE] = Mod4Mask;
+    }
     pModMap[ALT_L_KEY_CODE] = Mod1Mask;
     pModMap[ALT_R_KEY_CODE] = Mod1Mask;
 

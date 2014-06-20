@@ -172,7 +172,7 @@ extern Bool Must_have_memory;
 #define SIZE_STEPS		(sizeof(double))
 #define SIZE_HEADER		(2*sizeof(long)) /* = sizeof(double) for 32bit */
 #ifdef XALLOC_DEBUG
-#if defined(__sparc__)
+#if defined(__sparc__) || defined(__hppa__)
 #define SIZE_TAIL		(2*sizeof(long)) /* = sizeof(double) for 32bit */
 #else
 #define SIZE_TAIL		(sizeof(long))
@@ -309,7 +309,7 @@ Xalloc (amount)
     }
 
     /* alignment check */
-#if defined(__alpha__) || defined(__sparc__) || defined(__mips__)
+#if defined(__alpha__) || defined(__sparc__) || defined(__mips__) || defined(__hppa__)
     amount = (amount + (sizeof(long)-1)) & ~(sizeof(long)-1);
 #endif
 
@@ -390,7 +390,13 @@ Xalloc (amount)
 		ptr[1] = MAGIC;
 #endif /* XALLOC_DEBUG */
 #ifdef SIZE_TAIL
+# ifdef __hppa__
+		/* reserved space for 2 * sizeof(long), so use correct one */
+		/* see SIZE_TAIL macro */
+		((unsigned long *)((char *)ptr + amount))[-2] = MAGIC2;
+# else
 		((unsigned long *)((char *)ptr + amount))[-1] = MAGIC2;
+# endif /* __hppa__ */
 #endif /* SIZE_TAIL */
 		ptr = (unsigned long *)((char *)ptr + SIZE_HEADER);
 		LOG_ALLOC("Xalloc-L", amount, ptr);

@@ -40,7 +40,10 @@ XCOMM platform:  $XFree86: xc/config/cf/linux.cf,v 3.57.2.12 1998/03/01 01:57:10
 
 /* Set some defaults for the Default* values in case imake doesn't find them */
 #ifndef DefaultLinuxCLibMajorVersion
-#ifdef AlphaArchitecture
+#if defined(AlphaArchitecture) || defined(PowerPCArchitecture) || \
+    defined(SparcArchitecture) || defined(ArmArchitecure) || \
+    defined(i386Architecture) || defined(s390Architecture) || \
+    defined(s390xArchitecture)
 #define DefaultLinuxCLibMajorVersion	6
 #else
 #define DefaultLinuxCLibMajorVersion	5
@@ -173,6 +176,9 @@ XCOMM binutils:	(LinuxBinUtilsMajorVersion)
 #define LdCmd			/usr/alpha-linuxecoff/bin/ld -m alpha
 #define AsmDefines		-DUSE_GAS -U__ELF__
 #endif /* AlphaArchitecture */
+#ifdef SparcArchitecture
+#define AsmDefines		-D__ELF__
+#endif /* SparcArchitecture */
 #ifdef i386Architecture
 #define CcCmd			gcc -b i486-linuxaout
 #define CplusplusCmd		g++ -b i486-linuxaout
@@ -197,6 +203,9 @@ XCOMM binutils:	(LinuxBinUtilsMajorVersion)
 #define AsmDefines		-D__ELF__
 #define CplusplusCmd		c++ -b alpha-linux
 #endif /* AlphaArchitecture */
+#ifdef SparcArchitecture
+#define AsmDefines		-D__ELF__
+#endif /* SparcArchitecture */
 #ifdef i386Architecture
 #define CcCmd			gcc -b i486-linux
 #define AsCmd			/usr/i486-linux/bin/as
@@ -259,6 +268,53 @@ XCOMM binutils:	(LinuxBinUtilsMajorVersion)
 #define ServerExtraDefines	-DGCCUSESGAS XFree86ServerDefines
 #endif /* Mc68020Architecture */
 
+#ifdef s390Architecture
+#define OptimzedCDebugFlags	-O2
+#define LinuxMachineDefines	-D__s390__
+#define ServerOSDefines		XFree86ServerOSDefines -DDDXTIME -DPART_NET
+#define ServerExtraDefines	-DGCCUSESGAS XFree86ServerDefines
+#endif /* s390Architecture */
+
+#ifdef s390xArchitecture
+#define OptimzedCDebugFlags	-O2
+#define LinuxMachineDefines	-D__s390x__
+#define ServerOSDefines		XFree86ServerOSDefines -DDDXTIME -DPART_NET
+#define ServerExtraDefines	-DGCCUSESGAS XFree86ServerDefines
+#endif /* s390xArchitecture */
+
+#ifdef PowerPCArchitecture
+#define DefaultCCOptions        -fsigned-char
+#define OptimizedCDebugFlags	-O2
+#define LinuxMachineDefines 	-D__powerpc__
+#define ServerOSDefines		XFree86ServerOSDefines -DDDXTIME -DPART_NET
+#define ServerExtraDefines	-DGCCUSESGAS XFree86ServerDefines
+#endif /* PowerPCArchitecture */
+
+#ifdef ArmArchitecture
+#define DefaultCCOptions	-fsigned-char
+#define OptimizedCDebugFlags	-O2
+#define LinuxMachineDefines	-D__arm__
+#define ServerOSDefines		XFree86ServerOSDefines -DDDXTIME -DPART_NET
+#define ServerExtraDefines	-DGCCUSESGAS XFree86ServerDefines
+#endif /* Arm */
+
+#ifdef SparcArchitecture
+#define OptimizedCDebugFlags	-O2
+#define LinuxMachineDefines 	-D__sparc__
+#define ServerOSDefines		-DDDXOSINIT
+#define ServerExtraDefines	-DGCCUSESGAS XFree86ServerDefines
+#define AsVISOption		-Av9a
+#ifdef Sparc64Architecture
+#define AsOutputArchSize	64
+#else
+#define AsOutputArchSize	32
+#endif
+#if LinuxCLibMajorVersion <= 5
+/* Why we lack this when everybody else has it? */
+#define HasCbrt NO
+#endif
+#endif /* SparcArchitecture */
+
 /*================================================================
    BEGIN ORL VNC modification
    Always define _REENTRANT since we may use threaded libraries */
@@ -314,6 +370,10 @@ XCOMM binutils:	(LinuxBinUtilsMajorVersion)
 
 #define MakeNamedTargetSubdir(dir,flags,subname)\
 	$(MAKE) -C dir $(MFLAGS) $(PARALLELMFLAGS) flags subname
+
+#ifndef HasZlib
+# define HasZlib	YES
+#endif
 
 #include <lnxLib.rules>
 #include <xfree86.cf>

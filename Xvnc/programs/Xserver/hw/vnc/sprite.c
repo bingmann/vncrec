@@ -234,7 +234,8 @@ miPointerSpriteFuncRec rfbSpritePointerFuncs = {
  * other misc functions
  */
 
-static void rfbSpriteRemoveCursor ();
+static Bool rfbDisplayCursor (ScreenPtr pScreen, CursorPtr pCursor);
+
 
 /*
  * rfbSpriteInitialize -- called from device-dependent screen
@@ -281,6 +282,7 @@ rfbSpriteInitialize (pScreen, cursorFuncs, screenFuncs)
     pPriv->CreateGC = pScreen->CreateGC;
     pPriv->InstallColormap = pScreen->InstallColormap;
     pPriv->StoreColors = pScreen->StoreColors;
+    pPriv->DisplayCursor = pScreen->DisplayCursor;
 
     pPriv->PaintWindowBackground = pScreen->PaintWindowBackground;
     pPriv->PaintWindowBorder = pScreen->PaintWindowBorder;
@@ -321,6 +323,8 @@ rfbSpriteInitialize (pScreen, cursorFuncs, screenFuncs)
 
     pScreen->SaveDoomedAreas = rfbSpriteSaveDoomedAreas;
     pScreen->RestoreAreas = rfbSpriteRestoreAreas;
+
+    pScreen->DisplayCursor = rfbDisplayCursor;
 
     return TRUE;
 }
@@ -1897,6 +1901,13 @@ rfbSpriteSetCursor (pScreen, pCursor, x, y)
 
     for (cl = rfbClientHead; cl; cl = nextCl) {
 	nextCl = cl->next;
+	if (cl->enableCursorPosUpdates) {
+	    if (x == cl->cursorX && y == cl->cursorY) {
+		cl->cursorWasMoved = FALSE;
+		continue;
+	    }
+	    cl->cursorWasMoved = TRUE;
+	}
 	if (REGION_NOTEMPTY(pScreen,&cl->requestedRegion)) {
 	    /* cursorIsDrawn is guaranteed to be FALSE here, so we definitely
 	       want to send a screen update to the client, even if that's only
@@ -1921,11 +1932,14 @@ rfbSpriteMoveCursor (pScreen, x, y)
  * undraw/draw cursor
  */
 
-static void
+void
 rfbSpriteRemoveCursor (pScreen)
     ScreenPtr	pScreen;
 {
     rfbSpriteScreenPtr   pScreenPriv;
+
+    if (!rfbScreen.cursorIsDrawn)
+	return;
 
     pScreenPriv
 	= (rfbSpriteScreenPtr) pScreen->devPrivates[rfbSpriteScreenIndex].ptr;
@@ -2006,3 +2020,61 @@ rfbSpriteComputeSaved (pScreen)
     pScreenPriv->saved.x2 = pScreenPriv->saved.x1 + w;
     pScreenPriv->saved.y2 = pScreenPriv->saved.y1 + h;
 }
+
+
+/*
+ * this function is called when the cursor shape is being changed
+ */
+
+static Bool
+rfbDisplayCursor(pScreen, pCursor)
+    ScreenPtr pScreen;
+    CursorPtr pCursor;
+{
+    rfbClientPtr cl;
+    rfbSpriteScreenPtr pPriv;
+
+    for (cl = rfbClientHead; cl ; cl = cl->next) {
+	if (cl->enableCursorShapeUpdates)
+	    cl->cursorWasChanged = TRUE;
+    }
+
+    pPriv = (rfbSpriteScreenPtr)pScreen->devPrivates[rfbSpriteScreenIndex].ptr;
+    return (*pPriv->DisplayCursor)(pScreen, pCursor);
+}
+
+
+/*
+ * obtain current cursor pointer
+ */
+
+CursorPtr
+rfbSpriteGetCursorPtr (pScreen)
+    ScreenPtr pScreen;
+{
+    rfbSpriteScreenPtr pScreenPriv;
+
+    pScreenPriv = (rfbSpriteScreenPtr)
+	pScreen->devPrivates[rfbSpriteScreenIndex].ptr;
+
+    return pScreenPriv->pCursor;
+}
+
+/*
+ * obtain current cursor position
+ */
+
+void
+rfbSpriteGetCursorPos (pScreen, px, py)
+    ScreenPtr pScreen;
+    int *px, *py;
+{
+    rfbSpriteScreenPtr pScreenPriv;
+
+    pScreenPriv = (rfbSpriteScreenPtr)
+	pScreen->devPrivates[rfbSpriteScreenIndex].ptr;
+
+    *px = pScreenPriv->x;
+    *py = pScreenPriv->y;
+}
+

@@ -83,7 +83,7 @@ typedef struct fd_set {
 # endif
 #endif
 
-#ifdef hpux /* and perhaps old BSD ??? */
+#if defined(hpux) && ! defined(HPUX_10) /* and perhaps old BSD ??? */
 #define Select(n,r,w,e,t) select(n,(int*)r,(int*)w,(int*)e,(struct timeval*)t)
 #else
 #define Select(n,r,w,e,t) select(n,(fd_set*)r,(fd_set*)w,(fd_set*)e,(struct timeval*)t)

@@ -31,6 +31,7 @@
 GC gc;
 GC srcGC, dstGC; /* used for debugging copyrect */
 Window desktopWin;
+Cursor dotCursor;
 Widget form, viewport, desktop;
 
 static Bool modifierPressed[256];
@@ -75,7 +76,7 @@ DesktopInitBeforeRealization()
   XtVaSetValues(desktop, XtNwidth, si.framebufferWidth,
 		XtNheight, si.framebufferHeight, NULL);
 
-  XtAddEventHandler(desktop, LeaveWindowMask|ExposureMask,
+  XtAddEventHandler(desktop, ExposureMask,
 		    True, HandleBasicDesktopEvent, NULL);
 
   for (i = 0; i < 256; i++)
@@ -115,6 +116,7 @@ DesktopInitAfterRealization()
 {
   XGCValues gcv;
   XSetWindowAttributes attr;
+  unsigned long valuemask;
 
   desktopWin = XtWindow(desktop);
 
@@ -131,10 +133,18 @@ DesktopInitAfterRealization()
 
   XtVaGetApplicationResources(desktop, (XtPointer)&attr.backing_store,
 			      desktopBackingStoreResources, 1, NULL);
+  valuemask = CWBackingStore;
 
-  attr.cursor = CreateDotCursor();
+  if (!appData.useX11Cursor) {
+    dotCursor = CreateDotCursor();
+    attr.cursor = dotCursor;    
+    valuemask |= CWCursor;
+  }
 
-  XChangeWindowAttributes(dpy, desktopWin, CWBackingStore|CWCursor, &attr);
+  XChangeWindowAttributes(dpy, desktopWin, valuemask, &attr);
+
+  XtAddEventHandler(desktop, FocusChangeMask, True,
+		    HandleBasicDesktopEvent, NULL);
 }
 
 
@@ -169,7 +179,12 @@ HandleBasicDesktopEvent(Widget w, XtPointer ptr, XEvent *ev, Boolean *cont)
 				 ev->xexpose.width, ev->xexpose.height, False);
     break;
 
-  case LeaveNotify:
+  case FocusIn:
+      XSetInputFocus(dpy, XtWindowOfObject(desktop), RevertToPointerRoot,
+		     CurrentTime);
+    break;
+
+  case FocusOut:
     for (i = 0; i < 256; i++) {
       if (modifierPressed[i]) {
 	SendKeyEvent(XKeycodeToKeysym(dpy, i, 0), False);
@@ -186,7 +201,8 @@ HandleBasicDesktopEvent(Widget w, XtPointer ptr, XEvent *ev, Boolean *cont)
  * ways.  Without any parameters it simply sends an RFB event corresponding to
  * the X event which caused it to be called.  With parameters, it generates a
  * "fake" RFB event based on those parameters.  The first parameter is the
- * event type, either "ptr", "keydown", "keyup" or "key" (down&up).  For a
+ * event type, either "fbupdate", "ptr", "keydown", "keyup" or "key"
+ * (down&up).  The "fbupdate" event requests full framebuffer update. For a
  * "key" event the second parameter is simply a keysym string as understood by
  * XStringToKeysym().  For a "ptr" event, the following three parameters are
  * just X, Y and the button mask (0 for all up, 1 for button1 down, 2 for
@@ -232,6 +248,13 @@ SendRFBEvent(Widget w, XEvent *ev, String *params, Cardinal *num_params)
 		params[0]);
 	return;
       }
+    } else if (strcasecmp(params[0],"fbupdate") == 0) {
+      if (*num_params != 1) {
+	fprintf(stderr, "Invalid params: SendRFBEvent(fbupdate)\n");
+	return;
+      }
+      SendFramebufferUpdateRequest(0, 0, si.framebufferWidth,
+				   si.framebufferHeight, False);
     } else if (strcasecmp(params[0],"ptr") == 0) {
       if (*num_params == 4) {
 	x = atoi(params[1]);
@@ -320,7 +343,7 @@ CreateDotCursor()
   Cursor cursor;
   Pixmap src, msk;
   static char srcBits[] = { 0, 14,14,14, 0 };
-  static char mskBits[] = { 31,31,31,31,31 };
+  static char mskBits[] = { 14,31,31,31,14 };
   XColor fg, bg;
 
   src = XCreateBitmapFromData(dpy, DefaultRootWindow(dpy), srcBits, 5, 5);

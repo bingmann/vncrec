@@ -109,12 +109,12 @@ ICEILTEMPDECL
 #endif
 
 #ifdef USE_INLINE
-inline static const int max (const int x, const int y)
+__inline static const int max (const int x, const int y)
 {
 	return x>y? x:y;
 }
 
-inline static const int min (const int x, const int y)
+__inline static const int min (const int x, const int y)
 {
 	return x<y? x:y;
 }

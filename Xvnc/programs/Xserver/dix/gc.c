@@ -563,11 +563,15 @@ DoChangeGC(pGC, mask, pval, fPointer)
     XID			*pval;
     int			fPointer;
 {
+    int r;
+
     if (fPointer)
     /* XXX might be a problem on 64 bit big-endian servers */
-	dixChangeGC(NullClient, pGC, mask, NULL, (ChangeGCValPtr)pval);
+	r = dixChangeGC(NullClient, pGC, mask, NULL, (ChangeGCValPtr)pval);
     else
-	dixChangeGC(NullClient, pGC, mask, pval, NULL);
+	r = dixChangeGC(NullClient, pGC, mask, pval, NULL);
+
+    return r;
 }
 
 

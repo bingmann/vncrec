@@ -1,8 +1,9 @@
 
-VNC 3.3.3r2 Source Distribution for Unix platforms
-==================================================
+TightVNC 1.2.9 Source Distribution for Unix platforms
+=====================================================
 
-VNC is Copyright (C) AT&T Laboratories Cambridge.  All Rights Reserved.
+TightVNC is Copyright (C) 2001-2003 Constantin Kaplinsky.  All Rights Reserved.
+VNC is Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
 This software is distributed under the GNU General Public Licence as published
 by the Free Software Foundation.  See the file LICENCE.TXT for the conditions
 under which this software is made available.  VNC also contains code from other
@@ -31,7 +32,9 @@ There are five programs here:
 
 
 First you must have a reasonably recent version of X installed (this includes
-/usr/openwin on Solaris machines).  To build everything but Xvnc, do:
+/usr/openwin on Solaris machines).  Also, TightVNC requires JPEG and zlib
+libraries installed in the system (e.g. under /usr/local).  To build
+everything but Xvnc, do:
 
 	% xmkmf
 	% make World
@@ -45,16 +48,19 @@ only" distribution, which in turn is based on the X11R6.3 distribution from
 the X consortium.  To build Xvnc, do:
 
 	% cd Xvnc
-	% make World
+	% ./configure
+	% make
 
 If you have trouble building Xvnc, see the Xvnc/README file for more details.
 
 If it all builds OK you should copy the programs to some directory which
-is in your PATH environment variable, such as /usr/local/bin.  You can use
-the vncinstall script to do this for you:
+is in your PATH environment variable, such as /usr/local/bin.  Also, it's
+handy to install manual pages in a directory where the man utility can find
+them.  You can use the vncinstall script to do this for you (man path is
+optional):
 
 	% cd ..
-	% ./vncinstall /usr/local/bin
+	% ./vncinstall /usr/local/bin /usr/local/man
 
 If you want to use the Java VNC viewer, you should copy the class files from
 the classes directory to some suitable installation directory such as

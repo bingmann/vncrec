@@ -1046,8 +1046,8 @@ char		*port;
      */
 #define X_UNIX_DIR	"/tmp/.X11-unix"
     
-    if (!mkdir(X_UNIX_DIR, 0777))
-	chmod(X_UNIX_DIR, 0777);
+    if (!mkdir(X_UNIX_DIR, 01777))
+	chmod(X_UNIX_DIR, 01777);
     
     unlink(server_unix_path);
     

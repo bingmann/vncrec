@@ -552,6 +552,8 @@ XID id;
     numGCs--;
     if (!numGCs)
 	ResType = 0;
+
+    return 0;
 }
 
 

@@ -8,6 +8,10 @@
  * easier to upgrade to later versions of the XFree86 distribution.
  */
 
+#ifdef BeforeVendorCF
+
+#include "platform.def"
+
 /*****************************************************************************/
 /*
  * First try to switch off all the extras that we don't want.  This includes
@@ -82,7 +86,6 @@
 #define XVirtualFramebufferServer	NO
 #define XdecServer              NO
 #define XhpServer               NO
-#define XibmServer              NO
 #define XmacIIServer            NO
 #define XmipsServer             NO
 #define XnestServer             NO
@@ -103,9 +106,9 @@
 #define BuildServersOnly	YES
 #define BuildServer		YES
 
-#define XVendorString		"AT&T Laboratories Cambridge"
+#define XVendorString		\"AT&T Laboratories Cambridge\"
 #define XVendorRelease		3332
-#define XvncRelease		"3r2"
+#define XvncRelease		\"tight1.2.9\"
 
 
 /*****************************************************************************/
@@ -117,18 +120,37 @@
 #ifdef SunArchitecture
 #define ProjectRoot /usr/openwin
 #else
-#ifdef i386Architecture
+#ifdef LinuxArchitecture
 #define ProjectRoot /usr/X11R6
 #endif
 #endif
 
+#endif /* BeforeVendorCF */
 
-/*****************************************************************************/
-/*
- * At ORL we use gcc on our Suns.  If you use gcc then you may also need to
- * change config/imake/Makefile.ini which has CC=cc hard-coded.
- */
+#ifdef AfterVendorCF
 
-#ifdef SunArchitecture
-#define HasGcc2 YES
+#ifdef AIXArchitecture
+#ifdef XibmServer
+# undef XibmServer
 #endif
+#define XibmServer NO
+
+#ifdef ExtensionOSDefines
+# undef ExtensionOSDefines
+#endif 
+#define ExtensionOSDefines 
+#endif
+
+#ifdef HPArchitecture
+#ifdef XhpServer
+# undef XhpServer
+#endif
+#define XhpServer NO
+
+#ifdef ExtensionOSDefines
+# undef ExtensionOSDefines
+#endif 
+#define ExtensionOSDefines 
+#endif
+
+#endif /* AfterVendorCF */

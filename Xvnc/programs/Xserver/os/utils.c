@@ -78,6 +78,9 @@ OR PERFORMANCE OF THIS SOFTWARE.
 #if !defined(SYSV) && !defined(AMOEBA) && !defined(_MINIX) && !defined(WIN32) && !defined(Lynx)
 #include <sys/resource.h>
 #endif
+#if defined(AIXV3) || defined(HPUX_10)
+# include <sys/resource.h>
+#endif
 #include <time.h>
 #include <sys/stat.h>
 #include <ctype.h>    /* for isspace */
@@ -143,12 +146,6 @@ int auditTrailLevel = 1;
 void ddxUseMsg();
 #if NeedVarargsPrototypes
 void VErrorF(char*, va_list);
-#endif
-
-#ifdef AIXV3
-FILE *aixfd;
-int SyncOn  = 0;
-extern int SelectWaitTime;
 #endif
 
 #ifdef DEBUG
@@ -624,9 +621,6 @@ char	*argv[];
 	PartialNetwork = TRUE;
 #endif
 
-#ifdef AIXV3
-    OpenDebug();
-#endif
     for ( i = 1; i < argc; i++ )
     {
 	/* call ddx first, so it can peek/override if it wants */
@@ -934,7 +928,7 @@ char	*argv[];
 	    i = skip - 1;
 	}
 #endif
-#ifdef AIXV3
+#if defined(AIXV3) && ! defined(AIXV4)
         else if ( strcmp( argv[i], "-timeout") == 0)
         {
             if(++i < argc)
@@ -1370,14 +1364,7 @@ VErrorF(f, args)
     char *f;
     va_list args;
 {
-#ifdef AIXV3
-    vfprintf(aixfd, f, args);
-    fflush (aixfd);
-    if (SyncOn)
-        sync();
-#else
     vfprintf(stderr, f, args);
-#endif /* AIXV3 */
 }
 #endif
 
@@ -1398,12 +1385,6 @@ ErrorF(
     VErrorF(f, args);
     va_end(args);
 #else
-#ifdef AIXV3
-    fprintf(aixfd, f, s0, s1, s2, s3, s4, s5, s6, s7, s8, s9);
-    fflush (aixfd);
-    if (SyncOn)
-        sync();
-#else /* not AIXV3 */
 #ifdef AMOEBA
     mu_lock(&print_lock);
 #endif
@@ -1411,32 +1392,8 @@ ErrorF(
 #ifdef AMOEBA
     mu_unlock(&print_lock);
 #endif
-#endif /* AIXV3 */
 #endif
 }
-
-#ifdef AIXV3
-OpenDebug()
-{
-    char aixlogfile[100];
-    struct stat aixfilebuf;
-
-        sprintf(aixlogfile,"/tmp/xlogfile%d",getpid());
-
-        /* if the logfile already exists & is a symlink, fopen() overwrites
-         * it without unlinking the file. It is necessary to unlink the
-         * logfile to avoid a security breach & possible exploitation.
-         */
-        if (stat((const char *)aixlogfile,&aixfilebuf) == 0)
-                unlink(aixlogfile);
-        if((aixfd = fopen(aixlogfile,"w")) == NULL )
-        {
-                fprintf(stderr,"open %s failed\n",aixlogfile);
-                exit(-1);
-        }
-        chmod(aixlogfile,00644);
-}
-#endif
 
 #if !defined(WIN32) && !defined(__EMX__)
 /*

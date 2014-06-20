@@ -383,3 +383,7 @@ man_keywords::								@@\
 	-DMULTIBYTE -DNLS16 -DMESSAGE_CAT -D_XOPEN_VERSION=4 \
 	-D_XOPEN_SOURCE -D__EXTENSIONS__ \
 	-DOSMAJORVERSION=OSMajorVersion -DOSMINORVERSION=OSMinorVersion
+
+#ifdef SparcArchitecture
+# define AsmDefines	/**/
+#endif

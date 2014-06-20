@@ -88,7 +88,11 @@ XCOMM operating system:  OSName (OSMajorVersion.OSMinorVersion.OSTeenyVersion)
 # ifndef SharedLibraryCCOptions
 #  define SharedLibraryCCOptions	-Ae
 # endif
+# if OSMajorVersion > 9
+#  define StandardDefines		-Dhpux -DSYSV -DHPUX_10
+# else
 # define StandardDefines		-Dhpux -DSYSV
+# endif
 # define ServerExtraDefines		-DXOS -DBSTORE -DSOFTWARE_CURSOR -DNO_ALLOCA -DSCREEN_PIXMAPS -DMERGE_SAVE_UNDERS -DHAS_IFREQ -DFORCE_SEPARATE_PRIVATE
 
 # if OSMajorVersion > 9
@@ -119,7 +123,9 @@ XCOMM operating system:  OSName (OSMajorVersion.OSMinorVersion.OSTeenyVersion)
 #define DBMLibrary		/usr/lib/libdbm.a
 #define PrimaryScreenResolution	91
 #define ExtensionOSDefines	-DHPINPUT -DXTESTEXT1
+#ifndef XhpServer
 #define XhpServer		YES
+#endif
 #define ServerExtraSysLibs	-ldld
 #ifndef BuildXInputExt
 # define BuildXInputExt		YES
@@ -127,8 +133,8 @@ XCOMM operating system:  OSName (OSMajorVersion.OSMinorVersion.OSTeenyVersion)
 #define HPFastScrolling		YES
 #ifndef BuildServer
 # define BuildServer		__hp9000s700
-#endif
 #define NeedBerklib		(BuildServer|BuildFontServer)
+#endif
 #define XawI18nDefines		-DHAS_WCHAR_H -DHAS_ISW_FUNCS
 
 #if OSMajorVersion < 6 || (OSMajorVersion == 6 && OSMinorVersion < 2)

@@ -98,7 +98,7 @@ XCOMM site:  $XFree86: xc/config/cf/site.def,v 3.17.2.1 1997/06/22 10:32:21 dawe
 ================================================================*/
 
 /* Only set HasXdmAuth to YES if you have a Wraphelp.c file. */
-/* #define HasXdmAuth YES */
+#define HasXdmAuth YES
 
 /* #define PreIncDir DefaultGccIncludeDir */
 
@@ -161,5 +161,7 @@ XCOMM site:  $XFree86: xc/config/cf/site.def,v 3.17.2.1 1997/06/22 10:32:21 dawe
 
 /* END ORL VNC modification
 ================================================================*/
+
+#include <vnc.def>
 
 #endif /* AfterVendorCF */

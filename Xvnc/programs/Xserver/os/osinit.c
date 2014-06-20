@@ -66,6 +66,10 @@ SOFTWARE.
 #include <sys/resource.h>
 #endif
 
+#if defined(AIXV3) || defined(HPUX_10)
+#include <sys/resource.h>
+#endif
+
 #ifndef ADMPATH
 #define ADMPATH "/usr/adm/X%smsgs"
 #endif

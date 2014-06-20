@@ -60,20 +60,18 @@ rfbSendRectEncodingCoRRE(cl, x, y, w, h)
     int x, y, w, h;
 {
     if (h > cl->correMaxHeight) {
-	rfbSendRectEncodingCoRRE(cl, x, y, w, cl->correMaxHeight  );
-	rfbSendRectEncodingCoRRE(cl, x, y + cl->correMaxHeight, w,
-				 h - cl->correMaxHeight);
-	return;
+	return (rfbSendRectEncodingCoRRE(cl, x, y, w, cl->correMaxHeight) &&
+		rfbSendRectEncodingCoRRE(cl, x, y + cl->correMaxHeight,
+					 w, h - cl->correMaxHeight));
     }
 
     if (w > cl->correMaxWidth) {
-	rfbSendRectEncodingCoRRE(cl, x, y, cl->correMaxWidth, h);
-	rfbSendRectEncodingCoRRE(cl, x + cl->correMaxWidth, y,
-				 w - cl->correMaxWidth, h);
-	return;
+	return (rfbSendRectEncodingCoRRE(cl, x, y, cl->correMaxWidth, h) &&
+		rfbSendRectEncodingCoRRE(cl, x + cl->correMaxWidth, y,
+					 w - cl->correMaxWidth, h));
     }
 
-    rfbSendSmallRectEncodingCoRRE(cl, x, y, w, h);
+    return rfbSendSmallRectEncodingCoRRE(cl, x, y, w, h);
 }
 
 

@@ -73,7 +73,13 @@ in this Software without prior written authorization from the X Consortium.
                       (p)++,(*(p) = MROP_PREBUILT_SOLID(((srcpix<<16)|(srcpix>>8)),*(p))), \
                       (p)++,(*(p) = MROP_PREBUILT_SOLID(((srcpix<<8)|(srcpix>>16)),*(p))))
 
-#if (MROP == Mcopy) && defined(FAST_CONSTANT_OFFSET_MODE) && defined(SHARED_IDCACHE)
+
+
+/* XXX TJR: I doubt that this optimised case works (because the non-24 bit case
+   was broken), so I've added the #if 0 below.  Someone who knows what they're
+   doing can re-enable it if they fix it */
+
+#if (MROP == Mcopy) && defined(FAST_CONSTANT_OFFSET_MODE) && defined(SHARED_IDCACHE) && 0
 # define Expand(left,right) {\
     int part = nlwMiddle & ((PGSZB*2)-1); \
     nlwMiddle *= 3; \
@@ -145,8 +151,8 @@ in this Software without prior written authorization from the X Consortium.
 
 #if (MROP == Mcopy) && defined(FAST_CONSTANT_OFFSET_MODE) && defined(SHARED_IDCACHE)
 # define Expand(left,right) {\
-    int part = nlwMiddle & ((PGSZB*2)-1); \
-    nlwMiddle >>= PWSH + 1; \
+    int part = nlwMiddle & 7; \
+    nlwMiddle >>= 3; \
     while (h--) { \
 	srcpix = psrc[srcy]; \
 	MROP_PREBUILD(srcpix); \

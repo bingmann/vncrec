@@ -3,6 +3,8 @@
  */
 
 /*
+ *  Copyright (C) 2000, 2001 Const Kaplinsky.  All Rights Reserved.
+ *  Copyright (C) 2000 Tridia Corporation.  All Rights Reserved.
  *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
@@ -27,6 +29,7 @@
 #include "osdep.h"
 #include <rfbproto.h>
 #include <vncauth.h>
+#include <zlib.h>
 
 #define MAX_ENCODINGS 10
 
@@ -132,6 +135,8 @@ typedef struct rfbClientRec {
 	RFB_NORMAL		/* normal protocol messages */
     } state;
 
+    Bool viewOnly;		/* Do not accept input from this client. */
+
     Bool reverseConnection;
 
     Bool readyForSetColourMapEntries;
@@ -202,10 +207,40 @@ typedef struct rfbClientRec {
 
     int rfbBytesSent[MAX_ENCODINGS];
     int rfbRectanglesSent[MAX_ENCODINGS];
+    int rfbLastRectMarkersSent;
+    int rfbLastRectBytesSent;
+    int rfbCursorShapeBytesSent;
+    int rfbCursorShapeUpdatesSent;
+    int rfbCursorPosBytesSent;
+    int rfbCursorPosUpdatesSent;
     int rfbFramebufferUpdateMessagesSent;
     int rfbRawBytesEquivalent;
     int rfbKeyEventsRcvd;
     int rfbPointerEventsRcvd;
+
+    /* zlib encoding -- necessary compression state info per client */
+
+    struct z_stream_s compStream;
+    Bool compStreamInited;
+
+    CARD32 zlibCompressLevel;
+
+    /* tight encoding -- preserve zlib streams' state for each client */
+
+    z_stream zsStruct[4];
+    Bool zsActive[4];
+    int zsLevel[4];
+    int tightCompressLevel;
+    int tightQualityLevel;
+
+    Bool enableLastRectEncoding;   /* client supports LastRect encoding */
+    Bool enableCursorShapeUpdates; /* client supports cursor shape updates */
+    Bool enableCursorPosUpdates;   /* client supports PointerPos updates */
+    Bool useRichCursorEncoding;    /* rfbEncodingRichCursor is preferred */
+    Bool cursorWasChanged;         /* cursor shape update should be sent */
+    Bool cursorWasMoved;           /* cursor position update should be sent */
+
+    int cursorX, cursorY;          /* client's cursor position */
 
     struct rfbClientRec *next;
 
@@ -217,9 +252,11 @@ typedef struct rfbClientRec {
  * be sent to the client.
  */
 
-#define FB_UPDATE_PENDING(cl)				\
-    (!rfbScreen.cursorIsDrawn ||			\
-     REGION_NOTEMPTY((pScreen),&(cl)->copyRegion) ||	\
+#define FB_UPDATE_PENDING(cl)                                           \
+    ((!(cl)->enableCursorShapeUpdates && !rfbScreen.cursorIsDrawn) ||   \
+     ((cl)->enableCursorShapeUpdates && (cl)->cursorWasChanged) ||      \
+     ((cl)->enableCursorPosUpdates && (cl)->cursorWasMoved) ||          \
+     REGION_NOTEMPTY((pScreen),&(cl)->copyRegion) ||                    \
      REGION_NOTEMPTY((pScreen),&(cl)->modifiedRegion))
 
 /*
@@ -280,6 +317,7 @@ extern rfbScreenInfo rfbScreen;
 extern int rfbGCIndex;
 
 extern int inetdSock;
+extern struct in_addr interface;
 
 extern int rfbBitsPerPixel(int depth);
 extern void rfbLog(char *format, ...);
@@ -296,7 +334,6 @@ extern Bool udpSockConnected;
 
 extern int rfbPort;
 extern int rfbListenSock;
-extern Bool rfbLocalhostOnly;
 
 extern void rfbInitSockets();
 extern void rfbDisconnectUDPSock();
@@ -344,6 +381,7 @@ extern void rfbGotXCutText(char *str, int len);
 
 /* kbdptr.c */
 
+extern Bool compatibleKbd;
 extern unsigned char ptrAcceleration;
 
 extern void PtrDeviceInit();
@@ -377,6 +415,7 @@ extern rfbClientPtr pointerClient;
 extern Bool rfbAlwaysShared;
 extern Bool rfbNeverShared;
 extern Bool rfbDontDisconnect;
+extern Bool rfbViewOnly; /* run server in view-only mode - Ehud Karni SW */
 
 extern void rfbNewClientConnection(int sock);
 extern rfbClientPtr rfbReverseConnection(char *host, int port);
@@ -443,6 +482,40 @@ extern Bool rfbSendRectEncodingCoRRE(rfbClientPtr cl, int x,int y,int w,int h);
 
 extern Bool rfbSendRectEncodingHextile(rfbClientPtr cl, int x, int y, int w,
 				       int h);
+
+
+/* zlib.c */
+
+/* Minimum zlib rectangle size in bytes.  Anything smaller will
+ * not compress well due to overhead.
+ */
+#define VNC_ENCODE_ZLIB_MIN_COMP_SIZE (17)
+
+/* Set maximum zlib rectangle size in pixels.  Always allow at least
+ * two scan lines.
+ */
+#define ZLIB_MAX_RECT_SIZE (128*256)
+#define ZLIB_MAX_SIZE(min) ((( min * 2 ) > ZLIB_MAX_RECT_SIZE ) ? \
+			    ( min * 2 ) : ZLIB_MAX_RECT_SIZE )
+
+extern Bool rfbSendRectEncodingZlib(rfbClientPtr cl, int x, int y, int w,
+				    int h);
+
+
+/* tight.c */
+
+#define TIGHT_DEFAULT_COMPRESSION  6
+
+extern Bool rfbTightDisableGradient;
+
+extern int rfbNumCodedRectsTight(rfbClientPtr cl, int x,int y,int w,int h);
+extern Bool rfbSendRectEncodingTight(rfbClientPtr cl, int x,int y,int w,int h);
+
+
+/* cursor.c */
+
+extern Bool rfbSendCursorShape(rfbClientPtr cl, ScreenPtr pScreen);
+extern Bool rfbSendCursorPos(rfbClientPtr cl, ScreenPtr pScreen);
 
 
 /* stats.c */

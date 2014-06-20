@@ -132,6 +132,9 @@ static miPointerScreenFuncRec rfbPointerCursorFuncs = {
 int inetdSock = -1;
 static char inetdDisplayNumStr[10];
 
+/* Interface address to bind to. */
+struct in_addr interface;
+
 
 /*
  * ddxProcessArgument is our first entry point and will be called at the
@@ -155,7 +158,8 @@ ddxProcessArgument (argc, argv, i)
 	rfbScreen.whitePixel = RFB_DEFAULT_WHITEPIXEL;
 	rfbScreen.pfbMemory = NULL;
 	gethostname(rfbThisHost, 255);
-        firstTime = FALSE;
+	interface.s_addr = htonl (INADDR_ANY);
+	firstTime = FALSE;
     }
 
     if (strcmp (argv[i], "-geometry") == 0)	/* -geometry WxH */
@@ -267,6 +271,11 @@ ddxProcessArgument (argc, argv, i)
 	return 1;
     }
 
+    if (strcmp(argv[i], "-lazytight") == 0) {
+	rfbTightDisableGradient = TRUE;
+	return 1;
+    }
+
     if (strcmp(argv[i], "-desktop") == 0) {	/* -desktop desktop-name */
 	if (i + 1 >= argc) UseMsg();
 	desktopName = argv[i+1];
@@ -288,9 +297,47 @@ ddxProcessArgument (argc, argv, i)
 	return 1;
     }
 
-    if (strcmp(argv[i], "-localhost") == 0) {
-	rfbLocalhostOnly = TRUE;
+    /* Run server in view-only mode - Ehud Karni SW */
+    if (strcmp(argv[i], "-viewonly") == 0) {
+	rfbViewOnly = TRUE;
 	return 1;
+    }
+
+    if (strcmp(argv[i], "-localhost") == 0) {
+	interface.s_addr = htonl (INADDR_LOOPBACK);
+	return 1;
+    }
+
+    if (strcmp(argv[i], "-interface") == 0) {	/* -interface ipaddr */
+	struct in_addr got;
+	unsigned long octet;
+	char *p, *end;
+	int q;
+	if (i + 1 >= argc) {
+	    UseMsg();
+	    return 2;
+	}
+	if (interface.s_addr != htonl (INADDR_ANY)) {
+	    /* Already set (-localhost?). */
+	    return 2;
+	}
+	p = argv[i + 1];
+	for (q = 0; q < 4; q++) {
+	    octet = strtoul (p, &end, 10);
+	    if (p == end || octet > 255) {
+		UseMsg ();
+		return 2;
+	    }
+	    if (q < 3 && *end != '.' ||
+	        q == 3 && *end != '\0') {
+		UseMsg ();
+		return 2;
+	    }
+	    got.s_addr = (got.s_addr << 8) | octet;
+	    p = end + 1;
+	}
+	interface.s_addr = htonl (got.s_addr);
+	return 2;
     }
 
     if (strcmp(argv[i], "-inetd") == 0) {	/* -inetd */ 
@@ -319,6 +366,17 @@ ddxProcessArgument (argc, argv, i)
 	return 1;
     }
 
+    if (strcmp(argv[i], "-compatiblekbd") == 0) {
+	compatibleKbd = TRUE;
+	return 1;
+    }
+
+    if (strcmp(argv[i], "-version") == 0) {
+	ErrorF("Xvnc version %d.%d.%s\n", rfbProtocolMajorVersion,
+	       rfbProtocolMinorVersion, XVNCRELEASE);
+	exit(0);
+    }
+
     if (inetdSock != -1 && argv[i][0] == ':') {
 	FatalError("can't specify both -inetd and :displaynumber");
     }
@@ -342,10 +400,12 @@ InitOutput(screenInfo, argc, argv)
     initOutputCalled = TRUE;
 
     rfbLog("Xvnc version %d.%d.%s\n", rfbProtocolMajorVersion,
-	   rfbProtocolMinorVersion,XVNCRELEASE);
-    rfbLog("Copyright (C) AT&T Laboratories Cambridge.\n");
+	   rfbProtocolMinorVersion, XVNCRELEASE);
+    rfbLog("Copyright (C) 1999 AT&T Laboratories Cambridge.\n");
+    rfbLog("Copyright (C) 2000-2002 Constantin Kaplinsky.\n");
     rfbLog("All Rights Reserved.\n");
     rfbLog("See http://www.uk.research.att.com/vnc for information on VNC\n");
+    rfbLog("See http://www.tightvnc.com for TightVNC-specific information\n");
     rfbLog("Desktop name '%s' (%s:%s)\n",desktopName,rfbThisHost,display);
     rfbLog("Protocol version supported %d.%d\n", rfbProtocolMajorVersion,
 	   rfbProtocolMinorVersion);
@@ -679,6 +739,8 @@ static Bool CheckDisplayNumber(int n)
     struct sockaddr_in addr;
 
     sock = socket(AF_INET, SOCK_STREAM, 0);
+
+    memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
     addr.sin_port = htons(6000+n);
@@ -849,6 +911,8 @@ ddxUseMsg()
     ErrorF("-deferupdate time      time in ms to defer updates "
 							     "(default 40)\n");
     ErrorF("-economictranslate     less memory-hungry translation\n");
+    ErrorF("-lazytight             disable \"gradient\" filter in tight "
+								"encoding\n");
     ErrorF("-desktop name          VNC desktop name (default x11)\n");
     ErrorF("-alwaysshared          always treat new clients as shared\n");
     ErrorF("-nevershared           never treat new clients as shared\n");
@@ -856,8 +920,14 @@ ddxUseMsg()
                                                              "new non-shared\n"
 	   "                       connection comes in (refuse new connection "
 								 "instead)\n");
+    ErrorF("-viewonly              let clients only to view the desktop\n");
     ErrorF("-localhost             only allow connections from localhost\n");
+    ErrorF("-interface ipaddr      only bind to specified interface "
+								"address\n");
     ErrorF("-inetd                 Xvnc is launched by inetd\n");
+    ErrorF("-compatiblekbd         set META key = ALT key as in the original "
+								"VNC\n");
+    ErrorF("-version               report Xvnc version on stderr\n");
     exit(1);
 }
 

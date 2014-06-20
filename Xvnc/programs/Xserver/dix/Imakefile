@@ -53,7 +53,7 @@ DEFAULTDISPLAYCLASS = DefaultDisplayClass
 
 #ifdef XVendorString
 VENDORSTRING = XVendorString
-   VENDOR_STRING = -DVENDOR_STRING=\"$(VENDORSTRING)\"
+   VENDOR_STRING = -DVENDOR_STRING="$(VENDORSTRING)"
 #endif
 
 #ifdef XVendorRelease

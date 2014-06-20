@@ -386,8 +386,8 @@ static void ArrayperWriteSource (abi)
 		    done_atom = 1;
 		}
 		(void) printf ("%s %sConst char %s%s[] = \"%s\";\n",
-			       externdefstr, conststr ? conststr : prefixstr, 
-			       te->left, te->right);
+			       externdefstr, conststr ? conststr : "",
+			       prefixstr,  te->left, te->right);
 	    }
     }
 }

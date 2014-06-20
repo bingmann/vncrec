@@ -580,7 +580,7 @@ int
 _fs_any_bit_set(mask)
     fd_set* mask;
 {
-    XFD_ANYSET(mask);
+    return XFD_ANYSET(mask);
 }
 
 int
@@ -606,6 +606,8 @@ _fs_or_bits(dst, m1, m2)
 #else
     XFD_ORSET(dst, m1, m2);
 #endif
+
+    return 0;
 }
 
 _fs_drain_bytes(conn, len)

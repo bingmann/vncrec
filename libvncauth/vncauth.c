@@ -26,9 +26,16 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #include <vncauth.h>
 #include <d3des.h>
 
+
+/*
+ * Make sure we call srandom() only once.
+ */
+
+static int s_srandom_called = 0;
 
 /*
  * We use a fixed key to store passwords, since we assume that our local
@@ -36,47 +43,71 @@
  * as plaintext.
  */
 
-unsigned char fixedkey[8] = {23,82,107,6,35,78,88,7};
+static unsigned char s_fixedkey[8] = {23,82,107,6,35,78,88,7};
 
 
 /*
  * Encrypt a password and store it in a file.  Returns 0 if successful,
  * 1 if the file could not be written.
+ *
+ * NOTE: This function is preserved only for compatibility with the original
+ * AT&T VNC software.  Use vncEncryptAndStorePasswd2() instead.
  */
 
 int
 vncEncryptAndStorePasswd(char *passwd, char *fname)
 {
+    return (vncEncryptAndStorePasswd2(passwd, NULL, fname) == 0);
+}
+
+/*
+ * Encrypt one or two passwords and store them in a file.  Returns 1 if
+ * successful, 0 if the file could not be written (note that the original
+ * vncEncryptAndStorePasswd() function returns inverse values).  The
+ * passwdViewOnly pointer may be NULL.
+ *
+ * NOTE: The file name of "-" denotes stdout.
+ */
+
+int
+vncEncryptAndStorePasswd2(char *passwd, char *passwdViewOnly, char *fname)
+{
     FILE *fp;
-    int i;
-    unsigned char encryptedPasswd[8];
+    int i, bytesToWrite, bytesWrote;
+    unsigned char encryptedPasswd[16] = {
+	0,0,0,0,0,0,0,0,
+	0,0,0,0,0,0,0,0
+    };
 
-    if ((fp = fopen(fname,"w")) == NULL) return 1;
-
-    chmod(fname, S_IRUSR|S_IWUSR);
-
-    /* pad password with nulls */
-
-    for (i = 0; i < 8; i++) {
-	if (i < strlen(passwd)) {
-	    encryptedPasswd[i] = passwd[i];
-	} else {
-	    encryptedPasswd[i] = 0;
-	}
+    if (strcmp(fname, "-") != 0) {
+      fp = fopen(fname, "w");
+      if (fp == NULL) {
+	return 0;
+      }
+      chmod(fname, S_IRUSR|S_IWUSR);
+    } else {
+      fp = stdout;
     }
 
-    /* Do encryption in-place - this way we overwrite our copy of the plaintext
-       password */
+    strncpy(encryptedPasswd, passwd, 8);
+    if (passwdViewOnly != NULL)
+	strncpy(encryptedPasswd + 8, passwdViewOnly, 8);
 
-    deskey(fixedkey, EN0);
+    /* Do encryption in-place - this way we overwrite our copies of
+       plaintext passwords. */
+
+    deskey(s_fixedkey, EN0);
     des(encryptedPasswd, encryptedPasswd);
+    if (passwdViewOnly != NULL)
+	des(encryptedPasswd + 8, encryptedPasswd + 8);
 
-    for (i = 0; i < 8; i++) {
-	putc(encryptedPasswd[i], fp);
-    }
+    bytesToWrite = (passwdViewOnly == NULL) ? 8 : 16;
+    bytesWrote = fwrite(encryptedPasswd, 1, bytesToWrite, fp);
   
-    fclose(fp);
-    return 0;
+    if (fp != stdout) {
+      fclose(fp);
+    }
+    return (bytesWrote == bytesToWrite);
 }
 
 
@@ -84,34 +115,84 @@ vncEncryptAndStorePasswd(char *passwd, char *fname)
  * Decrypt a password from a file.  Returns a pointer to a newly allocated
  * string containing the password or a null pointer if the password could
  * not be retrieved for some reason.
+ *
+ * NOTE: This function is preserved only for compatibility with the original
+ * AT&T VNC software.  Use vncDecryptPasswdFromFile2() instead.
  */
 
 char *
 vncDecryptPasswdFromFile(char *fname)
 {
+    char *passwd;
+
+    passwd = malloc(9);
+
+    if (passwd != NULL) {
+	if (vncDecryptPasswdFromFile2(fname, passwd, NULL) == 0) {
+	    free(passwd);
+	    passwd = NULL;
+	}
+    }
+
+    return passwd;
+}
+
+/*
+ * Decrypt one or two passwords from a file.  Returns the number of
+ * passwords read (1, 2, or 0 on error).  On success, the passwords are
+ * written into buffers passwdFullControl[] and passwdViewOnly[] if
+ * they are not NULL.  If the pointers to buffers are not NULL, then
+ * the buffers should be at least of 9 bytes length.
+ */
+
+int
+vncDecryptPasswdFromFile2(char *fname,
+			  char *passwdFullControl, char *passwdViewOnly)
+{
     FILE *fp;
     int i, ch;
-    unsigned char *passwd = (unsigned char *)malloc(9);
+    char passwd[16];
 
-    if ((fp = fopen(fname,"r")) == NULL) return NULL;
+    if (strcmp(fname, "-") != 0) {
+	if ((fp = fopen(fname,"r")) == NULL)
+	    return 0;		/* Could not open the file */
+    } else {
+	fp = stdin;
+    }
 
-    for (i = 0; i < 8; i++) {
+    for (i = 0; i < 16; i++) {
 	ch = getc(fp);
-	if (ch == EOF) {
-	    fclose(fp);
-	    return NULL;
-	}
+	if (ch == EOF)
+	    break;
 	passwd[i] = ch;
     }
 
-    fclose(fp);
+    if (fp != stdin)
+	fclose(fp);
 
-    deskey(fixedkey, DE1);
-    des(passwd, passwd);
+    if (i < 8)
+	return 0;		/* Could not read eight bytes */
 
-    passwd[8] = 0;
+    deskey(s_fixedkey, DE1);
 
-    return (char *)passwd;
+    /* Decoding first (full-control) password */
+    if (passwdFullControl != NULL) {
+	des(passwd, passwd);
+	memcpy(passwdFullControl, passwd, 8);
+	passwdFullControl[8] = '\0';
+    }
+
+    /* Decoding second (view-only) password if available */
+    if (i == 16 && passwdViewOnly != NULL) {
+	des(&passwd[8], &passwd[8]);
+	memcpy(passwdViewOnly, &passwd[8], 8);
+	passwdViewOnly[8] = '\0';
+    }
+
+    /* Destroying our copy of clear-text passwords */
+    memset(passwd, 0, 16);
+
+    return (i < 16) ? 1 : 2;
 }
 
 
@@ -124,9 +205,14 @@ void
 vncRandomBytes(unsigned char *bytes)
 {
     int i;
-    unsigned int seed = (unsigned int) time(0);
+    unsigned int seed;
 
-    srandom(seed);
+    if (!s_srandom_called) {
+      seed = (unsigned int)time(0) ^ (unsigned int)getpid();
+      srandom(seed);
+      s_srandom_called = 1;
+    }
+
     for (i = 0; i < CHALLENGESIZE; i++) {
 	bytes[i] = (unsigned char)(random() & 255);    
     }

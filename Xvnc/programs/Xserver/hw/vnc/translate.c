@@ -279,7 +279,7 @@ rfbSetTranslateFunction(cl)
 
 	/* client & server the same */
 
-	rfbLog("no translation needed\n");
+	rfbLog("  no translation needed\n");
 	cl->translateFn = rfbTranslateNone;
 	return TRUE;
     }

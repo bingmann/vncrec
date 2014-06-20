@@ -9,8 +9,11 @@ World:
 	make all
 	@echo ""
 	@echo Built $(SUBDIRS).
-	@echo 'To build Xvnc, do "cd Xvnc", followed by "make World"'
+	@echo 'To build Xvnc, do "cd Xvnc", followed by "./configure" then "make"'
 	@echo ""
+
+libs:
+	@echo 'No libraries included.'
 
 MakeSubdirs($(SUBDIRS))
 DependSubdirs($(SUBDIRS))

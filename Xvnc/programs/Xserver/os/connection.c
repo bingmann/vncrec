@@ -375,11 +375,6 @@ CreateWellKnownSockets()
      * useful
      */
 #ifndef WIN32
-/*================================================================
-   BEGIN ORL VNC modification
-   Don't use SIGUSR1 - linuxthread uses this internally */
-
-/* REMOVE
     if (OsSignal (SIGUSR1, SIG_IGN) == SIG_IGN)
 	RunFromSmartParent = TRUE;
     ParentProcess = getppid ();
@@ -388,10 +383,6 @@ CreateWellKnownSockets()
 	    kill (ParentProcess, SIGUSR1);
 	}
     }
-*/
-
-/* END ORL VNC modification
-================================================================*/
 #endif
 #ifdef XDMCP
     XdmcpInit ();
@@ -445,20 +436,11 @@ ResetWellKnownSockets ()
      * See above in CreateWellKnownSockets about SIGUSR1
      */
 #ifndef WIN32
-/*================================================================
-   BEGIN ORL VNC modification
-   Don't use SIGUSR1 - linuxthread uses this internally */
-
-/* REMOVE
     if (RunFromSmartParent) {
 	if (ParentProcess > 0) {
 	    kill (ParentProcess, SIGUSR1);
 	}
     }
-*/
-
-/* END ORL VNC modification
-================================================================*/
 #endif
     /*
      * restart XDMCP

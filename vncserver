@@ -1,5 +1,6 @@
 #!/usr/bin/perl
 #
+#  Copyright (C) 2002 Constantin Kaplinsky.  All Rights Reserved.
 #  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
 #
 #  This is free software; you can redistribute it and/or modify
@@ -33,11 +34,26 @@
 #
 
 $geometry = "1024x768";
-$depth = 8;
+$depth = 24;
 $desktopName = "X";
 $vncClasses = "/usr/local/vnc/classes";
 $vncUserDir = "$ENV{HOME}/.vnc";
-$xauthorityFile = "$ENV{HOME}/.Xauthority";
+$fontPath = "unix/:7100";
+
+# Here is another example of setting the font path:
+# $fontPath = "/usr/lib/X11/fonts/misc/,/usr/lib/X11/fonts/75dpi/";
+
+# X colors database path is optional, uncomment and edit to use:
+# $colorPath = "/usr/lib/X11/rgb";
+
+# You might wish to make your vnc directory under /tmp, to make sure
+# passwords are always kept on the local filesystem. To do that, just
+# uncomment the line below. Note that in this case Xvnc's .Xauthority
+# file will be searched in the same $vncUserDir directory by default,
+# and $ENV{HOME}/.vncstartup will be executed instead of usual
+# $vncUserDir/xstartup.
+#
+# $vncUserDir = "/tmp/$ENV{USER}-vnc";
 
 $defaultXStartup
     = ("#!/bin/sh\n\n".
@@ -45,6 +61,19 @@ $defaultXStartup
        "xsetroot -solid grey\n".
        "xterm -geometry 80x24+10+10 -ls -title \"\$VNCDESKTOP Desktop\" &\n".
        "twm &\n");
+
+$xauthorityFile = "$ENV{XAUTHORITY}";
+
+$vncUserDirUnderTmp = ($vncUserDir =~ m|^/tmp/.+|) ? 1 : 0;
+$xstartup = ($vncUserDirUnderTmp) ?
+  "$ENV{HOME}/.vncstartup" : "$vncUserDir/xstartup";
+unless ($xauthorityFile) {
+    if ($vncUserDirUnderTmp) {
+        $xauthorityFile = "$vncUserDir/.Xauthority";
+    } else {
+        $xauthorityFile = "$ENV{HOME}/.Xauthority";
+    }
+}
 
 chop($host = `uname -n`);
 
@@ -79,23 +108,29 @@ if ($opt{'-name'}) {
     $desktopName = $opt{'-name'};
 }
 
-
 # Create the user's vnc directory if necessary.
 
-if (!(-e $vncUserDir)) {
-    if (!mkdir($vncUserDir,0755)) {
-	die "$prog: Could not create $vncUserDir.\n";
+unless (-e $vncUserDir) {
+    unless (mkdir($vncUserDir, 0700)) {
+        die "$prog: Could not create $vncUserDir.\n";
     }
 }
-    
+($z,$z,$mode) = lstat("$vncUserDir");
+if (!-d _ || !-o _ || ($vncUserDirUnderTmp && ($mode & 0777) != 0700)) {
+    die "$prog: Wrong type or access mode of $vncUserDir.\n";
+}
+
 # Make sure the user has a password.
 
-($z,$z,$mode) = stat("$vncUserDir/passwd");
-if (!(-e "$vncUserDir/passwd") || ($mode & 077)) {
+($z,$z,$mode) = lstat("$vncUserDir/passwd");
+if (-e _ && (!-f _ || !-o _)) {
+    die "$prog: Wrong type or ownership on $vncUserDir/passwd.\n";
+}
+if (!-e _ || ($mode & 077) != 0) {
     warn "\nYou will require a password to access your desktops.\n\n";
-    system("vncpasswd $vncUserDir/passwd"); 
-    if (($? >> 8) != 0) {
-	exit 1;
+    system("vncpasswd $vncUserDir/passwd");
+    if (($? & 0xFF00) != 0) {
+        exit 1;
     }
 }
 
@@ -104,7 +139,7 @@ if (!(-e "$vncUserDir/passwd") || ($mode & 077)) {
 if ((@ARGV > 0) && ($ARGV[0] =~ /^:(\d+)$/)) {
     $displayNumber = $1;
     shift(@ARGV);
-    if (!&CheckDisplayNumber($displayNumber)) {
+    unless (&CheckDisplayNumber($displayNumber)) {
 	die "A VNC server is already running as :$displayNumber\n";
     }
 } elsif ((@ARGV > 0) && ($ARGV[0] !~ /^-/)) {
@@ -127,7 +162,7 @@ $cookie = "";
 for (1..16) {
     $cookie .= sprintf("%02x", int(rand(256)));
 }
-    
+
 system("xauth -f $xauthorityFile add $host:$displayNumber . $cookie");
 system("xauth -f $xauthorityFile add $host/unix:$displayNumber . $cookie"); 
 
@@ -143,12 +178,8 @@ $cmd .= " -pixelformat $pixelformat" if ($pixelformat);
 $cmd .= " -rfbwait 120000";
 $cmd .= " -rfbauth $vncUserDir/passwd";
 $cmd .= " -rfbport $vncPort";
-
-# Add font path and color database stuff here, e.g.:
-#
-# $cmd .= " -fp /usr/lib/X11/fonts/misc/,/usr/lib/X11/fonts/75dpi/";
-# $cmd .= " -co /usr/lib/X11/rgb";
-#
+$cmd .= " -fp $fontPath" if ($fontPath);
+$cmd .= " -co $colorPath" if ($colorPath);
 
 foreach $arg (@ARGV) {
     $cmd .= " " . &quotedString($arg);
@@ -162,23 +193,37 @@ system("$cmd & echo \$! >$pidFile");
 
 # Give Xvnc a chance to start up
 
-sleep(3); 
+sleep(1);
+unless (kill 0, `cat $pidFile`) {
+    warn "Couldn't start Xvnc; trying default font path.\n";
+    warn "Please set correct fontPath in the $prog script.\n";
+    $cmd =~ s@-fp [^ ]+@@;
+    system("$cmd & echo \$! >$pidFile");
+    sleep(1);
+}
+unless (kill 0, `cat $pidFile`) {
+    warn "Couldn't start Xvnc process.\n\n";
+    open(LOG, "<$desktopLog");
+    while (<LOG>) { print; }
+    close(LOG);
+    die "\n";
+}
 
 warn "\nNew '$desktopName' desktop is $host:$displayNumber\n\n";
 
 # Create the user's xstartup script if necessary.
 
-if (!(-e "$vncUserDir/xstartup")) {
-    warn "Creating default startup script $vncUserDir/xstartup\n";
-    open(XSTARTUP, ">$vncUserDir/xstartup");
+unless (-e "$xstartup") {
+    warn "Creating default startup script $xstartup\n";
+    open(XSTARTUP, ">$xstartup");
     print XSTARTUP $defaultXStartup;
     close(XSTARTUP);
-    chmod 0755, "$vncUserDir/xstartup";
+    chmod 0755, "$xstartup";
 }
 
 # Run the X startup script.
 
-warn "Starting applications specified in $vncUserDir/xstartup\n";
+warn "Starting applications specified in $xstartup\n";
 warn "Log file is $desktopLog\n\n";
 
 # If the unix domain socket exists then use that (DISPLAY=:n) otherwise use
@@ -191,7 +236,7 @@ if (-e "/tmp/.X11-unix/X$displayNumber") {
 }
 $ENV{VNCDESKTOP}= $desktopName;
 
-system("$vncUserDir/xstartup >> " . &quotedString($desktopLog) . " 2>&1 &");
+system("$xstartup >> " . &quotedString($desktopLog) . " 2>&1 &");
 
 exit;
 
@@ -260,7 +305,7 @@ sub CheckDisplayNumber
 
     socket(S, $AF_INET, $SOCK_STREAM, 0) || die "$prog: socket failed: $!\n";
     eval 'setsockopt(S, &SOL_SOCKET, &SO_REUSEADDR, pack("l", 1))';
-    if (!bind(S, pack('S n x12', $AF_INET, 6000 + $n))) {
+    unless (bind(S, pack('S n x12', $AF_INET, 6000 + $n))) {
 	close(S);
 	return 0;
     }
@@ -268,7 +313,7 @@ sub CheckDisplayNumber
 
     socket(S, $AF_INET, $SOCK_STREAM, 0) || die "$prog: socket failed: $!\n";
     eval 'setsockopt(S, &SOL_SOCKET, &SO_REUSEADDR, pack("l", 1))';
-    if (!bind(S, pack('S n x12', $AF_INET, 5900 + $n))) {
+    unless (bind(S, pack('S n x12', $AF_INET, 5900 + $n))) {
 	close(S);
 	return 0;
     }
@@ -308,7 +353,7 @@ sub GetXDisplayDefaults
     $wmDecorationWidth = 4;	# a guess at typical size for window manager
     $wmDecorationHeight = 24;	# decoration size
 
-    return if (!defined($ENV{DISPLAY}));
+    return unless (defined($ENV{DISPLAY}));
 
     @lines = `xdpyinfo 2>/dev/null`;
 
@@ -401,11 +446,20 @@ sub removeSlashes
 
 sub Usage
 {
-    die("\nusage: $prog [:<number>] [-name <desktop-name>] [-depth <depth>]\n".
-	"                 [-geometry <width>x<height>]\n".
-	"                 [-pixelformat rgbNNN|bgrNNN]\n".
-	"                 <Xvnc-options>...\n\n".
-	"       $prog -kill <X-display>\n\n");
+    die("TightVNC server version 1.2.9\n".
+	"\n".
+	"Usage: $prog [<OPTIONS>] [:<DISPLAY#>]\n".
+	"       $prog -kill :<DISPLAY#>\n".
+	"\n".
+	"<OPTIONS> are Xvnc options, or:\n".
+	"\n".
+	"        -name <DESKTOP-NAME>\n".
+	"        -depth <DEPTH>\n".
+	"        -geometry <WIDTH>x<HEIGHT>\n".
+	"        -pixelformat rgb<NNN>\n".
+	"        -pixelformat bgr<NNN>\n".
+	"\n".
+	"See vncserver and Xvnc manual pages for more information.\n");
 }
 
 
@@ -427,7 +481,7 @@ sub Kill
 	$pidFile = "$vncUserDir/$opt{'-kill'}.pid";
     }
 
-    if (! -r $pidFile) {
+    unless (-r $pidFile) {
 	die "\nCan't find file $pidFile\n".
 	    "You'll have to kill the Xvnc process manually\n\n";
     }
@@ -514,11 +568,14 @@ sub SanityCheck
     }
 
     #
-    # Check the HOME environment variable is set
+    # Check the HOME and USER environment variables are both set.
     #
 
-    if (!defined($ENV{HOME})) {
+    unless (defined($ENV{HOME})) {
 	die "$prog: The HOME environment variable is not set.\n";
+    }
+    unless (defined($ENV{USER})) {
+	die "$prog: The USER environment variable is not set.\n";
     }
 
     #

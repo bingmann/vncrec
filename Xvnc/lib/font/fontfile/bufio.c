@@ -206,6 +206,8 @@ BufFileFlush (f)
 {
     if (f->bufp != f->buffer)
 	(*f->io) (BUFFILEEOF, f);
+
+    return 0;
 }
 
 int
@@ -214,6 +216,8 @@ BufFileClose (f, doClose)
 {
     (void) (*f->close) (f, doClose);
     xfree (f);
+
+    return 0;
 }
 
 int
@@ -221,4 +225,6 @@ BufFileFree (f)
     BufFilePtr	f;
 {
     xfree (f);
+
+    return 0;
 }

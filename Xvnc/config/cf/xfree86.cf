@@ -73,6 +73,14 @@ XCOMM $XConsortium: xfree86.cf /main/34 1996/12/06 11:45:18 rws $
 #ifndef XF86I128Server
 #define XF86I128Server		YES
 #endif
+#ifndef XF86GLINTServer
+#define XF86GLINTServer		YES
+#endif
+#if defined(LinuxArchitecture)
+#ifndef XF86FBDevServer
+#define XF86FBDevServer		YES
+#endif
+#endif
 #endif
 
 /*
@@ -101,11 +109,25 @@ XCOMM $XConsortium: xfree86.cf /main/34 1996/12/06 11:45:18 rws $
 #ifndef XF86SVGAServer
 #define XF86SVGAServer		YES
 #endif
+#ifndef XF86VGA16Server
+#define XF86VGA16Server		YES
+#endif
 #ifndef XF86MonoServer
 #define XF86MonoServer		YES
 #endif
+#ifndef XF86GLINTServer
+#define XF86GLINTServer		YES
+#endif
+#if defined(LinuxArchitecture)
+#ifndef XF86FBDevServer
+#define XF86FBDevServer		YES
+#endif
+#endif
 #ifndef XF86SvgaDrivers
 #define XF86SvgaDrivers		mga s3v
+#endif
+#ifndef XF86Vga16Drivers
+#define XF86Vga16Drivers	generic
 #endif
 #ifndef XF86Vga2Drivers
 #define XF86Vga2Drivers		generic
@@ -119,16 +141,104 @@ XCOMM $XConsortium: xfree86.cf /main/34 1996/12/06 11:45:18 rws $
 #ifdef Mc68020Architecture
 #ifndef XF68FBDevServer
 #define XF68FBDevServer		YES
+#define XF68FBDev77C32		NO
+#define XF68FBDevIMSTT		NO
+#define XF68FBDevMach64		NO
+#define XF68FBDevPermedia2	NO
+#endif
+#ifndef BuildXF86Setup
+#define BuildXF86Setup		NO
 #endif
 #endif
 
-/* 
+/*
+ * For ARM platforms, the default is to build all X servers which
+ * are supported on this platform.
+ */
+#ifdef ArmArchitecture
+#ifndef XF68FBDevServer
+#define XF68FBDevServer		YES
+#define XF68FBDevCFB8		YES
+#define XF68FBDevCFB16		YES
+#define XF68FBDevCFB24		YES
+#define XF68FBDevCFB32		YES
+#define XF68FBDevIPLAN2p2	NO
+#define XF68FBDevIPLAN2p4	NO
+#define XF68FBDevIPLAN2p8	NO
+#define XF68FBDevILBM		NO
+#define XF68FBDevAFB		NO
+#define XF68FBDev77C32		NO
+#define XF68FBDevMach64		NO
+#define XF68FBDevIMSTT		NO
+#define XF68FBDevPermedia2	NO
+#endif
+#ifndef BuildXF86Setup
+#define BuildXF86Setup		NO
+#endif
+#endif
+
+/*
  * For Mips/Arc platforms, the default is to build all X servers which
- * are supported on this platform. 
+ * are supported on this platform.
  */
 #ifdef ArcArchitecture
 #ifndef XF86S3Server
-#define XF86S3Server          YES
+#define XF86S3Server		YES
+#endif
+#if defined(LinuxArchitecture)
+#ifndef XF86FBDevServer
+#define XF86FBDevServer		YES
+#endif
+#endif
+#ifndef BuildXF86Setup
+#define BuildXF86Setup		NO
+#endif
+#endif
+
+/*
+ * For PowerPC platforms, the default is to build all X servers which
+ * are supported on this platform.
+ */
+#ifdef PowerPCArchitecture
+#ifndef XF86SVGAServer
+#define XF86SVGAServer		NO
+#endif
+#ifndef XF86VGA16Server
+#define XF86VGA16Server		NO
+#endif
+#ifndef XF86S3Server
+#define XF86S3Server		NO
+#endif
+#ifndef XF68FBDevServer
+#define XF68FBDevServer		YES
+#define XF68FBDevCFB8		YES
+#define XF68FBDevCFB16		YES
+#define XF68FBDevCFB24		NO
+#define XF68FBDevCFB32		YES
+#define XF68FBDevIPLAN2p2	NO
+#define XF68FBDevIPLAN2p4	NO
+#define XF68FBDevIPLAN2p8	NO
+#define XF68FBDevILBM		NO
+#define XF68FBDevAFB		YES
+#define XF68FBDev77C32		YES
+#define XF68FBDevIMSTT		YES
+#define XF68FBDevMach64		YES
+#define XF68FBDevPermedia2	YES
+#endif
+#ifndef BuildXF86Setup
+#define BuildXF86Setup		NO
+#endif
+#endif
+
+/* For SPARC PCI platforms, the default is to build all X servers which are
+ * supported on this platform.
+ */
+#ifdef SparcArchitecture
+#ifndef XF86Mach64Server
+#define XF86Mach64Server	YES
+#endif
+#ifndef BuildXF86Setup
+#define BuildXF86Setup		NO
 #endif
 #endif
 
@@ -187,6 +297,10 @@ XCOMM $XConsortium: xfree86.cf /main/34 1996/12/06 11:45:18 rws $
 
 #ifndef XF86I128Server
 # define XF86I128Server		NO
+#endif
+
+#ifndef XF86GLINTServer
+# define XF86GLINTServer	NO
 #endif
 
 #ifndef XF86TGAServer
@@ -251,6 +365,12 @@ XCOMM $XConsortium: xfree86.cf /main/34 1996/12/06 11:45:18 rws $
 # define XF86I128Dir		i128
 #else
 # define XF86I128Dir		/**/
+#endif
+
+#if XF86GLINTServer
+# define XF86GLINTDir		glint
+#else
+# define XF86GLINTDir		/**/
 #endif
 
 #if XF86TGAServer
@@ -347,12 +467,13 @@ XCOMM $XConsortium: xfree86.cf /main/34 1996/12/06 11:45:18 rws $
 #define XF86AccelServerDirs	XF86S3Dir XF86S3VDir XF86I8514Dir \
 				XF86Mach8Dir XF86Mach32Dir XF86Mach64Dir \
 				XF86P9000Dir XF86AGXDir XF86W32Dir \
-				XF86I128Dir XF86TGADir
+				XF86I128Dir XF86GLINTDir XF86TGADir
 
 #undef XF86AccelServer
 #if XF86S3Server || XF86S3VServer || XF86I8514Server || XF86Mach8Server || \
     XF86Mach32Server || XF86Mach64Server || XF86P9000Server || \
-    XF86AGXServer || XF86W32Server || XF86I128Server || XF86TGAServer
+    XF86AGXServer || XF86W32Server || XF86I128Server || XF86TGAServer || \
+    XF86GLINTServer
 # define XF86AccelServer	YES
 #else
 # define XF86AccelServer	NO
@@ -373,12 +494,21 @@ XCOMM $XConsortium: xfree86.cf /main/34 1996/12/06 11:45:18 rws $
  */
 #ifndef XF86SvgaDrivers
 # ifdef AlphaArchitecture
-#  define XF86SvgaDrivers	mga tvga8900 s3v
+#  define XF86SvgaDrivers	mga tvga8900 s3v nv
 # else
-#  define XF86SvgaDrivers	nv et4000 et3000 pvga1 gvga ati sis tvga8900 \
+#  if defined(LinuxArchitecture)
+#   define XF86SvgaDrivers	nv et4000 et3000 pvga1 gvga r128 ati sis tvga8900 \
 				cirrus ncr77c22 compaq mga oak al2101 \
-				ali cl64xx video7 ark mx realtek apm \
-				s3v s3_svga chips generic
+				ali cl64xx video7 ark mx realtek s3_savage s3v apm \
+				s3_svga neo chips cyrix rendition p9x00 \
+				spc8110 i740 i810 tdfx smi generic
+#  else
+#   define XF86SvgaDrivers	nv et4000 et3000 pvga1 gvga r128 ati sis tvga8900 \
+				cirrus ncr77c22 compaq mga oak al2101 \
+				ali cl64xx video7 ark mx realtek s3v apm \
+				s3_svga neo chips cyrix rendition p9x00 \
+				spc8110 i740 i810 tdfx smi generic
+#  endif
 # endif
 #endif
 
@@ -429,7 +559,7 @@ XCOMM $XConsortium: xfree86.cf /main/34 1996/12/06 11:45:18 rws $
 # define XF86W32Drivers		et4000w32
 #endif
 
-#if XF68FBDevServer
+#if XF68FBDevServer || XF86FBDevServer
 # ifndef XF68FBDevIPLAN2p2
 #  define XF68FBDevIPLAN2p2	YES
 # endif
@@ -449,10 +579,30 @@ XCOMM $XConsortium: xfree86.cf /main/34 1996/12/06 11:45:18 rws $
 #  define XF68FBDevCFB8		YES
 # endif
 # ifndef XF68FBDevCFB16
-#  define XF68FBDevCFB16	NO
+#  define XF68FBDevCFB16	YES
+# endif
+# ifndef XF68FBDevCFB24
+#  if defined(i386Architecture) || defined(AlphaArchitecture)
+#   define XF68FBDevCFB24	YES
+#  else
+#   define XF68FBDevCFB24	NO
+#  endif
 # endif
 # ifndef XF68FBDevCFB32
-#  define XF68FBDevCFB32	NO
+#  define XF68FBDevCFB32	YES
+# endif
+/* Accelerated stuff */
+# ifndef XF68FBDev77C32
+#  define XF68FBDev77C32	YES
+# endif
+# ifndef XF68FBDevIMSTT
+#  define XF68FBDevIMSTT	YES
+# endif
+# ifndef XF68FBDevMach64
+#  define XF68FBDevMach64	YES
+# endif
+# ifndef XF68FBDevPermedia2
+#  define XF68FBDevPermedia2	YES
 # endif
 #else
 # ifndef XF68FBDevIPLAN2p2
@@ -476,8 +626,23 @@ XCOMM $XConsortium: xfree86.cf /main/34 1996/12/06 11:45:18 rws $
 # ifndef XF68FBDevCFB16
 #  define XF68FBDevCFB16	NO
 # endif
+# ifndef XF68FBDevCFB24
+#  define XF68FBDevCFB24	NO
+# endif
 # ifndef XF68FBDevCFB32
 #  define XF68FBDevCFB32	NO
+# endif
+# ifndef XF68FBDev77C32
+#  define XF68FBDev77C32	NO
+# endif
+# ifndef XF68FBDevIMSTT
+#  define XF68FBDevIMSTT	NO
+# endif
+# ifndef XF68FBDevMach64
+#  define XF68FBDevMach64	NO
+# endif
+# ifndef XF68FBDevPermedia2
+#  define XF68FBDevPermedia2	NO
 # endif
 #endif
 
@@ -519,7 +684,7 @@ XCOMM $XConsortium: xfree86.cf /main/34 1996/12/06 11:45:18 rws $
 #if XF86AccelServer || XF86SVGAServer || XF98AccelServer || \
     XF98GANBWAPServer || XF98NEC480Server || XF98NKVNECServer || \
     XF98WABSServer || XF98WABEPServer || XF98WSNAServer || XF98TGUIServer || \
-    XF98MGAServer || XF98SVGAServer
+    XF98MGAServer || XF98SVGAServer || XF68FBDevServer || XF86FBDevServer
 #define BuildPexExt		YES
 #else
 #define BuildPexExt		NO
@@ -535,7 +700,7 @@ XCOMM $XConsortium: xfree86.cf /main/34 1996/12/06 11:45:18 rws $
 #  if XF86AccelServer || XF86SVGAServer || XF98AccelServer || \
       XF98GANBWAPServer || XF98NEC480Server || XF98NKVNECServer || \
       XF98WABSServer || XF98WABEPServer || XF98WSNAServer || XF98TGUIServer || \
-      XF98MGAServer || XF98SVGAServer
+      XF98MGAServer || XF98SVGAServer || XF68FBDevServer || XF86FBDevServer
 #    define BuildGlxExt             YES
 #  else
 #    define BuildGlxExt             NO
@@ -550,7 +715,7 @@ XCOMM $XConsortium: xfree86.cf /main/34 1996/12/06 11:45:18 rws $
 #if XF86AccelServer || XF86SVGAServer || XF98AccelServer || \
     XF98GANBWAPServer || XF98NEC480Server || XF98NKVNECServer || \
     XF98WABSServer || XF98WABEPServer || XF98WSNAServer || XF98TGUIServer || \
-    XF98MGAServer || XF98SVGAServer
+    XF98MGAServer || XF98SVGAServer || XF68FBDevServer || XF86FBDevServer
 #define BuildXIE		YES
 #else
 #define BuildXIE		NO
@@ -591,13 +756,32 @@ XCOMM $XConsortium: xfree86.cf /main/34 1996/12/06 11:45:18 rws $
 #define WacomSupport		YES
 #endif
 #ifndef ElographicsSupport
-#define ElographicsSupport	YES 
+#define ElographicsSupport	YES
+#endif
+#ifndef DynaproSupport
+#define DynaproSupport		YES
+#endif
+#ifndef MicroTouchSupport
+#define MicroTouchSupport	YES
 #endif
 #ifndef SummaSketchSupport
 #define SummaSketchSupport	YES
 #endif
+#ifndef AceCadSupport
+#define AceCadSupport		YES
+#endif
+#ifndef DialBoxSupport
+#if SystemV || SystemV4
+#define DialBoxSupport		NO
+#else
+#define DialBoxSupport		YES
+#endif
+#endif
 #ifndef JoystickSupport
 #define JoystickSupport		NO
+#endif
+#ifndef CalcompSupport
+#define CalcompSupport		YES
 #endif
 
 /*
@@ -645,18 +829,22 @@ XCOMM $XConsortium: xfree86.cf /main/34 1996/12/06 11:45:18 rws $
 #endif
 #endif
 
+/*
+ * Build Japanese versions of XF86Setup -- needs Japanised Tk and Tcl
+ */
+#ifndef BuildJpXF86Setup
+#if HasJpTk && HasJpTcl && BuildXF86VidModeLibrary && BuildXF86MiscLibrary && BuildXKBlib
+#define BuildJpXF86Setup		YES
+#else
+#define BuildJpXF86Setup		NO
+#endif
+#endif
+
 #ifndef XF86SetupUsesStaticTk
 #define XF86SetupUsesStaticTk		YES
 #endif
 #ifndef XF86SetupUsesStaticTcl
 #define XF86SetupUsesStaticTcl		YES
-#endif
-
-/*
- * Build the XKBui lib if building XF86Setup
- */
-#ifndef BuildXKBuilib
-#define BuildXKBuilib			BuildXF86Setup
 #endif
 
 /*
@@ -728,10 +916,17 @@ XCOMM $XConsortium: xfree86.cf /main/34 1996/12/06 11:45:18 rws $
 #endif
 
 /*
+ * By default, create the local font directory
+ */
+#ifndef MakeLocalFontDir
+#define MakeLocalFontDir	YES
+#endif
+
+/*
  * Build scanpci?
  */
 #ifndef BuildScanpci
-#if SystemV || SystemV4 || (defined(LinuxArchitecture) && !defined(Mc68020Architecture)) || defined(i386BsdArchitecture) || defined(LynxOSArchitecture) || defined(OS2Architecture)
+#if SystemV || SystemV4 || (defined(LinuxArchitecture) && !defined(Mc68020Architecture) && !defined(PowerPCArchitecture) && !defined(ArmArchitecture)) || defined(i386BsdArchitecture) || defined(LynxOSArchitecture) || defined(OS2Architecture)
 #define BuildScanpci		YES
 #else
 #define BuildScanpci		NO
@@ -787,6 +982,15 @@ XCOMM $XConsortium: xfree86.cf /main/34 1996/12/06 11:45:18 rws $
 #else
 #define XFree86ConsoleDefines	/**/
 #endif
+#endif
+
+/* Support for USB mouse */
+#ifndef UsbMouseSupport
+#define UsbMouseSupport	NO
+#endif
+/* Does this OS has libusb ? */
+#ifndef HasLibUsb
+#define HasLibUsb	NO
 #endif
 
 #ifndef UseServerLock
@@ -1015,6 +1219,10 @@ XFREE86JAPANESEDOCDIR = $(XFREE86DOCDIR)/Japanese
 
 #ifndef DontDefineXF86Contrib
 #define XF86Contrib
+#endif
+
+#ifndef HasMktemp
+#define HasMktemp	YES
 #endif
 
 #include <xf86.rules>

@@ -16,7 +16,8 @@ configuration files in the directory config/cf.  Read the X consortium files
 RELNOTES.TXT and INSTALL.TXT.  Also see the file config/cf/vnc.def for
 information specific to Xvnc.
 
-The code specific to the VNC X server is in programs/Xserver/hw/vnc.  The rest
-of the code is a cut-down version of the standard XFree86 distribution without
-many of the later X extensions or hardware-specific code.  See the file DIFFS
-for details of all changes made to files from the XFree86 distribution.
+The code specific to the TightVNC X server is located in the
+programs/Xserver/hw/vnc directory.  The rest of the code is a cut-down
+version of the standard XFree86 distribution without many of the later
+X extensions or hardware-specific code.  See the file DIFFS for details
+of all changes made to files from the XFree86 distribution.

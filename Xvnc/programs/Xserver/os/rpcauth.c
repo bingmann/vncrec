@@ -38,6 +38,7 @@ from the X Consortium.
 
 #ifdef SECURE_RPC
 
+#include <stdlib.h>
 #include "X.h"
 #include "Xauth.h"
 #include "misc.h"

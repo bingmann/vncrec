@@ -49,10 +49,6 @@ XDPMSLIBDIR = Xdpms
 LBXUTILDIR = lbxutil
 #endif
 
-#if (BuildLBX || GzipFontCompression) && !HasZlib
-ZLIBDIR = zlib
-#endif
-
 #if BuildXAudio
 XALIBDIR = Xa
 #endif
@@ -65,14 +61,14 @@ LINTSUBDIRS = Xau Xdmcp $(THRSTUBLIB) X11 oldX ICE SM Xext Xt \
 	     Xmu Xaw XIE Xi Xtst FS \
 	     PEX5 $(XKBLIBDIR) $(XKBUILIBDIR) $(LBXUTILDIR) $(XALIBDIR) \
 	     $(XDPMSLIBDIR) \
-	     Xp $(ZLIBDIR)
+	     Xp
 #else
 #if XnestServer
 XEXTDIR = Xext
 #endif
 
 LINTSUBDIRS = Xau Xdmcp X11 $(XEXTDIR) $(XKBLIBDIR) $(XKBUILIBDIR) \
-	      $(LBXUTILDIR) $(XF86EXTLIBS) $(ZLIBDIR)
+	      $(LBXUTILDIR) $(XF86EXTLIBS)
 #endif
 
 SUBDIRS = $(BERKDIR) xtrans $(LINTSUBDIRS) $(FONTSUBDIR)

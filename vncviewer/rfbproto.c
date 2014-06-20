@@ -1,4 +1,6 @@
 /*
+ *  Copyright (C) 2000-2002 Constantin Kaplinsky.  All Rights Reserved.
+ *  Copyright (C) 2000 Tridia Corporation.  All Rights Reserved.
  *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *
  *  This is free software; you can redistribute it and/or modify
@@ -26,6 +28,8 @@
 #include <pwd.h>
 #include <vncviewer.h>
 #include <vncauth.h>
+#include <zlib.h>
+#include <jpeglib.h>
 
 static Bool HandleRRE8(int rx, int ry, int rw, int rh);
 static Bool HandleRRE16(int rx, int ry, int rw, int rh);
@@ -36,6 +40,22 @@ static Bool HandleCoRRE32(int rx, int ry, int rw, int rh);
 static Bool HandleHextile8(int rx, int ry, int rw, int rh);
 static Bool HandleHextile16(int rx, int ry, int rw, int rh);
 static Bool HandleHextile32(int rx, int ry, int rw, int rh);
+static Bool HandleZlib8(int rx, int ry, int rw, int rh);
+static Bool HandleZlib16(int rx, int ry, int rw, int rh);
+static Bool HandleZlib32(int rx, int ry, int rw, int rh);
+static Bool HandleTight8(int rx, int ry, int rw, int rh);
+static Bool HandleTight16(int rx, int ry, int rw, int rh);
+static Bool HandleTight32(int rx, int ry, int rw, int rh);
+
+static long ReadCompactLen (void);
+
+static void JpegInitSource(j_decompress_ptr cinfo);
+static boolean JpegFillInputBuffer(j_decompress_ptr cinfo);
+static void JpegSkipInputData(j_decompress_ptr cinfo, long num_bytes);
+static void JpegTermSource(j_decompress_ptr cinfo);
+static void JpegSetSrcManager(j_decompress_ptr cinfo, CARD8 *compressedData,
+                              int compressedLen);
+
 
 int rfbsock;
 char *desktopName;
@@ -47,12 +67,50 @@ Bool newServerCutText = False;
 int endianTest = 1;
 
 
-/* note that the CoRRE encoding uses this buffer and assumes it is big enough
-   to hold 255 * 255 * 32 bits -> 260100 bytes.  640*480 = 307200 bytes */
-/* also hextile assumes it is big enough to hold 16 * 16 * 32 bits */
+/* Note that the CoRRE encoding uses this buffer and assumes it is big enough
+   to hold 255 * 255 * 32 bits -> 260100 bytes.  640*480 = 307200 bytes.
+   Hextile also assumes it is big enough to hold 16 * 16 * 32 bits.
+   Tight encoding assumes BUFFER_SIZE is at least 16384 bytes. */
 
 #define BUFFER_SIZE (640*480)
 static char buffer[BUFFER_SIZE];
+
+
+/* The zlib encoding requires expansion/decompression/deflation of the
+   compressed data in the "buffer" above into another, result buffer.
+   However, the size of the result buffer can be determined precisely
+   based on the bitsPerPixel, height and width of the rectangle.  We
+   allocate this buffer one time to be the full size of the buffer. */
+
+static int raw_buffer_size = -1;
+static char *raw_buffer;
+
+static z_stream decompStream;
+static Bool decompStreamInited = False;
+
+
+/*
+ * Variables for the ``tight'' encoding implementation.
+ */
+
+/* Separate buffer for compressed data. */
+#define ZLIB_BUFFER_SIZE 512
+static char zlib_buffer[ZLIB_BUFFER_SIZE];
+
+/* Four independent compression streams for zlib library. */
+static z_stream zlibStream[4];
+static Bool zlibStreamActive[4] = {
+  False, False, False, False
+};
+
+/* Filter stuff. Should be initialized by filter initialization code. */
+static Bool cutZeros;
+static int rectWidth, rectColors;
+static char tightPalette[256*4];
+static CARD8 tightPrevRow[2048*3*sizeof(CARD16)];
+
+/* JPEG decoder state. */
+static Bool jpegError;
 
 
 /*
@@ -175,7 +233,7 @@ InitialiseRFBConnection()
       passwd[i] = '\0';
     }
 
-    if (!WriteExact(rfbsock, challenge, CHALLENGESIZE)) return False;
+    if (!WriteExact(rfbsock, (char *)challenge, CHALLENGESIZE)) return False;
 
     if (!ReadFromRFBServer((char *)&authResult, 4)) return False;
 
@@ -218,6 +276,11 @@ InitialiseRFBConnection()
   si.nameLength = Swap32IfLE(si.nameLength);
 
   desktopName = malloc(si.nameLength + 1);
+  if (!desktopName) {
+    fprintf(stderr, "Error allocating memory for desktop name, %lu bytes\n",
+            (unsigned long)si.nameLength);
+    return False;
+  }
 
   if (!ReadFromRFBServer(desktopName, si.nameLength)) return False;
 
@@ -247,6 +310,9 @@ SetFormatAndEncodings()
   rfbSetEncodingsMsg *se = (rfbSetEncodingsMsg *)buf;
   CARD32 *encs = (CARD32 *)(&buf[sz_rfbSetEncodingsMsg]);
   int len = 0;
+  Bool requestCompressLevel = False;
+  Bool requestQualityLevel = False;
+  Bool requestLastRectEncoding = False;
 
   spf.type = rfbSetPixelFormat;
   spf.format = myFormat;
@@ -276,8 +342,19 @@ SetFormatAndEncodings()
 	encs[se->nEncodings++] = Swap32IfLE(rfbEncodingRaw);
       } else if (strncasecmp(encStr,"copyrect",encStrLen) == 0) {
 	encs[se->nEncodings++] = Swap32IfLE(rfbEncodingCopyRect);
+      } else if (strncasecmp(encStr,"tight",encStrLen) == 0) {
+	encs[se->nEncodings++] = Swap32IfLE(rfbEncodingTight);
+	requestLastRectEncoding = True;
+	if (appData.compressLevel >= 0 && appData.compressLevel <= 9)
+	  requestCompressLevel = True;
+	if (appData.enableJPEG)
+	  requestQualityLevel = True;
       } else if (strncasecmp(encStr,"hextile",encStrLen) == 0) {
 	encs[se->nEncodings++] = Swap32IfLE(rfbEncodingHextile);
+      } else if (strncasecmp(encStr,"zlib",encStrLen) == 0) {
+	encs[se->nEncodings++] = Swap32IfLE(rfbEncodingZlib);
+	if (appData.compressLevel >= 0 && appData.compressLevel <= 9)
+	  requestCompressLevel = True;
       } else if (strncasecmp(encStr,"corre",encStrLen) == 0) {
 	encs[se->nEncodings++] = Swap32IfLE(rfbEncodingCoRRE);
       } else if (strncasecmp(encStr,"rre",encStrLen) == 0) {
@@ -288,16 +365,74 @@ SetFormatAndEncodings()
 
       encStr = nextEncStr;
     } while (encStr && se->nEncodings < MAX_ENCODINGS);
-  } else {
+
+    if (se->nEncodings < MAX_ENCODINGS && requestCompressLevel) {
+      encs[se->nEncodings++] = Swap32IfLE(appData.compressLevel +
+					  rfbEncodingCompressLevel0);
+    }
+
+    if (se->nEncodings < MAX_ENCODINGS && requestQualityLevel) {
+      if (appData.qualityLevel < 0 || appData.qualityLevel > 9)
+        appData.qualityLevel = 5;
+      encs[se->nEncodings++] = Swap32IfLE(appData.qualityLevel +
+					  rfbEncodingQualityLevel0);
+    }
+
+    if (appData.useRemoteCursor) {
+      if (se->nEncodings < MAX_ENCODINGS)
+	encs[se->nEncodings++] = Swap32IfLE(rfbEncodingXCursor);
+      if (se->nEncodings < MAX_ENCODINGS)
+	encs[se->nEncodings++] = Swap32IfLE(rfbEncodingRichCursor);
+      if (se->nEncodings < MAX_ENCODINGS)
+	encs[se->nEncodings++] = Swap32IfLE(rfbEncodingPointerPos);
+    }
+
+    if (se->nEncodings < MAX_ENCODINGS && requestLastRectEncoding) {
+      encs[se->nEncodings++] = Swap32IfLE(rfbEncodingLastRect);
+    }
+  }
+  else {
     if (SameMachine(rfbsock)) {
-      fprintf(stderr,"Same machine: preferring raw encoding\n");
-      encs[se->nEncodings++] = Swap32IfLE(rfbEncodingRaw);
+      if (!tunnelSpecified) {
+	fprintf(stderr,"Same machine: preferring raw encoding\n");
+	encs[se->nEncodings++] = Swap32IfLE(rfbEncodingRaw);
+      } else {
+	fprintf(stderr,"Tunneling active: preferring tight encoding\n");
+      }
     }
 
     encs[se->nEncodings++] = Swap32IfLE(rfbEncodingCopyRect);
+    encs[se->nEncodings++] = Swap32IfLE(rfbEncodingTight);
     encs[se->nEncodings++] = Swap32IfLE(rfbEncodingHextile);
+    encs[se->nEncodings++] = Swap32IfLE(rfbEncodingZlib);
     encs[se->nEncodings++] = Swap32IfLE(rfbEncodingCoRRE);
     encs[se->nEncodings++] = Swap32IfLE(rfbEncodingRRE);
+
+    if (appData.compressLevel >= 0 && appData.compressLevel <= 9) {
+      encs[se->nEncodings++] = Swap32IfLE(appData.compressLevel +
+					  rfbEncodingCompressLevel0);
+    } else if (!tunnelSpecified) {
+      /* If -tunnel option was provided, we assume that server machine is
+	 not in the local network so we use default compression level for
+	 tight encoding instead of fast compression. Thus we are
+	 requesting level 1 compression only if tunneling is not used. */
+      encs[se->nEncodings++] = Swap32IfLE(rfbEncodingCompressLevel1);
+    }
+
+    if (appData.enableJPEG) {
+      if (appData.qualityLevel < 0 || appData.qualityLevel > 9)
+	appData.qualityLevel = 5;
+      encs[se->nEncodings++] = Swap32IfLE(appData.qualityLevel +
+					  rfbEncodingQualityLevel0);
+    }
+
+    if (appData.useRemoteCursor) {
+      encs[se->nEncodings++] = Swap32IfLE(rfbEncodingXCursor);
+      encs[se->nEncodings++] = Swap32IfLE(rfbEncodingRichCursor);
+      encs[se->nEncodings++] = Swap32IfLE(rfbEncodingPointerPos);
+    }
+
+    encs[se->nEncodings++] = Swap32IfLE(rfbEncodingLastRect);
   }
 
   len = sz_rfbSetEncodingsMsg + se->nEncodings * 4;
@@ -358,6 +493,10 @@ SendPointerEvent(int x, int y, int buttonMask)
   pe.buttonMask = buttonMask;
   if (x < 0) x = 0;
   if (y < 0) y = 0;
+
+  if (!appData.useX11Cursor)
+    SoftCursorMove(x, y);
+
   pe.x = Swap16IfLE(x);
   pe.y = Swap16IfLE(y);
   return WriteExact(rfbsock, (char *)&pe, sz_rfbPointerEventMsg);
@@ -460,12 +599,30 @@ HandleRFBServerMessage()
       if (!ReadFromRFBServer((char *)&rect, sz_rfbFramebufferUpdateRectHeader))
 	return False;
 
+      rect.encoding = Swap32IfLE(rect.encoding);
+      if (rect.encoding == rfbEncodingLastRect)
+	break;
+
       rect.r.x = Swap16IfLE(rect.r.x);
       rect.r.y = Swap16IfLE(rect.r.y);
       rect.r.w = Swap16IfLE(rect.r.w);
       rect.r.h = Swap16IfLE(rect.r.h);
 
-      rect.encoding = Swap32IfLE(rect.encoding);
+      if (rect.encoding == rfbEncodingXCursor ||
+	  rect.encoding == rfbEncodingRichCursor) {
+	if (!HandleCursorShape(rect.r.x, rect.r.y, rect.r.w, rect.r.h,
+			      rect.encoding)) {
+	  return False;
+	}
+	continue;
+      }
+
+      if (rect.encoding == rfbEncodingPointerPos) {
+	if (!HandleCursorPos(rect.r.x, rect.r.y)) {
+	  return False;
+	}
+	continue;
+      }
 
       if ((rect.r.x + rect.r.w > si.framebufferWidth) ||
 	  (rect.r.y + rect.r.h > si.framebufferHeight))
@@ -475,10 +632,14 @@ HandleRFBServerMessage()
 	  return False;
 	}
 
-      if ((rect.r.h * rect.r.w) == 0) {
+      if (rect.r.h * rect.r.w == 0) {
 	fprintf(stderr,"Zero size rect - ignoring\n");
 	continue;
       }
+
+      /* If RichCursor encoding is used, we should prevent collisions
+	 between framebuffer updates and cursor drawing operations. */
+      SoftCursorLockArea(rect.r.x, rect.r.y, rect.r.w, rect.r.h);
 
       switch (rect.encoding) {
 
@@ -512,6 +673,11 @@ HandleRFBServerMessage()
 
 	cr.srcX = Swap16IfLE(cr.srcX);
 	cr.srcY = Swap16IfLE(cr.srcY);
+
+	/* If RichCursor encoding is used, we should extend our
+	   "cursor lock area" (previously set to destination
+	   rectangle) to the source rectangle as well. */
+	SoftCursorLockArea(cr.srcX, cr.srcY, rect.r.w, rect.r.h);
 
 	if (appData.copyRectDelay != 0) {
 	  XFillRectangle(dpy, desktopWin, srcGC, cr.srcX, cr.srcY,
@@ -589,11 +755,52 @@ HandleRFBServerMessage()
 	break;
       }
 
+      case rfbEncodingZlib:
+      {
+	switch (myFormat.bitsPerPixel) {
+	case 8:
+	  if (!HandleZlib8(rect.r.x,rect.r.y,rect.r.w,rect.r.h))
+	    return False;
+	  break;
+	case 16:
+	  if (!HandleZlib16(rect.r.x,rect.r.y,rect.r.w,rect.r.h))
+	    return False;
+	  break;
+	case 32:
+	  if (!HandleZlib32(rect.r.x,rect.r.y,rect.r.w,rect.r.h))
+	    return False;
+	  break;
+	}
+	break;
+     }
+
+      case rfbEncodingTight:
+      {
+	switch (myFormat.bitsPerPixel) {
+	case 8:
+	  if (!HandleTight8(rect.r.x,rect.r.y,rect.r.w,rect.r.h))
+	    return False;
+	  break;
+	case 16:
+	  if (!HandleTight16(rect.r.x,rect.r.y,rect.r.w,rect.r.h))
+	    return False;
+	  break;
+	case 32:
+	  if (!HandleTight32(rect.r.x,rect.r.y,rect.r.w,rect.r.h))
+	    return False;
+	  break;
+	}
+	break;
+      }
+
       default:
 	fprintf(stderr,"Unknown rect encoding %d\n",
 		(int)rect.encoding);
 	return False;
       }
+
+      /* Now we may discard "soft cursor locks". */
+      SoftCursorUnlockScreen();
     }
 
 #ifdef MITSHM
@@ -613,8 +820,18 @@ HandleRFBServerMessage()
   }
 
   case rfbBell:
-    XBell(dpy,100);
+  {
+    Window toplevelWin;
+
+    XBell(dpy, 0);
+
+    if (appData.raiseOnBeep) {
+      toplevelWin = XtWindow(toplevel);
+      XMapRaised(dpy, toplevelWin);
+    }
+
     break;
+  }
 
   case rfbServerCutText:
   {
@@ -668,16 +885,22 @@ HandleRFBServerMessage()
 #include "rre.c"
 #include "corre.c"
 #include "hextile.c"
+#include "zlib.c"
+#include "tight.c"
 #undef BPP
 #define BPP 16
 #include "rre.c"
 #include "corre.c"
 #include "hextile.c"
+#include "zlib.c"
+#include "tight.c"
 #undef BPP
 #define BPP 32
 #include "rre.c"
 #include "corre.c"
 #include "hextile.c"
+#include "zlib.c"
+#include "tight.c"
 #undef BPP
 
 
@@ -710,3 +933,87 @@ PrintPixelFormat(format)
     }
   }
 }
+
+static long
+ReadCompactLen (void)
+{
+  long len;
+  CARD8 b;
+
+  if (!ReadFromRFBServer((char *)&b, 1))
+    return -1;
+  len = (int)b & 0x7F;
+  if (b & 0x80) {
+    if (!ReadFromRFBServer((char *)&b, 1))
+      return -1;
+    len |= ((int)b & 0x7F) << 7;
+    if (b & 0x80) {
+      if (!ReadFromRFBServer((char *)&b, 1))
+	return -1;
+      len |= ((int)b & 0xFF) << 14;
+    }
+  }
+  return len;
+}
+
+/*
+ * JPEG source manager functions for JPEG decompression in Tight decoder.
+ */
+
+static struct jpeg_source_mgr jpegSrcManager;
+static JOCTET *jpegBufferPtr;
+static size_t jpegBufferLen;
+
+static void
+JpegInitSource(j_decompress_ptr cinfo)
+{
+  jpegError = False;
+}
+
+static boolean
+JpegFillInputBuffer(j_decompress_ptr cinfo)
+{
+  jpegError = True;
+  jpegSrcManager.bytes_in_buffer = jpegBufferLen;
+  jpegSrcManager.next_input_byte = (JOCTET *)jpegBufferPtr;
+
+  return TRUE;
+}
+
+static void
+JpegSkipInputData(j_decompress_ptr cinfo, long num_bytes)
+{
+  if (num_bytes < 0 || num_bytes > jpegSrcManager.bytes_in_buffer) {
+    jpegError = True;
+    jpegSrcManager.bytes_in_buffer = jpegBufferLen;
+    jpegSrcManager.next_input_byte = (JOCTET *)jpegBufferPtr;
+  } else {
+    jpegSrcManager.next_input_byte += (size_t) num_bytes;
+    jpegSrcManager.bytes_in_buffer -= (size_t) num_bytes;
+  }
+}
+
+static void
+JpegTermSource(j_decompress_ptr cinfo)
+{
+  /* No work necessary here. */
+}
+
+static void
+JpegSetSrcManager(j_decompress_ptr cinfo, CARD8 *compressedData,
+		  int compressedLen)
+{
+  jpegBufferPtr = (JOCTET *)compressedData;
+  jpegBufferLen = (size_t)compressedLen;
+
+  jpegSrcManager.init_source = JpegInitSource;
+  jpegSrcManager.fill_input_buffer = JpegFillInputBuffer;
+  jpegSrcManager.skip_input_data = JpegSkipInputData;
+  jpegSrcManager.resync_to_restart = jpeg_resync_to_restart;
+  jpegSrcManager.term_source = JpegTermSource;
+  jpegSrcManager.next_input_byte = jpegBufferPtr;
+  jpegSrcManager.bytes_in_buffer = jpegBufferLen;
+
+  cinfo->src = &jpegSrcManager;
+}
+

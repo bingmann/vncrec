@@ -343,16 +343,16 @@ cfbCreateDefColormap(pScreen)
 
 extern int defaultColorVisualClass;
 
-#define _RZ(d) ((d + 2) / 3)
-#define _RS(d) 0
-#define _RM(d) ((1 << _RZ(d)) - 1)
-#define _GZ(d) ((d - _RZ(d) + 1) / 2)
-#define _GS(d) _RZ(d)
+#define _BZ(d) (d / 3)
+#define _BS(d) 0
+#define _BM(d) ((1 << _BZ(d)) - 1)
+#define _GZ(d) ((d - _BZ(d) + 1) / 2)
+#define _GS(d) _BZ(d)
 #define _GM(d) (((1 << _GZ(d)) - 1) << _GS(d))
-#define _BZ(d) (d - _RZ(d) - _GZ(d))
-#define _BS(d) (_RZ(d) + _GZ(d))
-#define _BM(d) (((1 << _BZ(d)) - 1) << _BS(d))
-#define _CE(d) (1 << _RZ(d))
+#define _RZ(d) (d - _BZ(d) - _GZ(d))
+#define _RS(d) (_BZ(d) + _GZ(d))
+#define _RM(d) (((1 << _RZ(d)) - 1) << _RS(d))
+#define _CE(d) (1 << _GZ(d))
 
 #define MAX_PSEUDO_DEPTH    10	    /* largest DAC size I know */
 
@@ -524,12 +524,21 @@ cfbInitVisuals (visualp, depthp, nvisualp, ndepthp, rootDepthp, defaultVisp, siz
 		visual->ColormapEntries = _CE(d);
 		/* fall through */
 	    case StaticColor:
-		visual->redMask =  _RM(d);
-		visual->greenMask =  _GM(d);
-		visual->blueMask =  _BM(d);
-		visual->offsetRed  =  _RS(d);
-		visual->offsetGreen = _GS(d);
-		visual->offsetBlue =  _BS(d);
+		if (d == 8) {
+		    visual->redMask = 0x07;
+		    visual->greenMask = 0x38;
+		    visual->blueMask =  0xC0;
+		    visual->offsetRed  =  0;
+		    visual->offsetGreen = 3;
+		    visual->offsetBlue =  6;
+		} else {
+		    visual->redMask =  _RM(d);
+		    visual->greenMask =  _GM(d);
+		    visual->blueMask =  _BM(d);
+		    visual->offsetRed  =  _RS(d);
+		    visual->offsetGreen = _GS(d);
+		    visual->offsetBlue =  _BS(d);
+		}
 	    }
 	    vid++;
 	    visual++;

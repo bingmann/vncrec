@@ -47,6 +47,16 @@
 #include <fcntl.h>
 #include <errno.h>
 
+#ifndef USE_LIBWRAP
+#define USE_LIBWRAP 0
+#endif
+#if USE_LIBWRAP
+#include <syslog.h>
+#include <tcpd.h>
+int allow_severity = LOG_INFO;
+int deny_severity = LOG_WARNING;
+#endif
+
 #include "rfb.h"
 
 
@@ -55,7 +65,6 @@ int rfbMaxClientWait = 20000;	/* time (ms) after which we decide client has
 
 int rfbPort = 0;
 int rfbListenSock = -1;
-Bool rfbLocalhostOnly = FALSE;
 
 int udpPort = 0;
 int udpSock = -1;
@@ -192,6 +201,17 @@ rfbCheckFds()
 	}
 
 	fprintf(stderr,"\n");
+
+#if USE_LIBWRAP
+        if (!hosts_ctl("Xvnc", STRING_UNKNOWN, inet_ntoa(addr.sin_addr),
+                       STRING_UNKNOWN)) {
+          rfbLog("Rejected connection from client %s\n",
+                 inet_ntoa(addr.sin_addr));
+          close(sock);
+          return;
+        }
+#endif
+
 	rfbLog("Got connection from client %s\n", inet_ntoa(addr.sin_addr));
 
 	AddEnabledDevice(sock);
@@ -471,12 +491,10 @@ ListenOnTCPPort(port)
     int sock;
     int one = 1;
 
+    memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
-    if (rfbLocalhostOnly)
-        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    else
-        addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    addr.sin_addr.s_addr = interface.s_addr;
 
     if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
 	return -1;
@@ -508,6 +526,7 @@ ConnectToTcpAddr(host, port)
     int sock;
     struct sockaddr_in addr;
 
+    memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
 
@@ -541,9 +560,10 @@ ListenOnUDPPort(port)
     int sock;
     int one = 1;
 
+    memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
-    addr.sin_addr.s_addr = INADDR_ANY;
+    addr.sin_addr.s_addr = interface.s_addr;
 
     if ((sock = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
 	return -1;
