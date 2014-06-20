@@ -1,0 +1,12 @@
+2003-01-16  Yoshiki Hayashi <yoshiki@xemacs.org>
+
+	* Version 0.2 released.
+
+2003-01-16  Rob Abbott <rabbott@cs.unm.edu>
+
+	* README: Add description about new option -movie.
+
+2001-06-09  Yoshiki Hayashi <yoshiki@xemacs.org>
+
+	* Imakefile: Rename vncviewer sub directory to vncrec.
+	* vncinstall: Remove non-existent files.

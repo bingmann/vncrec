@@ -1,0 +1,68 @@
+2003-01-16  Yoshiki Hayashi <yoshiki@xemacs.org>
+
+	* argsresources.c (usage): Identify itself as vncrec 0.2.
+
+2003-01-16  Rob Abbott <rabbott@cs.unm.edu>
+
+	* argsresources.c (appDataResourceList): Add movie option.
+	(cmdLineOptions): Add -record and -movie.
+	(usage): Add -movie.
+	(GetArgsAndResources): Add code to handle -movie option.
+
+	* desktop.c (DesktopInitAfterRealization): Create
+	desektopWin when movie is on.
+
+	* rfbproto.c (ConnectToRFBServer): Return immediately when
+	-play or -movie.
+	(InitialiseRFBConnection): Bypass auth when -play or -movie.
+
+	* sockets.c (print_movie_frames_up_to_time): New function.
+	Output XPM image.
+	(ReadFromRFBServer): Handle -movie like -play.
+	Skip sleeping when -movie. Call print_movie_frames_up_to_time when -movie.
+	(WriteExact): Handle -movie like -play.
+	(SameMachine): Ditto.
+
+	* vncviewer.c (main): Call XtSetMappedWhenManaged when -movie.
+
+	* vncviewer.h (AppData): Add new member movie.
+
+2003-01-16  Martin Schindelin  <de25sdn@de.ms.philips.com>
+
+	* argsresources.c (GetArgsAndResources): Call setbuf before using
+	stream.
+
+2001-06-09  Yoshiki Hayashi  <yoshiki@xemacs.org>
+
+	* argsresources.c (GetArgsAndResources): Add magic string
+	to log file.
+
+2001-06-09  Yoshiki Hayashi  <yoshiki@xemacs.org>
+
+	* argsresources.c (appDataResourceList): Add play and record.
+	* argsresources.c (cmdLineOption): Ditto.
+	* argsresources.c (usage): Ditto.
+	* argsresources.c (GetArgsAndResources): Add code to process
+	new play and record arguments.
+
+	* misc.c (Cleanup): Close log file in play or record mode.
+
+	* rfbproto.c (ConnectToRFBServer): Do nothing in play mode.
+	* rfbproto.c (InitialiseRFBConnection): Don't ask passwd in play mode.
+	* rfbproto.c (HandleRFBServerMessage): Log timestamp per rfb message.
+
+	* sockets.c (vncLogTimeStamp): New global variable.
+	* sockets.c (writeLogHeader): New function.  Log timestamp.
+	* sockets.c (timeval_subtract): New function.
+	* sockets.c (ReadFromRFBServer): When in play mode, read from a log file.
+	When in record mode, record message to a log file.
+	* sockets.c (WriteExact): Do nothing in play mode.
+	* sockets.c (SameMachine): Return False in play or record mode.
+
+	* vncviewer.c (vncLog): New global variable.
+
+	* vncviewer.h (appData): New member play and record.
+
+2001-06-09  Yoshiki Hayashi <yoshiki@xemacs.org>
+
+	* Imakefile: Change program name to vncrec.
