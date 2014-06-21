@@ -211,7 +211,7 @@ static XtResource appDataResourceList[] = {
    XtOffsetOf(AppData, qualityLevel), XtRImmediate, (XtPointer) 6},
 
   {"enableJPEG", "EnableJPEG", XtRBool, sizeof(Bool),
-   XtOffsetOf(AppData, enableJPEG), XtRImmediate, (XtPointer) True},
+   XtOffsetOf(AppData, enableJPEG), XtRImmediate, (XtPointer) False},
 
   {"useRemoteCursor", "UseRemoteCursor", XtRBool, sizeof(Bool),
    XtOffsetOf(AppData, useRemoteCursor), XtRImmediate, (XtPointer) True},
@@ -260,6 +260,7 @@ XrmOptionDescRec cmdLineOptions[] = {
   {"-nocursorshape", "*useRemoteCursor",    XrmoptionNoArg,  "False"},
   {"-x11cursor",     "*useX11Cursor",       XrmoptionNoArg,  "True"},
   {"-autopass",      "*autoPass",           XrmoptionNoArg,  "True"},
+  {"-grabKeyboard",  "*grabKeyboard",       XrmoptionNoArg,  "True"},
   {"-play",          "*play",               XrmoptionSepArg, 0},
   {"-record",        "*record",             XrmoptionSepArg, 0},
   {"-movie",         "*movie",              XrmoptionSepArg, 0}
@@ -338,6 +339,7 @@ usage(void)
 	  "        -nocursorshape\n"
 	  "        -x11cursor\n"
 	  "        -autopass\n"
+	  "        -grabKeyboard\n"
 	  "        -play <log-file>\n"
 	  "        -record <log-file>\n"
 	  "        -movie <log-file>\n"
