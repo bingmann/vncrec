@@ -1,0 +1,8 @@
+*.o
+*.a
+Makefile
+Makefile.bak
+/vncconnect/vncconnect
+/vncpasswd/vncpasswd
+/vncrec/vncrec
+/vncrec/vncrec._man
