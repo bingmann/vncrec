@@ -237,6 +237,9 @@ static XtResource appDataResourceList[] = {
   {"record", "Record", XtRString, sizeof(String),
    XtOffsetOf(AppData, record), XtRImmediate, (XtPointer) 0},
 
+  {"hideWindow", "HideWindow", XtRBool, sizeof(Bool),
+   XtOffsetOf(AppData, hideWindow), XtRImmediate, (XtPointer) False},
+
   {"movie", "Movie", XtRString, sizeof(String),
    XtOffsetOf(AppData, movie), XtRImmediate, (XtPointer) 0}
 };
@@ -268,7 +271,8 @@ XrmOptionDescRec cmdLineOptions[] = {
   {"-autopass",      "*autoPass",           XrmoptionNoArg,  "True"},
   {"-play",          "*play",               XrmoptionSepArg, 0},
   {"-record",        "*record",             XrmoptionSepArg, 0},
-  {"-movie",         "*movie",              XrmoptionSepArg, 0}
+  {"-movie",         "*movie",              XrmoptionSepArg, 0},
+  {"-hideWindow",    "*hideWindow",         XrmoptionNoArg,  "True"}
 
 };
 
@@ -349,6 +353,7 @@ usage(void)
 	  "        -play <log-file>\n"
 	  "        -record <log-file>\n"
 	  "        -movie <log-file>\n"
+	  "        -hideWindow\n"
 	  "\n"
 	  "Option names may be abbreviated, e.g. -bgr instead of -bgr233.\n"
 	  "See the manual page for more information."

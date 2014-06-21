@@ -100,6 +100,7 @@ typedef struct {
   String play;
   String record;
   String movie;
+  Bool hideWindow;
 
   int popupButtonCount;
 

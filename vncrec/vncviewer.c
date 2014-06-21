@@ -110,7 +110,7 @@ main(int argc, char **argv)
 
   /* "Realize" all the widgets, i.e. actually create and map their X windows */
 
-  if(appData.movie)
+  if(appData.movie || appData.hideWindow)
     XtSetMappedWhenManaged(toplevel, False);
 
   XtRealizeWidget(toplevel);
