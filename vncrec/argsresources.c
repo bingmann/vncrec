@@ -75,7 +75,7 @@ char *fallback_resources[] = {
   "*popup.buttonForm.translations: #override\\n\
      <KeyPress>: SendRFBEvent() HidePopup()",
 
-  "*popupButtonCount: 8",
+  "*popupButtonCount: 9",
 
   "*popup*button1.label: Dismiss popup",
   "*popup*button1.translations: #override\\n\
@@ -91,20 +91,26 @@ char *fallback_resources[] = {
      <Visible>: SetFullScreenState()\\n\
      <Btn1Down>,<Btn1Up>: toggle() ToggleFullScreen() HidePopup()",
 
-  "*popup*button4.label: Clipboard: local -> remote",
+  "*popup*button4.label: Grab keyboard",
+  "*popup*button4.type: toggle",
   "*popup*button4.translations: #override\\n\
+     <Visible>: SetGrabKeyboardState()\\n\
+     <Btn1Down>,<Btn1Up>: toggle() ToggleGrabKeyboard() HidePopup()",
+
+  "*popup*button5.label: Clipboard: local -> remote",
+  "*popup*button5.translations: #override\\n\
      <Btn1Down>,<Btn1Up>: SelectionToVNC(always) HidePopup()",
 
-  "*popup*button5.label: Clipboard: local <- remote",
-  "*popup*button5.translations: #override\\n\
+  "*popup*button6.label: Clipboard: local <- remote",
+  "*popup*button6.translations: #override\\n\
      <Btn1Down>,<Btn1Up>: SelectionFromVNC(always) HidePopup()",
 
-  "*popup*button6.label: Request refresh",
-  "*popup*button6.translations: #override\\n\
+  "*popup*button7.label: Request refresh",
+  "*popup*button7.translations: #override\\n\
      <Btn1Down>,<Btn1Up>: SendRFBEvent(fbupdate) HidePopup()",
 
-  "*popup*button7.label: Send ctrl-alt-del",
-  "*popup*button7.translations: #override\\n\
+  "*popup*button8.label: Send ctrl-alt-del",
+  "*popup*button8.translations: #override\\n\
      <Btn1Down>,<Btn1Up>: SendRFBEvent(keydown,Control_L)\
                           SendRFBEvent(keydown,Alt_L)\
                           SendRFBEvent(key,Delete)\
@@ -112,8 +118,8 @@ char *fallback_resources[] = {
                           SendRFBEvent(keyup,Control_L)\
                           HidePopup()",
 
-  "*popup*button8.label: Send F8",
-  "*popup*button8.translations: #override\\n\
+  "*popup*button9.label: Send F8",
+  "*popup*button9.translations: #override\\n\
      <Btn1Down>,<Btn1Up>: SendRFBEvent(key,F8) HidePopup()",
 
   NULL
@@ -260,7 +266,6 @@ XrmOptionDescRec cmdLineOptions[] = {
   {"-nocursorshape", "*useRemoteCursor",    XrmoptionNoArg,  "False"},
   {"-x11cursor",     "*useX11Cursor",       XrmoptionNoArg,  "True"},
   {"-autopass",      "*autoPass",           XrmoptionNoArg,  "True"},
-  {"-grabKeyboard",  "*grabKeyboard",       XrmoptionNoArg,  "True"},
   {"-play",          "*play",               XrmoptionSepArg, 0},
   {"-record",        "*record",             XrmoptionSepArg, 0},
   {"-movie",         "*movie",              XrmoptionSepArg, 0}
@@ -280,6 +285,8 @@ static XtActionsRec actions[] = {
     {"HidePopup", HidePopup},
     {"ToggleFullScreen", ToggleFullScreen},
     {"SetFullScreenState", SetFullScreenState},
+    {"ToggleGrabKeyboard", ToggleGrabKeyboard},
+    {"SetGrabKeyboardState", SetGrabKeyboardState},
     {"SelectionFromVNC", SelectionFromVNC},
     {"SelectionToVNC", SelectionToVNC},
     {"ServerDialogDone", ServerDialogDone},
@@ -339,7 +346,6 @@ usage(void)
 	  "        -nocursorshape\n"
 	  "        -x11cursor\n"
 	  "        -autopass\n"
-	  "        -grabKeyboard\n"
 	  "        -play <log-file>\n"
 	  "        -record <log-file>\n"
 	  "        -movie <log-file>\n"

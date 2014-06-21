@@ -96,7 +96,7 @@ Vncviewer.translations:\
 ! Popup buttons
 !
 
-*popupButtonCount: 8
+*popupButtonCount: 9
 
 *popup*button1.label: Dismiss popup
 *popup*button1.translations: #override\n\
@@ -112,20 +112,26 @@ Vncviewer.translations:\
   <Visible>: SetFullScreenState()\n\
   <Btn1Down>,<Btn1Up>: toggle() HidePopup() ToggleFullScreen()
 
-*popup*button4.label: Clipboard: local -> remote
+*popup*button4.label: Grab keyboard
+*popup*button4.type: toggle
 *popup*button4.translations: #override\n\
+  <Visible>: SetGrabKeyboardState()\n\
+  <Btn1Down>,<Btn1Up>: toggle() ToggleGrabKeyboard() HidePopup()
+
+*popup*button5.label: Clipboard: local -> remote
+*popup*button5.translations: #override\n\
   <Btn1Down>,<Btn1Up>: SelectionToVNC(always) HidePopup()
 
-*popup*button5.label: Clipboard: local <- remote
-*popup*button5.translations: #override\n\
+*popup*button6.label: Clipboard: local <- remote
+*popup*button6.translations: #override\n\
   <Btn1Down>,<Btn1Up>: SelectionFromVNC(always) HidePopup()
 
-*popup*button6.label: Request refresh
-*popup*button6.translations: #override\n\
+*popup*button7.label: Request refresh
+*popup*button7.translations: #override\n\
   <Btn1Down>,<Btn1Up>: SendRFBEvent(fbupdate) HidePopup()
 
-*popup*button7.label: Send ctrl-alt-del
-*popup*button7.translations: #override\n\
+*popup*button8.label: Send ctrl-alt-del
+*popup*button8.translations: #override\n\
   <Btn1Down>,<Btn1Up>: SendRFBEvent(keydown,Control_L)\
                        SendRFBEvent(keydown,Alt_L)\
                        SendRFBEvent(key,Delete)\
@@ -133,6 +139,6 @@ Vncviewer.translations:\
                        SendRFBEvent(keyup,Control_L)\
                        HidePopup()
 
-*popup*button8.label: Send F8
-*popup*button8.translations: #override\n\
+*popup*button9.label: Send F8
+*popup*button9.translations: #override\n\
   <Btn1Down>,<Btn1Up>: SendRFBEvent(key,F8) HidePopup()

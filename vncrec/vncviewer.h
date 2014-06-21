@@ -184,6 +184,11 @@ extern Bool BumpScroll(XEvent *ev);
 extern void FullScreenOn();
 extern void FullScreenOff();
 
+extern void SetGrabKeyboardState(Widget w, XEvent *ev, String *params,
+                                 Cardinal *num_params);
+extern void ToggleGrabKeyboard(Widget w, XEvent *ev, String *params,
+                               Cardinal *num_params);
+
 /* listen.c */
 
 extern void listenForIncomingConnections();

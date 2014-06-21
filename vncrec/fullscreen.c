@@ -176,14 +176,6 @@ FullScreenOn()
 
   XSetInputFocus(dpy, DefaultRootWindow(dpy), RevertToPointerRoot,
 		 CurrentTime);
-
-  /* Optionally, grab the keyboard. */
-
-  if (appData.grabKeyboard &&
-      XtGrabKeyboard(desktop, True, GrabModeAsync,
-		     GrabModeAsync, CurrentTime) != GrabSuccess) {
-    fprintf(stderr, "XtGrabKeyboard() failed.\n");
-  }
 }
 
 
@@ -209,9 +201,6 @@ FullScreenOff()
   int toplevelHeight = si.framebufferHeight;
 
   appData.fullScreen = False;
-
-  if (appData.grabKeyboard)
-    XtUngrabKeyboard(desktop, CurrentTime);
 
   XtUnmapWidget(toplevel);
 
@@ -285,6 +274,44 @@ ToggleFullScreen(Widget w, XEvent *ev, String *params, Cardinal *num_params)
   }
 }
 
+/*
+ * SetGrabKeyboardState is an action which sets the "state" resource of a toggle
+ * widget to reflect whether we're in keyboard grab mode.
+ */
+
+void
+SetGrabKeyboardState(Widget w, XEvent *ev, String *params, Cardinal *num_params)
+{
+    if (appData.grabKeyboard)
+        XtVaSetValues(w, XtNstate, True, NULL);
+    else
+        XtVaSetValues(w, XtNstate, False, NULL);
+}
+
+
+/*
+ * ToggleGrabKeyboard is an action which toggles keyboard grab mode.
+ */
+
+void
+ToggleGrabKeyboard(Widget w, XEvent *ev, String *params, Cardinal *num_params)
+{
+    if (appData.grabKeyboard)
+    {
+        XtUngrabKeyboard(desktop, CurrentTime);
+        appData.grabKeyboard = False;
+    }
+    else
+    {
+        if (XtGrabKeyboard(desktop, True, GrabModeAsync,
+                           GrabModeAsync, CurrentTime) != GrabSuccess) {
+            fprintf(stderr, "XtGrabKeyboard() failed.\n");
+        }
+        else {
+            appData.grabKeyboard = True;
+        }
+    }
+}
 
 /*
  * BumpScroll is called when in full-screen mode and the mouse is against one
