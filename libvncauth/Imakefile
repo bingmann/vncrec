@@ -1,8 +1,6 @@
 
 #ifdef SunArchitecture
-CC = gcc
-CCOPTIONS =
-CDEBUGFLAGS = -O2
+EXTRA_DEFINES = -D__EXTENSIONS__
 #endif
 
 SRCS = vncauth.c d3des.c

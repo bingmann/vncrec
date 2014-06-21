@@ -1,4 +1,5 @@
 /*
+ *  Copyright (C) 2002-2006 Constantin Kaplinsky.  All Rights Reserved.
  *  Copyright (C) 1999 AT&T Laboratories Cambridge.  All Rights Reserved.
  *  Copyright (C) 2001 Yoshiki Hayashi <yoshiki@xemacs.org>
  *
@@ -31,7 +32,7 @@
 
 char *fallback_resources[] = {
 
-  "Vncviewer.title: VNC: %s",
+  "Vncviewer.title: TightVNC: %s",
 
   "Vncviewer.translations:\
     <Enter>: SelectionToVNC()\\n\
@@ -64,7 +65,7 @@ char *fallback_resources[] = {
   "*passwordDialog.dialog.value.translations: #override\\n\
      <Key>Return: PasswordDialogDone()",
 
-  "*popup.title: VNC popup",
+  "*popup.title: TightVNC popup",
   "*popup*background: grey",
   "*popup*font: -*-helvetica-bold-r-*-*-16-*-*-*-*-*-*-*",
   "*popup.buttonForm.Command.borderWidth: 0",
@@ -74,7 +75,7 @@ char *fallback_resources[] = {
   "*popup.buttonForm.translations: #override\\n\
      <KeyPress>: SendRFBEvent() HidePopup()",
 
-  "*popupButtonCount: 7",
+  "*popupButtonCount: 8",
 
   "*popup*button1.label: Dismiss popup",
   "*popup*button1.translations: #override\\n\
@@ -98,8 +99,12 @@ char *fallback_resources[] = {
   "*popup*button5.translations: #override\\n\
      <Btn1Down>,<Btn1Up>: SelectionFromVNC(always) HidePopup()",
 
-  "*popup*button6.label: Send ctrl-alt-del",
+  "*popup*button6.label: Request refresh",
   "*popup*button6.translations: #override\\n\
+     <Btn1Down>,<Btn1Up>: SendRFBEvent(fbupdate) HidePopup()",
+
+  "*popup*button7.label: Send ctrl-alt-del",
+  "*popup*button7.translations: #override\\n\
      <Btn1Down>,<Btn1Up>: SendRFBEvent(keydown,Control_L)\
                           SendRFBEvent(keydown,Alt_L)\
                           SendRFBEvent(key,Delete)\
@@ -107,8 +112,8 @@ char *fallback_resources[] = {
                           SendRFBEvent(keyup,Control_L)\
                           HidePopup()",
 
-  "*popup*button7.label: Send F8",
-  "*popup*button7.translations: #override\\n\
+  "*popup*button8.label: Send F8",
+  "*popup*button8.translations: #override\\n\
      <Btn1Down>,<Btn1Up>: SendRFBEvent(key,F8) HidePopup()",
 
   NULL
@@ -134,13 +139,16 @@ AppData appData;
 
 static XtResource appDataResourceList[] = {
   {"shareDesktop", "ShareDesktop", XtRBool, sizeof(Bool),
-   XtOffsetOf(AppData, shareDesktop), XtRImmediate, (XtPointer) False},
+   XtOffsetOf(AppData, shareDesktop), XtRImmediate, (XtPointer) True},
 
   {"viewOnly", "ViewOnly", XtRBool, sizeof(Bool),
    XtOffsetOf(AppData, viewOnly), XtRImmediate, (XtPointer) False},
 
   {"fullScreen", "FullScreen", XtRBool, sizeof(Bool),
    XtOffsetOf(AppData, fullScreen), XtRImmediate, (XtPointer) False},
+
+  {"raiseOnBeep", "RaiseOnBeep", XtRBool, sizeof(Bool),
+   XtOffsetOf(AppData, raiseOnBeep), XtRImmediate, (XtPointer) True},
 
   {"passwordFile", "PasswordFile", XtRString, sizeof(String),
    XtOffsetOf(AppData, passwordFile), XtRImmediate, (XtPointer) 0},
@@ -196,6 +204,27 @@ static XtResource appDataResourceList[] = {
   {"bumpScrollPixels", "BumpScrollPixels", XtRInt, sizeof(int),
    XtOffsetOf(AppData, bumpScrollPixels), XtRImmediate, (XtPointer) 20},
 
+  {"compressLevel", "CompressionLevel", XtRInt, sizeof(int),
+   XtOffsetOf(AppData, compressLevel), XtRImmediate, (XtPointer) -1},
+
+  {"qualityLevel", "QualityLevel", XtRInt, sizeof(int),
+   XtOffsetOf(AppData, qualityLevel), XtRImmediate, (XtPointer) 6},
+
+  {"enableJPEG", "EnableJPEG", XtRBool, sizeof(Bool),
+   XtOffsetOf(AppData, enableJPEG), XtRImmediate, (XtPointer) True},
+
+  {"useRemoteCursor", "UseRemoteCursor", XtRBool, sizeof(Bool),
+   XtOffsetOf(AppData, useRemoteCursor), XtRImmediate, (XtPointer) True},
+
+  {"useX11Cursor", "UseX11Cursor", XtRBool, sizeof(Bool),
+   XtOffsetOf(AppData, useX11Cursor), XtRImmediate, (XtPointer) False},
+
+  {"grabKeyboard", "GrabKeyboard", XtRBool, sizeof(Bool),
+   XtOffsetOf(AppData, grabKeyboard), XtRImmediate, (XtPointer) False},
+
+  {"autoPass", "AutoPass", XtRBool, sizeof(Bool),
+   XtOffsetOf(AppData, autoPass), XtRImmediate, (XtPointer) False},
+
   {"play", "Play", XtRString, sizeof(String),
    XtOffsetOf(AppData, play), XtRImmediate, (XtPointer) 0},
 
@@ -203,7 +232,7 @@ static XtResource appDataResourceList[] = {
    XtOffsetOf(AppData, record), XtRImmediate, (XtPointer) 0},
 
   {"movie", "Movie", XtRString, sizeof(String),
-   XtOffsetOf(AppData, movie), XtRImmediate, (XtPointer) 0},
+   XtOffsetOf(AppData, movie), XtRImmediate, (XtPointer) 0}
 };
 
 
@@ -213,19 +242,28 @@ static XtResource appDataResourceList[] = {
  */
 
 XrmOptionDescRec cmdLineOptions[] = {
-  {"-shared",     "*shareDesktop",      XrmoptionNoArg,  "True"},
-  {"-viewonly",   "*viewOnly",          XrmoptionNoArg,  "True"},
-  {"-fullscreen", "*fullScreen",        XrmoptionNoArg,  "True"},
-  {"-passwd",     "*passwordFile",      XrmoptionSepArg, 0},
-  {"-encodings",  "*encodings",         XrmoptionSepArg, 0},
-  {"-bgr233",     "*useBGR233",         XrmoptionNoArg,  "True"},
-  {"-owncmap",    "*forceOwnCmap",      XrmoptionNoArg,  "True"},
-  {"-truecolor",  "*forceTrueColour",   XrmoptionNoArg,  "True"},
-  {"-truecolour", "*forceTrueColour",   XrmoptionNoArg,  "True"},
-  {"-depth",      "*requestedDepth",    XrmoptionSepArg, 0},
-  {"-play",       "*play",              XrmoptionSepArg, 0},
-  {"-record",     "*record",            XrmoptionSepArg, 0},
-  {"-movie",      "*movie",             XrmoptionSepArg, 0},
+  {"-shared",        "*shareDesktop",       XrmoptionNoArg,  "True"},
+  {"-noshared",      "*shareDesktop",       XrmoptionNoArg,  "False"},
+  {"-viewonly",      "*viewOnly",           XrmoptionNoArg,  "True"},
+  {"-fullscreen",    "*fullScreen",         XrmoptionNoArg,  "True"},
+  {"-noraiseonbeep", "*raiseOnBeep",        XrmoptionNoArg,  "False"},
+  {"-passwd",        "*passwordFile",       XrmoptionSepArg, 0},
+  {"-encodings",     "*encodings",          XrmoptionSepArg, 0},
+  {"-bgr233",        "*useBGR233",          XrmoptionNoArg,  "True"},
+  {"-owncmap",       "*forceOwnCmap",       XrmoptionNoArg,  "True"},
+  {"-truecolor",     "*forceTrueColour",    XrmoptionNoArg,  "True"},
+  {"-truecolour",    "*forceTrueColour",    XrmoptionNoArg,  "True"},
+  {"-depth",         "*requestedDepth",     XrmoptionSepArg, 0},
+  {"-compresslevel", "*compressLevel",      XrmoptionSepArg, 0},
+  {"-quality",       "*qualityLevel",       XrmoptionSepArg, 0},
+  {"-nojpeg",        "*enableJPEG",         XrmoptionNoArg,  "False"},
+  {"-nocursorshape", "*useRemoteCursor",    XrmoptionNoArg,  "False"},
+  {"-x11cursor",     "*useX11Cursor",       XrmoptionNoArg,  "True"},
+  {"-autopass",      "*autoPass",           XrmoptionNoArg,  "True"},
+  {"-play",          "*play",               XrmoptionSepArg, 0},
+  {"-record",        "*record",             XrmoptionSepArg, 0},
+  {"-movie",         "*movie",              XrmoptionSepArg, 0}
+
 };
 
 int numCmdLineOptions = XtNumber(cmdLineOptions);
@@ -246,37 +284,67 @@ static XtActionsRec actions[] = {
     {"ServerDialogDone", ServerDialogDone},
     {"PasswordDialogDone", PasswordDialogDone},
     {"Pause", Pause},
+    {"RunCommand", RunCommand},
     {"Quit", Quit},
 };
 
+
+/*
+ * removeArgs() is used to remove some of command line arguments.
+ */
+
+void
+removeArgs(int *argc, char** argv, int idx, int nargs)
+{
+  int i;
+  if ((idx+nargs) > *argc) return;
+  for (i = idx+nargs; i < *argc; i++) {
+    argv[i-nargs] = argv[i];
+  }
+  *argc -= nargs;
+}
 
 /*
  * usage() prints out the usage message.
  */
 
 void
-usage()
+usage(void)
 {
   fprintf(stderr,"\n"
-	  "VNC viewer vncrec version 0.2\n"
+	  "VNC viewer vncrec version 0.3 (tightvnc-1.3.10)\n"
 	  "\n"
-	  "usage: %s [<options>] <host>:<display#>\n"
-	  "       %s [<options>] -listen [<display#>]\n"
+	  "Usage: %s [<OPTIONS>] [<HOST>][:<DISPLAY#>]\n"
+	  "       %s [<OPTIONS>] [<HOST>][::<PORT#>]\n"
+	  "       %s [<OPTIONS>] -listen [<DISPLAY#>]\n"
+	  "       %s -help\n"
 	  "\n"
-	  "<options> are standard Xt options, or:\n"
-	  "              -shared\n"
-	  "              -viewonly\n"
-	  "              -fullscreen\n"
-	  "              -passwd <passwd-file>\n"
-	  "              -encodings <encoding-list> (e.g. \"raw copyrect\")\n"
-	  "              -bgr233\n"
-	  "              -owncmap\n"
-	  "              -truecolour\n"
-	  "              -depth <depth>\n"
-	  "              -play <log-file>\n"
-	  "              -record <log-file>\n"
-	  "              -movie <log-file>\n"
-	  ,programName,programName);
+	  "<OPTIONS> are standard Xt options, or:\n"
+	  "        -via <GATEWAY>\n"
+	  "        -shared (set by default)\n"
+	  "        -noshared\n"
+	  "        -viewonly\n"
+	  "        -fullscreen\n"
+	  "        -noraiseonbeep\n"
+	  "        -passwd <PASSWD-FILENAME> (standard VNC authentication)\n"
+	  "        -encodings <ENCODING-LIST> (e.g. \"tight copyrect\")\n"
+	  "        -bgr233\n"
+	  "        -owncmap\n"
+	  "        -truecolour\n"
+	  "        -depth <DEPTH>\n"
+	  "        -compresslevel <COMPRESS-VALUE> (0..9: 0-fast, 9-best)\n"
+	  "        -quality <JPEG-QUALITY-VALUE> (0..9: 0-low, 9-high)\n"
+	  "        -nojpeg\n"
+	  "        -nocursorshape\n"
+	  "        -x11cursor\n"
+	  "        -autopass\n"
+	  "        -play <log-file>\n"
+	  "        -record <log-file>\n"
+	  "        -movie <log-file>\n"
+	  "\n"
+	  "Option names may be abbreviated, e.g. -bgr instead of -bgr233.\n"
+	  "See the manual page for more information."
+	  "\n", programName, programName, programName, programName);
   exit(1);
 }
 
@@ -291,8 +359,10 @@ void
 GetArgsAndResources(int argc, char **argv)
 {
   int i;
-  char *vncServerName;
+  char *vncServerName, *colonPos;
   const char *magic = "vncLog0.0";
+  int len, portOffset;
+  int disp;
 
   /* Turn app resource specs into our appData structure for the rest of the
      program to use */
@@ -331,6 +401,8 @@ GetArgsAndResources(int argc, char **argv)
   } else {
     vncServerName = argv[1];
 
+    if (!isatty(0))
+      appData.passwordDialog = True;
     if (vncServerName[0] == '-')
       usage();
   }
@@ -340,14 +412,29 @@ GetArgsAndResources(int argc, char **argv)
     exit(1);
   }
 
-  for (i = 0; vncServerName[i] != ':' && vncServerName[i] != 0; i++);
-
-  strncpy(vncServerHost, vncServerName, i);
-
-  if (vncServerName[i] == ':') {
-    vncServerPort = atoi(&vncServerName[i+1]);
+  colonPos = strchr(vncServerName, ':');
+  if (colonPos == NULL) {
+    /* No colon -- use default port number */
+    strcpy(vncServerHost, vncServerName);
+    vncServerPort = SERVER_PORT_OFFSET;
   } else {
-    vncServerPort = 0;
+    memcpy(vncServerHost, vncServerName, colonPos - vncServerName);
+    vncServerHost[colonPos - vncServerName] = '\0';
+    len = strlen(colonPos + 1);
+    portOffset = SERVER_PORT_OFFSET;
+    if (colonPos[1] == ':') {
+      /* Two colons -- interpret as a port number */
+      colonPos++;
+      len--;
+      portOffset = 0;
+    }
+    if (!len || strspn(colonPos + 1, "0123456789") != len) {
+      usage();
+    }
+    disp = atoi(colonPos + 1);
+    if (portOffset != 0 && disp >= 100)
+      portOffset = 0;
+    vncServerPort = disp + portOffset;
   }
 
   if (vncServerPort < 100)

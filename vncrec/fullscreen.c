@@ -133,6 +133,14 @@ FullScreenOn()
 
   XReparentWindow(dpy, XtWindow(toplevel), DefaultRootWindow(dpy), 0, 0);
 
+  /* Some WMs does not obey x,y values of XReparentWindow; the window
+     is not placed in the upper, left corner. The code below fixes
+     this: It manually moves the window, after the Xserver is done
+     with XReparentWindow. The last XSync seems to prevent losing
+     focus, but I don't know why. */
+  XSync(dpy, False);
+  XMoveWindow(dpy, XtWindow(toplevel), 0, 0);
+  XSync(dpy, False);
 
   /* Now we want to fix the size of "viewport".  We shouldn't just change it
      directly.  Instead we set "toplevel" to the required size (which should
@@ -164,10 +172,18 @@ FullScreenOn()
 
   XtVaSetValues(popup, XtNoverrideRedirect, True, NULL);
 
-  /* Finally try to get the input focus.  With some WMs we might have to grab
-     the keyboard, but this seems to be OK with the ones I've tried. */
+  /* Try to get the input focus. */
 
-  XSetInputFocus(dpy, PointerRoot, RevertToPointerRoot, CurrentTime);
+  XSetInputFocus(dpy, DefaultRootWindow(dpy), RevertToPointerRoot,
+		 CurrentTime);
+
+  /* Optionally, grab the keyboard. */
+
+  if (appData.grabKeyboard &&
+      XtGrabKeyboard(desktop, True, GrabModeAsync,
+		     GrabModeAsync, CurrentTime) != GrabSuccess) {
+    fprintf(stderr, "XtGrabKeyboard() failed.\n");
+  }
 }
 
 
@@ -193,6 +209,9 @@ FullScreenOff()
   int toplevelHeight = si.framebufferHeight;
 
   appData.fullScreen = False;
+
+  if (appData.grabKeyboard)
+    XtUngrabKeyboard(desktop, CurrentTime);
 
   XtUnmapWidget(toplevel);
 
@@ -277,14 +296,14 @@ BumpScroll(XEvent *ev)
 {
   scrollLeft = scrollRight = scrollUp = scrollDown = False;
 
-  if (ev->xmotion.x_root == dpyWidth - 1)
+  if (ev->xmotion.x_root >= dpyWidth - 3)
     scrollRight = True;
-  else if (ev->xmotion.x_root == 0)
+  else if (ev->xmotion.x_root <= 2)
     scrollLeft = True;
 
-  if (ev->xmotion.y_root == dpyHeight - 1)
+  if (ev->xmotion.y_root >= dpyHeight - 3)
     scrollDown = True;
-  else if (ev->xmotion.y_root == 0)
+  else if (ev->xmotion.y_root <= 2)
     scrollUp = True;
 
   if (scrollLeft || scrollRight || scrollUp || scrollDown) {
@@ -351,7 +370,7 @@ DoBumpScroll()
   return False;
 }
 
-void
+static void
 BumpScrollTimerCallback(XtPointer clientData, XtIntervalId *id)
 {
   DoBumpScroll();

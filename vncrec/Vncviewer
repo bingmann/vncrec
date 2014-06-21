@@ -7,7 +7,7 @@
 ! The title of the main window.  "%s" will be replaced by the desktop name.
 ! 
 
-Vncviewer.title: VNC: %s
+Vncviewer.title: TightVNC: %s
 
 
 !
@@ -17,6 +17,13 @@ Vncviewer.title: VNC: %s
 Vncviewer.translations:\
   <Enter>: SelectionToVNC()\n\
   <Leave>: SelectionFromVNC()
+
+
+!
+! Uncomment to grab the keyboard in full-screen mode.
+!
+
+! Vncviewer.grabKeyboard: True
 
 
 !
@@ -70,7 +77,7 @@ Vncviewer.translations:\
 ! Popup window appearance
 !
 
-*popup.title: VNC popup
+*popup.title: TightVNC popup
 *popup*background: grey
 *popup*font: -*-helvetica-bold-r-*-*-16-*-*-*-*-*-*-*
 *popup.buttonForm.Command.borderWidth: 0
@@ -89,7 +96,7 @@ Vncviewer.translations:\
 ! Popup buttons
 !
 
-*popupButtonCount: 7
+*popupButtonCount: 8
 
 *popup*button1.label: Dismiss popup
 *popup*button1.translations: #override\n\
@@ -113,8 +120,12 @@ Vncviewer.translations:\
 *popup*button5.translations: #override\n\
   <Btn1Down>,<Btn1Up>: SelectionFromVNC(always) HidePopup()
 
-*popup*button6.label: Send ctrl-alt-del
+*popup*button6.label: Request refresh
 *popup*button6.translations: #override\n\
+  <Btn1Down>,<Btn1Up>: SendRFBEvent(fbupdate) HidePopup()
+
+*popup*button7.label: Send ctrl-alt-del
+*popup*button7.translations: #override\n\
   <Btn1Down>,<Btn1Up>: SendRFBEvent(keydown,Control_L)\
                        SendRFBEvent(keydown,Alt_L)\
                        SendRFBEvent(key,Delete)\
@@ -122,6 +133,6 @@ Vncviewer.translations:\
                        SendRFBEvent(keyup,Control_L)\
                        HidePopup()
 
-*popup*button7.label: Send F8
-*popup*button7.translations: #override\n\
+*popup*button8.label: Send F8
+*popup*button8.translations: #override\n\
   <Btn1Down>,<Btn1Up>: SendRFBEvent(key,F8) HidePopup()

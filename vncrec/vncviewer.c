@@ -40,16 +40,22 @@ main(int argc, char **argv)
 
   /* The -listen option is used to make us a daemon process which listens for
      incoming connections from servers, rather than actively connecting to a
-     given server.  We must test for this option before invoking any Xt
-     functions - this is because we deal with each incoming connection by
-     forking, and Xt doesn't seem to cope with forking very well.  When a
-     successful incoming connection has been accepted,
+     given server. The -tunnel and -via options are useful to create
+     connections tunneled via SSH port forwarding. We must test for the
+     -listen option before invoking any Xt functions - this is because we use
+     forking, and Xt doesn't seem to cope with forking very well. For -listen
+     option, when a successful incoming connection has been accepted,
      listenForIncomingConnections() returns, setting the listenSpecified
      flag. */
 
   for (i = 1; i < argc; i++) {
     if (strcmp(argv[i], "-listen") == 0) {
       listenForIncomingConnections(&argc, argv, i);
+      break;
+    }
+    if (strcmp(argv[i], "-tunnel") == 0 || strcmp(argv[i], "-via") == 0) {
+      if (!createTunnel(&argc, argv, i))
+	exit(1);
       break;
     }
   }
@@ -74,6 +80,7 @@ main(int argc, char **argv)
 
   if (appData.play)
     fprintf (stderr, "%s\n", appData.play);
+
   /* Unless we accepted an incoming connection, make a TCP connection to the
      given VNC server */
 

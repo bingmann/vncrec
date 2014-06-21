@@ -425,7 +425,7 @@ SetupBGR233Map()
 
     for (i = 0; i < cmapSize; i++) {
       if (shared[i] && !usedAsNearest[i]) {
-	  XFreeColors(dpy, cmap, &i, 1, 0);
+	  XFreeColors(dpy, cmap, (unsigned long *)&i, 1, 0);
       }
     }
 
