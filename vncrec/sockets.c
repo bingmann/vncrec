@@ -199,57 +199,29 @@ void dump_image(XImage *i, unsigned times)
 	/* Allocate a R'G'B' buffer (' values mean gamma-corrected so the
 	 * numbers are linear to the electrical video signal. RGB would mean
 	 * linear photometric space */
-	d=malloc(w*h*3);
+	d = malloc(w*h*3);
 
 	/* Read the data in from the image into the RGB buffer */
+        rptr = i->data;
+        wptr = d;
+
 	for (y=0; y<h; y++){
-		rptr=d+y*w;
-		gptr=rptr+w*h;
-		bptr=gptr+w*h;
-		scanline(rptr, gptr, bptr, i->data+i->bytes_per_line*y, w);
-	}
+            for (x=0; x<w; ++x){
+                int v;
 
-	/* Convert the R'G'B' buffer into an Y'CbCr buffer */
-	rgb2yuv(d, w*h);
+		 v = *(unsigned long *)(void *)rptr;
+                 rptr += 4;
 
-	/* Decimate the chroma down to 4:2:0. This is mathematically incorrect,
-	 * but it's the customary way how to do it in TV technology. To be
-	 * mathematically correct, the decimation would have to take place in
-	 * linear photometric space. This way it generates the usual
-	 * chroma-bleeding artifacts on the edges in the colour monoscope */
-	for (y=0;y<h-1;y+=2){
-		bptr=d+(h+y)*w;
-		rptr=bptr+h*w;
-		for (x=0;x<w-1;x+=2, bptr+=2, rptr+=2){
-			bptr[0]=(bptr[0]+bptr[1]+bptr[w]+bptr[w+1])>>2;
-			rptr[0]=(rptr[0]+rptr[1]+rptr[w]+rptr[w+1])>>2;
-		}
+                 *wptr++ = v >> red_shift;
+                 *wptr++ = v >> green_shift;
+                 *wptr++ = v >> blue_shift;
+            }
 	}
-
-	/* Shuffle the chroma so the data can be written out at once. */
-	bptr=d+w*h; /* Cb */
-	rptr=bptr+w*h; /* Cr */
-	wptr=bptr;
-	for (y=0;y<h-1;y+=2){
-		gptr=bptr+y*w; /* gptr now doesn't mean green pointer,
-				  but get pointer. */
-		for (x=0;x<w-1;x+=2, gptr+=2)
-			*wptr++=*gptr; /* Only subsampling, now the
-					   decimation has already been
-					   done. */
-	}
-	for (y=0;y<h-1;y+=2){
-		gptr=rptr+y*w;
-		for (x=0;x<w-1;x+=2, gptr+=2)
-			*wptr++=*gptr;
-	}
-	/* Now the data to be written begin at d and are wptr-d long. */
 
 	/* Write out the frame, "times" times. */
 	for (;times;times--){
-		my_fwrite(frame_header, sizeof(frame_header)-1,
-				1, stdout);
-		my_fwrite(d, wptr-d, 1, stdout);
+            //my_fwrite(frame_header, sizeof(frame_header)-1,	1, stdout);
+            my_fwrite(d, w*h*3, 1, stdout);
 	}
 
 	/* Throw away the formerly R'G'B', now Y'CbCr buffer */
@@ -319,10 +291,11 @@ void print_movie_frames_up_to_time(struct timeval tv)
 
   if(next_dump == 0) {  // one-time initialization
     framerate = getenv("VNCREC_MOVIE_FRAMERATE") ? atoi(getenv("VNCREC_MOVIE_FRAMERATE")) : 10;
-	  printf("YUV4MPEG2 W%u H%u F%u:1 Ip A0:0\n",
-		si.framebufferWidth,
-		si.framebufferHeight,
-		(unsigned)framerate);
+
+    fprintf(stderr,"RGB32 W%u H%u F%u:1 Ip A0:0\n",
+            si.framebufferWidth,
+            si.framebufferHeight,
+            (unsigned)framerate);
 
 	  examine_layout(); /* Figure out red_shift, green_shift, blue_shift */
 
@@ -337,10 +310,17 @@ void print_movie_frames_up_to_time(struct timeval tv)
 		  si.framebufferHeight, 0xffffffff,
 		ZPixmap);
   assert(image);
-  if (times==1) fprintf(stderr,"Dumping frame for time %.2f sec.\n",
-		  next_dump-start_time);
-  else fprintf(stderr,"Dumping %u frames for time %.2f sec.\n",
-		  times, next_dump-start_time);
+
+  if (0) {
+      if (times==1) {
+          fprintf(stderr,"Dumping frame for time %.2f sec.\n",
+                  next_dump-start_time);
+      }
+      else {
+          fprintf(stderr,"Dumping %u frames for time %.2f sec.\n",
+                  times, next_dump-start_time);
+      }
+  }
 
   /* Print the frame(s) */
   dump_image(image, times);
