@@ -220,7 +220,7 @@ static XtResource appDataResourceList[] = {
    XtOffsetOf(AppData, enableJPEG), XtRImmediate, (XtPointer) False},
 
   {"useRemoteCursor", "UseRemoteCursor", XtRBool, sizeof(Bool),
-   XtOffsetOf(AppData, useRemoteCursor), XtRImmediate, (XtPointer) True},
+   XtOffsetOf(AppData, useRemoteCursor), XtRImmediate, (XtPointer) False},
 
   {"useX11Cursor", "UseX11Cursor", XtRBool, sizeof(Bool),
    XtOffsetOf(AppData, useX11Cursor), XtRImmediate, (XtPointer) False},
@@ -265,8 +265,8 @@ XrmOptionDescRec cmdLineOptions[] = {
   {"-depth",         "*requestedDepth",     XrmoptionSepArg, 0},
   {"-compresslevel", "*compressLevel",      XrmoptionSepArg, 0},
   {"-quality",       "*qualityLevel",       XrmoptionSepArg, 0},
-  {"-nojpeg",        "*enableJPEG",         XrmoptionNoArg,  "False"},
-  {"-nocursorshape", "*useRemoteCursor",    XrmoptionNoArg,  "False"},
+  {"-jpeg",          "*enableJPEG",         XrmoptionNoArg,  "True"},
+  {"-remoteshape",   "*useRemoteCursor",    XrmoptionNoArg,  "True"},
   {"-x11cursor",     "*useX11Cursor",       XrmoptionNoArg,  "True"},
   {"-autopass",      "*autoPass",           XrmoptionNoArg,  "True"},
   {"-play",          "*play",               XrmoptionSepArg, 0},
@@ -346,8 +346,8 @@ usage(void)
 	  "        -depth <DEPTH>\n"
 	  "        -compresslevel <COMPRESS-VALUE> (0..9: 0-fast, 9-best)\n"
 	  "        -quality <JPEG-QUALITY-VALUE> (0..9: 0-low, 9-high)\n"
-	  "        -nojpeg\n"
-	  "        -nocursorshape\n"
+	  "        -jpeg\n"
+	  "        -remoteshape\n"
 	  "        -x11cursor\n"
 	  "        -autopass\n"
 	  "        -play <log-file>\n"
