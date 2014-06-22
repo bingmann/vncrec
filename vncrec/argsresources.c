@@ -211,7 +211,7 @@ static XtResource appDataResourceList[] = {
    XtOffsetOf(AppData, bumpScrollPixels), XtRImmediate, (XtPointer) 20},
 
   {"compressLevel", "CompressionLevel", XtRInt, sizeof(int),
-   XtOffsetOf(AppData, compressLevel), XtRImmediate, (XtPointer) -1},
+   XtOffsetOf(AppData, compressLevel), XtRImmediate, (XtPointer) 9},
 
   {"qualityLevel", "QualityLevel", XtRInt, sizeof(int),
    XtOffsetOf(AppData, qualityLevel), XtRImmediate, (XtPointer) 6},
