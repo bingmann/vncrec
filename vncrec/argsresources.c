@@ -241,7 +241,10 @@ static XtResource appDataResourceList[] = {
    XtOffsetOf(AppData, hideWindow), XtRImmediate, (XtPointer) False},
 
   {"movie", "Movie", XtRString, sizeof(String),
-   XtOffsetOf(AppData, movie), XtRImmediate, (XtPointer) 0}
+   XtOffsetOf(AppData, movie), XtRImmediate, (XtPointer) 0},
+
+  {"debugFrames", "DebugFrames", XtRBool, sizeof(Bool),
+   XtOffsetOf(AppData, debugFrames), XtRImmediate, (XtPointer) False},
 };
 
 
@@ -272,7 +275,8 @@ XrmOptionDescRec cmdLineOptions[] = {
   {"-play",          "*play",               XrmoptionSepArg, 0},
   {"-record",        "*record",             XrmoptionSepArg, 0},
   {"-movie",         "*movie",              XrmoptionSepArg, 0},
-  {"-hideWindow",    "*hideWindow",         XrmoptionNoArg,  "True"}
+  {"-hideWindow",    "*hideWindow",         XrmoptionNoArg,  "True"},
+  {"-debugFrames",   "*debugFrames",        XrmoptionNoArg,  "True"}
 
 };
 
@@ -354,6 +358,7 @@ usage(void)
 	  "        -record <log-file>\n"
 	  "        -movie <log-file>\n"
 	  "        -hideWindow\n"
+	  "        -debugFrames\n"
 	  "\n"
 	  "Option names may be abbreviated, e.g. -bgr instead of -bgr233.\n"
 	  "See the manual page for more information."
@@ -373,7 +378,7 @@ GetArgsAndResources(int argc, char **argv)
 {
   int i;
   char *vncServerName, *colonPos;
-  const char *magic = "vncLog0.0";
+  const char *magic = "vncLog0.3";
   int len, portOffset;
   int disp;
 

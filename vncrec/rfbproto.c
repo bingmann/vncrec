@@ -980,8 +980,11 @@ HandleRFBServerMessage()
     msg.fu.nRects = Swap16IfLE(msg.fu.nRects);
 
     for (i = 0; i < msg.fu.nRects; i++) {
+
+      vncLogTimeStamp = True;
       if (!ReadFromRFBServer((char *)&rect, sz_rfbFramebufferUpdateRectHeader))
 	return False;
+      vncLogTimeStamp = False;
 
       rect.encoding = Swap32IfLE(rect.encoding);
       if (rect.encoding == rfbEncodingLastRect)

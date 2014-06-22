@@ -92,7 +92,7 @@ void my_fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream)
 	if (fwrite(ptr, size, nmemb, stream)
 		!=nmemb){
 		fprintf(stderr,"vncrec: Error occured writing %u bytes"
-			"into a file stream: ", size*nmemb);
+			"into a file stream: ", (unsigned)(size*nmemb));
 		perror(NULL);
 		exit(1);
 	}
@@ -102,13 +102,26 @@ static void
 writeLogHeader (void)
 {
   struct timeval tv;
+  static unsigned long frame = 0;
 
   if (vncLogTimeStamp)
     {
+      long tell = ftell(vncLog);
+
+      my_fwrite (&frame, sizeof(frame), 1, vncLog);
+
       gettimeofday (&tv, NULL);
+
+      if (appData.debugFrames) {
+          fprintf(stderr, "write frame %lu at time %.3f @ offset %ld\n",
+                  frame, tv.tv_sec + tv.tv_usec / 1e6, tell);
+      }
+
       tv.tv_sec = Swap32IfLE (tv.tv_sec);
       tv.tv_usec = Swap32IfLE (tv.tv_usec);
       my_fwrite (&tv, sizeof (struct timeval), 1, vncLog);
+
+      frame++;
     }
 }
 
@@ -339,8 +352,24 @@ ReadFromRFBServer(char *out, unsigned int n)
 
       if (vncLogTimeStamp)
 	{
+          long tell = ftell(vncLog);
+
+          static unsigned long rframe_curr = 0; // frame counter for verification
+          unsigned long rframe;
+
 	  static struct timeval prev;
 	  struct timeval tv;
+
+	  i = fread (&rframe, sizeof (rframe), 1, vncLog);
+	  if (i < 1)
+	    return False;
+
+          if (rframe != rframe_curr) {
+              fprintf(stderr, "Frame number does not match! File desynced or corrupt!.\n");
+              abort();
+          }
+          ++rframe_curr;
+
 	  i = fread (&tv, sizeof (struct timeval), 1, vncLog);
 	  if (i < 1)
 	    return False;
@@ -355,6 +384,11 @@ ReadFromRFBServer(char *out, unsigned int n)
 	      usleep (diff.tv_usec);
 	    }
 	  prev = tv;
+
+          if (appData.debugFrames) {
+              fprintf(stderr, "read frame %lu at time %.3f @ offset %ld\n",
+                      rframe, tv.tv_sec + tv.tv_usec / 1e6, tell);
+          }
 
       if(appData.movie)
 	print_movie_frames_up_to_time(tv);

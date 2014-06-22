@@ -113,6 +113,7 @@ typedef struct {
   Bool useRemoteCursor;
   Bool useX11Cursor;
   Bool autoPass;
+  Bool debugFrames;
 
 } AppData;
 
