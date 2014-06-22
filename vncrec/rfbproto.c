@@ -785,9 +785,9 @@ SetFormatAndEncodings()
     }
 
     encs[se->nEncodings++] = Swap32IfLE(rfbEncodingCopyRect);
-    encs[se->nEncodings++] = Swap32IfLE(rfbEncodingTight);
+    //encs[se->nEncodings++] = Swap32IfLE(rfbEncodingTight);
     encs[se->nEncodings++] = Swap32IfLE(rfbEncodingHextile);
-    encs[se->nEncodings++] = Swap32IfLE(rfbEncodingZlib);
+    //encs[se->nEncodings++] = Swap32IfLE(rfbEncodingZlib);
     encs[se->nEncodings++] = Swap32IfLE(rfbEncodingCoRRE);
     encs[se->nEncodings++] = Swap32IfLE(rfbEncodingRRE);
 
