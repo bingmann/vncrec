@@ -295,51 +295,54 @@ void examine_layout(void)
 
 void print_movie_frames_up_to_time(struct timeval tv)
 {
-  static double framerate;
-  static double start_time = 0;
-  double now = tv.tv_sec + tv.tv_usec / 1e6;
-  static double next_dump=0;
-  unsigned times;
-  XImage *image;
+    static double framerate;
+    static double start_time = 0;
+    double now = tv.tv_sec + tv.tv_usec / 1e6;
+    static unsigned last_frame = 0, this_frame = 0;
+    static unsigned times;
+    XImage *image;
 
-  if(next_dump == 0) {  // one-time initialization
-    framerate = getenv("VNCREC_MOVIE_FRAMERATE") ? atoi(getenv("VNCREC_MOVIE_FRAMERATE")) : 10;
+    if (start_time == 0) {  // one-time initialization
+        framerate = getenv("VNCREC_MOVIE_FRAMERATE") ? atoi(getenv("VNCREC_MOVIE_FRAMERATE")) : 10;
 
-    fprintf(stderr,"RGB32 W%u H%u F%u:1 Ip A0:0\n",
-            si.framebufferWidth,
-            si.framebufferHeight,
-            (unsigned)framerate);
+        fprintf(stderr,"RGB8 W%u H%u F%u:1 Ip A0:0\n",
+                si.framebufferWidth,
+                si.framebufferHeight,
+                (unsigned)framerate);
 
-	  examine_layout(); /* Figure out red_shift, green_shift, blue_shift */
+        examine_layout(); /* Figure out red_shift, green_shift, blue_shift */
 
-	  next_dump=start_time=now;
-  }
+        start_time = now;
+    }
 
+    this_frame = (unsigned)((now - start_time) * framerate);
+    assert(this_frame >= last_frame);
 
-  for (times=0; next_dump<now; next_dump+=1/framerate, times++);
-  if (!times) return; /* not time for the next frame yet. */
+    if (this_frame == last_frame) return; /* not time for the next frame yet. */
 
-  image = XGetImage(dpy, desktopWin,0, 0, si.framebufferWidth,
-		  si.framebufferHeight, 0xffffffff,
-		ZPixmap);
-  assert(image);
+    times = this_frame - last_frame;
+    last_frame = this_frame;
 
-  if (0) {
-      if (times==1) {
-          fprintf(stderr,"Dumping frame for time %.2f sec.\n",
-                  next_dump-start_time);
-      }
-      else {
-          fprintf(stderr,"Dumping %u frames for time %.2f sec.\n",
-                  times, next_dump-start_time);
-      }
-  }
+    image = XGetImage(dpy, desktopWin,0, 0, si.framebufferWidth,
+                      si.framebufferHeight, 0xffffffff,
+                      ZPixmap);
+    assert(image);
 
-  /* Print the frame(s) */
-  dump_image(image, times);
+    if (0) {
+        if (times == 1) {
+            fprintf(stderr,"Dumping frame for time %.2f sec - %.6f.\n",
+                    times / framerate, now);
+        }
+        else {
+            fprintf(stderr,"Dumping %u frames for time %.2f sec - %.6f.\n",
+                    times, times / framerate, now);
+        }
+    }
 
-  XDestroyImage(image);
-//  printf("all done up to next time\n");
+    /* Print the frame(s) */
+    dump_image(image, times);
+
+    XDestroyImage(image);
 }
 
 Bool
