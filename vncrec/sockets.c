@@ -102,18 +102,19 @@ static void
 writeLogHeader (void)
 {
   struct timeval tv;
-  static unsigned long frame = 0;
+  static unsigned int frame = 0;
 
   if (vncLogTimeStamp)
     {
       long tell = ftell(vncLog);
+      unsigned int wframe = Swap32IfLE(frame);
 
-      my_fwrite (&frame, sizeof(frame), 1, vncLog);
+      my_fwrite (&wframe, sizeof(wframe), 1, vncLog);
 
       gettimeofday (&tv, NULL);
 
       if (appData.debugFrames) {
-          fprintf(stderr, "write frame %lu at time %.3f @ offset %ld\n",
+          fprintf(stderr, "write frame %u at time %.3f @ offset %ld\n",
                   frame, tv.tv_sec + tv.tv_usec / 1e6, tell);
       }
 
@@ -358,7 +359,7 @@ ReadFromRFBServer(char *out, unsigned int n)
           long tell = ftell(vncLog);
 
           static unsigned long rframe_curr = 0; // frame counter for verification
-          unsigned long rframe;
+          unsigned int rframe;
 
 	  static struct timeval prev;
 	  struct timeval tv;
@@ -366,6 +367,7 @@ ReadFromRFBServer(char *out, unsigned int n)
 	  i = fread (&rframe, sizeof (rframe), 1, vncLog);
 	  if (i < 1)
 	    return False;
+          rframe = Swap32IfLE(rframe);
 
           if (rframe != rframe_curr) {
               fprintf(stderr, "Frame number does not match! File desynced or corrupt!.\n");
