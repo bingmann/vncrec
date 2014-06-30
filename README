@@ -1,13 +1,13 @@
     ,
    / \   xmkmf, make World, su, make install, make install.man
-  / ! \  vncrec -record test.vnc  - behaves like a vnc viewer, at the end
- /_____\ F8, Quit. vncrec -movie test.vnc > test.y4m, mplayer test.y4m, then
-         transcode from the .y4m using the scripts described below (search
-  QUICK  for -movie below)
+  / ! \  "vncrec -record out.vnc" - behaves like a vnc viewer,
+ /_____\ at the end press F8, and Quit.
+         Use "vncrec -play out.vnc" to replay the vnc session.
+  QUICK  See below for encoding output of "vncrec -movie out.vnc"
   START
 
-Twibright vncrec
-================
+vncrec 0.3
+===========
 
 This is basically a patched VNC from AT&T Laboratories Cambridge. Contains a
 patched VNC viewer that allows record (-record), playback (-play), and video
@@ -18,8 +18,8 @@ export (-movie) of VNC sessions. The license is GPL (LICENCE.TXT).
   TightVNC http://www.tightvnc.com/
   RealVNC http://realvnc.com/
   x11vnc http://freshmeat.net/projects/x11vnc/
-  OSXvnc http://sourceforge.net/project/downloading.php?group_id=64523&filename=VineServer2.1.dmg
-  
+  OSXvnc (Vine Server) http://sourceforge.net/projects/osxvnc/files/
+
 To build vncrec, do:
   % xmkmf
   % make World
@@ -27,60 +27,23 @@ To build vncrec, do:
 Set up the VNC server so you can view with VNC viewer. Then you can record a
 VNC session "video":
 
-  % vncrec -record sample.vncrec
+  % vncrec -record out.vnc
 
 Later, you can play it back by:
 
-  % vncrec -play sample.vncrec
+  % vncrec -play out.vnc
 
-Encode the session quickly into a 4:2:0 Y'CbCr YUV4MPEG2 video stream to
-stdout (this format can be played directly by mplayer, encoded into lots
-of formats using transcode, or encoded into Ogg Theora using the example
-encoder in libtheora):
-
-  % vncrec -movie sample.vncrec
-
-The sample rate of the movie is 10 by default or overriden by
-VNCREC_MOVIE_FRAMERATE environment variable, or 10 if not specified. Some
-formats (MPEG) don't have 10 so you must supply some more common number (24,
-25,...).
-
-> No sound: remove the $1.wav mention from the following scripts
-
-> Sound: download Audacity http://audacity.sourceforge.net/download/ plug the
-  microphone in at the same time you start vncrec (synchronizing click), then
-  cut the track off on the click, export into *.wav 
-  
-> Encoding into Theora: download libtheora http://www.theora.org/
-
-Example encode line for Theora:
-vncrec -movie $1.vnc | \
-	/home/user/libtheora-1.0alpha7/examples/encoder_example \
-	-o $1.ogg $1.wav -
-
-> Encoding into MPEG4 ASP ("DivX"), Real Video, WMV: download transcode
-  http://www.transcoding.org/cgi-bin/transcode?Download
-
-Example encode script for MPEG4 ASP, MSMPEG4, MSMPEG4v2, MPEG4, Real Video 10,
-WMV 7, WMV8:
-
-pipe=$1.y4m
-rm -f $pipe
-/home/clock/vncrec-0.2/vncrec/vncrec -movie $1.vnc > $pipe
-transcode -x yuv4mpeg -y xvid -i $pipe -p $1.wav -o $1_mpeg4_asp.avi
-transcode -x yuv4mpeg -y ffmpeg -F msmpeg4 -i $pipe -p $1.wav -o \
-	$1_msmpeg4.avi
-transcode -x yuv4mpeg -y ffmpeg -F msmpeg4v2 -i $pipe -p $1.wav -o \
-	$1_msmpeg4v2.avi
-transcode -x yuv4mpeg -y ffmpeg -F mpeg4 -i $pipe -p $1.wav -o $1_mpeg4.avi
-transcode -x yuv4mpeg -y ffmpeg -F rv10 -i $pipe -p $1.wav -o $1_rv10.avi
-transcode -x yuv4mpeg -y ffmpeg -F wmv1 -i $pipe -p $1.wav -o $1_wmv7.avi
-transcode -x yuv4mpeg -y ffmpeg -F wmv2 -i $pipe -p $1.wav -o $1_wmv8.avi
-rm $pipe
+See http://panthema.net/2014/vncrec/#ffmpeg for information on how to use
+"vncrec -movie" and ffmpeg to produce high-quality screencast movies.
 
 -- Yoshiki Hayashi <yoshiki@xemacs.org>
--- Karel Kulhavy <clock (at) twibright . com> (replaced the original
-                                               XPM output with yuv4mpeg2)
+   (original vncrec 0.1)
+
+-- Karel Kulhavy <clock (at) twibright . com>
+   (replaced the original XPM output with yuv4mpeg2)
+
+-- Timo Bingmann <tb (at) panthema dot net>
+   (replaced YUV output with RGB, merged tightvnc)
 
 ACKNOWLEDGEMENTS
 ================
@@ -96,7 +59,7 @@ This distribution contains software from the X Window System, Version 11,
 Release 6.3.  This is:
 
     Copyright c 1996 X Consortium
-    
+
     Permission is hereby granted, free of charge, to any person obtaining a
     copy of this software and associated documentation files (the
     "Software"), to deal in the Software without restriction, including
@@ -104,10 +67,10 @@ Release 6.3.  This is:
     tribute, sublicense, and/or sell copies of the Software, and to permit
     persons to whom the Software is furnished to do so, subject to the fol-
     lowing conditions:
-    
+
     The above copyright notice and this permission notice shall be included
     in all copies or substantial portions of the Software.
-    
+
     THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
     OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABIL-
     ITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT
@@ -115,46 +78,10 @@ Release 6.3.  This is:
     ITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
     OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
     IN THE SOFTWARE.
-    
+
     Except as contained in this notice, the name of the X Consortium shall
     not be used in advertising or otherwise to promote the sale, use or
     other dealings in this Software without prior written authorization from
     the X Consortium.
-    
+
     X Window System is a trademark of X Consortium, Inc.
-
-
-This distribution contains Java DES software by Dave Zimmerman
-<dzimm@widget.com> and Jef Poskanzer <jef@acme.com>.  This is:
-
-    Copyright (c) 1996 Widget Workshop, Inc. All Rights Reserved.
-
-    Permission to use, copy, modify, and distribute this software and its
-    documentation for NON-COMMERCIAL or COMMERCIAL purposes and without fee
-    is hereby granted, provided that this copyright notice is kept intact.
-    
-    Copyright (C) 1996 by Jef Poskanzer <jef@acme.com>.  All rights
-    reserved.
-
-    Redistribution and use in source and binary forms, with or without
-    modification, are permitted provided that the following conditions
-    are met:
-    1. Redistributions of source code must retain the above copyright
-       notice, this list of conditions and the following disclaimer.
-    2. Redistributions in binary form must reproduce the above copyright
-       notice, this list of conditions and the following disclaimer in the
-       documentation and/or other materials provided with the distribution.
-
-    THIS SOFTWARE IS PROVIDED BY THE AUTHOR AND CONTRIBUTORS ``AS IS'' AND
-    ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-    IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
-    PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS
-    BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
-    CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-    SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
-    BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
-    WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
-    OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
-    ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-    See http://www.acme.com/java for up-to-date versions.
