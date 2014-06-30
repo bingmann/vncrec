@@ -237,6 +237,9 @@ static XtResource appDataResourceList[] = {
   {"record", "Record", XtRString, sizeof(String),
    XtOffsetOf(AppData, record), XtRImmediate, (XtPointer) 0},
 
+  {"writeYUV", "WriteYUV", XtRBool, sizeof(Bool),
+   XtOffsetOf(AppData, writeYUV), XtRImmediate, (XtPointer) False},
+
   {"hideWindow", "HideWindow", XtRBool, sizeof(Bool),
    XtOffsetOf(AppData, hideWindow), XtRImmediate, (XtPointer) False},
 
@@ -275,6 +278,7 @@ XrmOptionDescRec cmdLineOptions[] = {
   {"-play",          "*play",               XrmoptionSepArg, 0},
   {"-record",        "*record",             XrmoptionSepArg, 0},
   {"-movie",         "*movie",              XrmoptionSepArg, 0},
+  {"-writeYUV",      "*writeYUV",           XrmoptionNoArg,  "True"},
   {"-hideWindow",    "*hideWindow",         XrmoptionNoArg,  "True"},
   {"-debugFrames",   "*debugFrames",        XrmoptionNoArg,  "True"}
 
@@ -357,8 +361,9 @@ usage(void)
 	  "        -play <log-file>\n"
 	  "        -record <log-file>\n"
 	  "        -movie <log-file>\n"
-	  "        -hideWindow\n"
-	  "        -debugFrames\n"
+	  "        -writeYUV (output YUV4MPEG2 frames instead of RGB8)\n"
+	  "        -hideWindow (hide window during -record)\n"
+	  "        -debugFrames (dump frame timestamps during -play/-movie)\n"
 	  "\n"
 	  "Option names may be abbreviated, e.g. -bgr instead of -bgr233.\n"
 	  "See the manual page for more information."
