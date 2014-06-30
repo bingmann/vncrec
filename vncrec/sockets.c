@@ -364,6 +364,21 @@ void print_movie_frames_up_to_time(struct timeval tv)
     if (start_time == 0) {  // one-time initialization
         framerate = getenv("VNCREC_MOVIE_FRAMERATE") ? atoi(getenv("VNCREC_MOVIE_FRAMERATE")) : 10;
 
+        if (appData.ffInfo) {
+            if (appData.writeYUV) {
+                fprintf(stderr,
+                        "Error: -ffinfo and -writeYUV are mutually exclusive, "
+                        "use -f yuv4mpegpipe.\n");
+            }
+            else {
+                printf("-pixel_format rgb24 -video_size %ux%u -framerate %u\n",
+                       si.framebufferWidth,
+                       si.framebufferHeight,
+                       (unsigned)framerate);
+            }
+            exit(0);
+        }
+
         if (appData.writeYUV) {
             printf("YUV4MPEG2 W%u H%u F%u:1 Ip A0:0\n",
                    si.framebufferWidth,

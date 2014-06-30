@@ -110,9 +110,11 @@ SetVisualAndCmap()
     myFormat.greenMax = vis->green_mask >> myFormat.greenShift;
     myFormat.blueMax = vis->blue_mask >> myFormat.blueShift;
 
-    fprintf(stderr,
-	    "Using default colormap which is TrueColor.  Pixel format:\n");
-    PrintPixelFormat(&myFormat);
+    if (!appData.ffInfo) {
+      fprintf(stderr,
+              "Using default colormap which is TrueColor.  Pixel format:\n");
+      PrintPixelFormat(&myFormat);
+    }
     return;
   }
 
@@ -129,9 +131,11 @@ SetVisualAndCmap()
   myFormat.greenShift = 3;
   myFormat.blueShift = 6;
 
-  fprintf(stderr,
-       "Using default colormap and translating from BGR233.  Pixel format:\n");
-  PrintPixelFormat(&myFormat);
+  if (!appData.ffInfo) {
+    fprintf(stderr,
+            "Using default colormap and translating from BGR233.  Pixel format:\n");
+    PrintPixelFormat(&myFormat);
+  }
 
   SetupBGR233Map();
 }

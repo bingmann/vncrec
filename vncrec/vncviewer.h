@@ -102,6 +102,7 @@ typedef struct {
   String movie;
   Bool hideWindow;
   Bool writeYUV;
+  Bool ffInfo;
 
   int popupButtonCount;
 

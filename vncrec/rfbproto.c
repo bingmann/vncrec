@@ -253,8 +253,10 @@ InitialiseRFBConnection(void)
     protocolMinorVersion = 3;
   }
 
-  fprintf(stderr, "Connected to RFB server, using protocol version 3.%d\n",
-	  protocolMinorVersion);
+  if (!appData.ffInfo) {
+    fprintf(stderr, "Connected to RFB server, using protocol version 3.%d\n",
+            protocolMinorVersion);
+  }
 
   sprintf(pv, rfbProtocolVersionFormat, 3, protocolMinorVersion);
 
@@ -319,10 +321,14 @@ InitialiseRFBConnection(void)
 
   desktopName[si.nameLength] = 0;
 
-  fprintf(stderr,"Desktop name \"%s\"\n",desktopName);
+  if (!appData.ffInfo) {
+    fprintf(stderr,"Desktop name \"%s\"\n",desktopName);
+  }
 
-  fprintf(stderr,"VNC server default format:\n");
-  PrintPixelFormat(&si.format);
+  if (!appData.ffInfo) {
+    fprintf(stderr,"VNC server default format:\n");
+    PrintPixelFormat(&si.format);
+  }
 
   if (tightVncProtocol) {
     /* Read interaction capabilities (protocol 3.7t, 3.8t) */
@@ -544,7 +550,9 @@ AuthenticateVNC(void)
   char* cstatus;
   int   len;
 
-  fprintf(stderr, "Performing standard VNC authentication\n");
+  if (!appData.ffInfo) {
+      fprintf(stderr, "Performing standard VNC authentication\n");
+  }
 
   if (!ReadFromRFBServer((char *)challenge, CHALLENGESIZE))
     return False;
@@ -613,7 +621,9 @@ ReadAuthenticationResult(void)
 
   switch (authResult) {
   case rfbAuthOK:
-    fprintf(stderr, "Authentication successful\n");
+    if (!appData.ffInfo) {
+      fprintf(stderr, "Authentication successful\n");
+    }
     break;
   case rfbAuthFailed:
     if (protocolMinorVersion >= 8) {

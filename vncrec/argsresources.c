@@ -240,6 +240,9 @@ static XtResource appDataResourceList[] = {
   {"writeYUV", "WriteYUV", XtRBool, sizeof(Bool),
    XtOffsetOf(AppData, writeYUV), XtRImmediate, (XtPointer) False},
 
+  {"ffInfo", "FFInfo", XtRBool, sizeof(Bool),
+   XtOffsetOf(AppData, ffInfo), XtRImmediate, (XtPointer) False},
+
   {"hideWindow", "HideWindow", XtRBool, sizeof(Bool),
    XtOffsetOf(AppData, hideWindow), XtRImmediate, (XtPointer) False},
 
@@ -278,6 +281,7 @@ XrmOptionDescRec cmdLineOptions[] = {
   {"-play",          "*play",               XrmoptionSepArg, 0},
   {"-record",        "*record",             XrmoptionSepArg, 0},
   {"-movie",         "*movie",              XrmoptionSepArg, 0},
+  {"-ffinfo",        "*ffInfo",             XrmoptionNoArg,  "True"},
   {"-writeYUV",      "*writeYUV",           XrmoptionNoArg,  "True"},
   {"-hideWindow",    "*hideWindow",         XrmoptionNoArg,  "True"},
   {"-debugFrames",   "*debugFrames",        XrmoptionNoArg,  "True"}
@@ -361,8 +365,9 @@ usage(void)
 	  "        -play <log-file>\n"
 	  "        -record <log-file>\n"
 	  "        -movie <log-file>\n"
+	  "        -ffinfo (only print ffmpeg rawvideo options, use with -movie/-play)\n"
 	  "        -writeYUV (output YUV4MPEG2 frames instead of RGB8)\n"
-	  "        -hideWindow (hide window during -record)\n"
+	  "        -hideWindow (hide window during -record of shared sessions)\n"
 	  "        -debugFrames (dump frame timestamps during -play/-movie)\n"
 	  "\n"
 	  "Option names may be abbreviated, e.g. -bgr instead of -bgr233.\n"
