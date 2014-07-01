@@ -333,7 +333,7 @@ void examine_layout(void)
 	XGetGeometry(dpy, desktopWin, &rootwin,
 		&dummy_i, &dummy_i, &dummy_u, &dummy_u, &dummy_u, &dummy_u);
 	XGetWindowAttributes(dpy, rootwin, &attr);
-	fprintf(stderr,"red_mask=%x, green_mask=%x, blue_mask=%x, "
+	fprintf(stderr,"red_mask=%lx, green_mask=%lx, blue_mask=%lx, "
 			"CPU endian=%u, dpy endian=%u\n",
 			attr.visual->red_mask,
 			attr.visual->green_mask,
@@ -472,7 +472,7 @@ ReadFromRFBServer(char *out, unsigned int n)
 	  prev = tv;
 
           if (appData.debugFrames) {
-              fprintf(stderr, "read frame %lu at time %.3f @ offset %ld\n",
+              fprintf(stderr, "read frame %u at time %.3f @ offset %ld\n",
                       rframe, tv.tv_sec + tv.tv_usec / 1e6, tell);
           }
 
@@ -521,7 +521,7 @@ ReadFromRFBServer(char *out, unsigned int n)
 	    ProcessXtEvents();
 	    i = 0;
 	  } else {
-	    fprintf(stderr,programName);
+            fprintf(stderr,"%s",programName);
 	    perror(": read");
 	    return False;
 	  }
@@ -552,7 +552,7 @@ ReadFromRFBServer(char *out, unsigned int n)
 	    ProcessXtEvents();
 	    i = 0;
 	  } else {
-	    fprintf(stderr,programName);
+            fprintf(stderr,"%s",programName);
 	    perror(": read");
 	    return False;
 	  }
@@ -600,13 +600,13 @@ WriteExact(int sock, char *buf, int n)
 	  FD_SET(rfbsock,&fds);
 
 	  if (select(rfbsock+1, NULL, &fds, NULL, NULL) <= 0) {
-	    fprintf(stderr,programName);
+	    fprintf(stderr,"%s",programName);
 	    perror(": select");
 	    return False;
 	  }
 	  j = 0;
 	} else {
-	  fprintf(stderr,programName);
+	  fprintf(stderr,"%s",programName);
 	  perror(": write");
 	  return False;
 	}
@@ -638,13 +638,13 @@ ConnectToTcpAddr(unsigned int host, int port)
 
   sock = socket(AF_INET, SOCK_STREAM, 0);
   if (sock < 0) {
-    fprintf(stderr,programName);
+    fprintf(stderr,"%s",programName);
     perror(": ConnectToTcpAddr: socket");
     return -1;
   }
 
   if (connect(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-    fprintf(stderr,programName);
+    fprintf(stderr,"%s",programName);
     perror(": ConnectToTcpAddr: connect");
     close(sock);
     return -1;
@@ -652,7 +652,7 @@ ConnectToTcpAddr(unsigned int host, int port)
 
   if (setsockopt(sock, IPPROTO_TCP, TCP_NODELAY,
 		 (char *)&one, sizeof(one)) < 0) {
-    fprintf(stderr,programName);
+    fprintf(stderr,"%s",programName);
     perror(": ConnectToTcpAddr: setsockopt");
     close(sock);
     return -1;
@@ -679,7 +679,7 @@ FindFreeTcpPort(void)
 
   sock = socket(AF_INET, SOCK_STREAM, 0);
   if (sock < 0) {
-    fprintf(stderr,programName);
+    fprintf(stderr,"%s",programName);
     perror(": FindFreeTcpPort: socket");
     return 0;
   }
@@ -714,28 +714,28 @@ ListenAtTcpPort(int port)
 
   sock = socket(AF_INET, SOCK_STREAM, 0);
   if (sock < 0) {
-    fprintf(stderr,programName);
+    fprintf(stderr,"%s",programName);
     perror(": ListenAtTcpPort: socket");
     return -1;
   }
 
   if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR,
 		 (const char *)&one, sizeof(one)) < 0) {
-    fprintf(stderr,programName);
+    fprintf(stderr,"%s",programName);
     perror(": ListenAtTcpPort: setsockopt");
     close(sock);
     return -1;
   }
 
   if (bind(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-    fprintf(stderr,programName);
+    fprintf(stderr,"%s",programName);
     perror(": ListenAtTcpPort: bind");
     close(sock);
     return -1;
   }
 
   if (listen(sock, 5) < 0) {
-    fprintf(stderr,programName);
+    fprintf(stderr,"%s",programName);
     perror(": ListenAtTcpPort: listen");
     close(sock);
     return -1;
@@ -759,14 +759,14 @@ AcceptTcpConnection(int listenSock)
 
   sock = accept(listenSock, (struct sockaddr *) &addr, &addrlen);
   if (sock < 0) {
-    fprintf(stderr,programName);
+    fprintf(stderr,"%s",programName);
     perror(": AcceptTcpConnection: accept");
     return -1;
   }
 
   if (setsockopt(sock, IPPROTO_TCP, TCP_NODELAY,
 		 (char *)&one, sizeof(one)) < 0) {
-    fprintf(stderr,programName);
+    fprintf(stderr,"%s",programName);
     perror(": AcceptTcpConnection: setsockopt");
     close(sock);
     return -1;
@@ -784,7 +784,7 @@ Bool
 SetNonBlocking(int sock)
 {
   if (fcntl(sock, F_SETFL, O_NONBLOCK) < 0) {
-    fprintf(stderr,programName);
+    fprintf(stderr,"%s",programName);
     perror(": AcceptTcpConnection: fcntl");
     return False;
   }
