@@ -32,7 +32,7 @@
 
 char *fallback_resources[] = {
 
-  "Vncviewer.title: TightVNC: %s",
+  "Vncviewer.title: VNCrec: %s",
 
   "Vncviewer.translations:\
     <Enter>: SelectionToVNC()\\n\
@@ -65,7 +65,7 @@ char *fallback_resources[] = {
   "*passwordDialog.dialog.value.translations: #override\\n\
      <Key>Return: PasswordDialogDone()",
 
-  "*popup.title: TightVNC popup",
+  "*popup.title: VNCrec popup",
   "*popup*background: grey",
   "*popup*font: -*-helvetica-bold-r-*-*-16-*-*-*-*-*-*-*",
   "*popup.buttonForm.Command.borderWidth: 0",
@@ -336,7 +336,7 @@ void
 usage(void)
 {
   fprintf(stderr,"\n"
-	  "VNC viewer vncrec version 0.3 (tightvnc-1.3.10)\n"
+	  "VNCrec version 0.4 (tightvnc-1.3.10)\n"
 	  "\n"
 	  "Usage: %s [<OPTIONS>] [<HOST>][:<DISPLAY#>]\n"
 	  "       %s [<OPTIONS>] [<HOST>][::<PORT#>]\n"
@@ -344,6 +344,14 @@ usage(void)
 	  "       %s -help\n"
 	  "\n"
 	  "<OPTIONS> are standard Xt options, or:\n"
+	  "        -record <log-file>\n"
+	  "        -play <log-file>\n"
+	  "        -movie <log-file>\n"
+	  "        -ffinfo (only print ffmpeg rawvideo options, use with -movie/-play)\n"
+	  "        -writeYUV (output YUV4MPEG2 frames instead of RGB8)\n"
+	  "        -hideWindow (hide window during -record of shared sessions)\n"
+	  "        -debugFrames (dump frame timestamps during -play/-movie)\n"
+          "or standard VNC viewer options:\n"
 	  "        -via <GATEWAY>\n"
 	  "        -shared (set by default)\n"
 	  "        -noshared\n"
@@ -362,13 +370,6 @@ usage(void)
 	  "        -remoteshape\n"
 	  "        -x11cursor\n"
 	  "        -autopass\n"
-	  "        -play <log-file>\n"
-	  "        -record <log-file>\n"
-	  "        -movie <log-file>\n"
-	  "        -ffinfo (only print ffmpeg rawvideo options, use with -movie/-play)\n"
-	  "        -writeYUV (output YUV4MPEG2 frames instead of RGB8)\n"
-	  "        -hideWindow (hide window during -record of shared sessions)\n"
-	  "        -debugFrames (dump frame timestamps during -play/-movie)\n"
 	  "\n"
 	  "Option names may be abbreviated, e.g. -bgr instead of -bgr233.\n"
 	  "See the manual page for more information."
@@ -388,7 +389,7 @@ GetArgsAndResources(int argc, char **argv)
 {
   int i;
   char *vncServerName, *colonPos;
-  const char *magic = "vncLog0.3";
+  const char *magic = "vncLog0.4";
   int len, portOffset;
   int disp;
 
