@@ -362,7 +362,7 @@ void print_movie_frames_up_to_time(struct timeval tv)
     XImage *image;
 
     if (start_time == 0) {  // one-time initialization
-        framerate = getenv("VNCREC_MOVIE_FRAMERATE") ? atoi(getenv("VNCREC_MOVIE_FRAMERATE")) : 10;
+        framerate = getenv("VNCREC_MOVIE_FRAMERATE") ? atoi(getenv("VNCREC_MOVIE_FRAMERATE")) : 25;
 
         if (appData.ffInfo) {
             if (appData.writeYUV) {
