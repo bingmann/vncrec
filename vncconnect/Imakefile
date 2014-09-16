@@ -1,6 +1,8 @@
 
 #ifdef SunArchitecture
-EXTRA_DEFINES = -D__EXTENSIONS__
+CC = gcc
+CCOPTIONS =
+CDEBUGFLAGS = -O2
 #endif
 
 all:: vncconnect
