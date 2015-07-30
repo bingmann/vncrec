@@ -275,6 +275,7 @@ XrmOptionDescRec cmdLineOptions[] = {
   {"-compresslevel", "*compressLevel",      XrmoptionSepArg, 0},
   {"-quality",       "*qualityLevel",       XrmoptionSepArg, 0},
   {"-jpeg",          "*enableJPEG",         XrmoptionNoArg,  "True"},
+  {"-nojpeg",        "*enableJPEG",         XrmoptionNoArg,  "False"},
   {"-remoteshape",   "*useRemoteCursor",    XrmoptionNoArg,  "True"},
   {"-x11cursor",     "*useX11Cursor",       XrmoptionNoArg,  "True"},
   {"-autopass",      "*autoPass",           XrmoptionNoArg,  "True"},
@@ -367,6 +368,7 @@ usage(void)
 	  "        -compresslevel <COMPRESS-VALUE> (0..9: 0-fast, 9-best)\n"
 	  "        -quality <JPEG-QUALITY-VALUE> (0..9: 0-low, 9-high)\n"
 	  "        -jpeg\n"
+	  "        -nojpeg\n"
 	  "        -remoteshape\n"
 	  "        -x11cursor\n"
 	  "        -autopass\n"
