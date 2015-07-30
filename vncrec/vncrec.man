@@ -367,13 +367,20 @@ For debugging. Default false.
 .B rawDelay, copyRectDelay
 For debugging, see the README file for details. Default 0 (off).
 .SH ENVIRONMENT
+The following environment variables influence vncrec operation:
+.TP
+.B VNCREC_MOVIE_FRAMERATE
+Set the recording frame rate as an integer frames per second value.
+The default is 25 fps.
+.TP
+.B VNC_VIA_CMD
 When started with the \fB\-via\fR option, vncrec reads the
 \fBVNC_VIA_CMD\fR environment variable, expands patterns beginning
 with the "%" character, and executes result as a command assuming that
 it would create TCP tunnel that should be used for VNC connection. If
 not set, this environment variable defaults to "/usr/bin/ssh -f -L
 %L:%H:%R %G sleep 20".
-
+.PP
 The following patterns are recognized in the \fBVNC_VIA_CMD\fR (note
 that all the patterns %G, %H, %L and %R must be present in the command
 template):
