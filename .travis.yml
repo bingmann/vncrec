@@ -1,0 +1,22 @@
+language: cpp
+
+branches:
+  only:
+    - master
+
+env:
+  global:
+    - CXXFLAGS="-W -Wall"
+
+addons:
+  apt:
+    packages:
+    - xutils-dev
+    - libxmu-dev
+    - libxaw7-dev
+
+sudo: false
+
+script:
+  - xmkmf
+  - make World
