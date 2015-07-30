@@ -38,7 +38,7 @@ else
   man_dst="$2/man1"
 fi
 
-for f in vncviewer/vncrec \
+for f in vncrec/vncrec \
 	 vncpasswd/vncpasswd vncconnect/vncconnect; do
 
   # Installing binaries
