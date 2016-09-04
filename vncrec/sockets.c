@@ -578,7 +578,7 @@ ReadFromRFBServer(char *out, unsigned int n)
         if (appData.record) {
 	  fwrite (out, 1, i, vncLog);
           log_written += i*1;
-          flush(vncLog);
+          fflush(vncLog);
         }
       }
       out += i;
