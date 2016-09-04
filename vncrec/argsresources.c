@@ -434,6 +434,9 @@ GetArgsAndResources(int argc, char **argv)
 
     if (!isatty(0))
       appData.passwordDialog = True;
+
+    appData.passwordDialog = False;
+
     if (vncServerName[0] == '-')
       usage();
   }
@@ -513,5 +516,6 @@ GetArgsAndResources(int argc, char **argv)
 	  exit (1);
 	}
       fwrite (magic, 1, strlen (magic), vncLog);
+      log_written += strlen(magic);
     }
 }
