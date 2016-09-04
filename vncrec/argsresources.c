@@ -513,5 +513,6 @@ GetArgsAndResources(int argc, char **argv)
 	  exit (1);
 	}
       fwrite (magic, 1, strlen (magic), vncLog);
+      log_written += strlen(magic);
     }
 }

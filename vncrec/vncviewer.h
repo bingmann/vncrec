@@ -285,3 +285,4 @@ extern XtAppContext appContext;
 extern Display* dpy;
 extern Widget toplevel;
 extern FILE *vncLog;
+extern long log_written;

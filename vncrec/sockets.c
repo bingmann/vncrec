@@ -49,6 +49,9 @@ static char *bufoutptr = buf;
 static int buffered = 0;
 Bool vncLogTimeStamp = False;
 
+long log_written = 0;
+
+
 /* Shifts to obtain the red, green, and blue value
  * from a long loaded from the memory. These are initialized once before the
  * first snapshot is taken. */
@@ -106,21 +109,24 @@ writeLogHeader (void)
 
   if (vncLogTimeStamp)
     {
-      long tell = ftell(vncLog);
       unsigned int wframe = Swap32IfLE(frame);
 
       my_fwrite (&wframe, sizeof(wframe), 1, vncLog);
+      log_written += sizeof(wframe)*1;
+      fflush(vncLog);
 
       gettimeofday (&tv, NULL);
 
       if (appData.debugFrames) {
           fprintf(stderr, "write frame %u at time %.3f @ offset %ld\n",
-                  frame, tv.tv_sec + tv.tv_usec / 1e6, tell);
+                  frame, tv.tv_sec + tv.tv_usec / 1e6, log_written);
       }
 
       tv.tv_sec = Swap32IfLE (tv.tv_sec);
       tv.tv_usec = Swap32IfLE (tv.tv_usec);
       my_fwrite (&tv, sizeof (struct timeval), 1, vncLog);
+      log_written += sizeof(struct timeval)*1;
+      fflush(vncLog);
 
       frame++;
     }
@@ -437,8 +443,6 @@ ReadFromRFBServer(char *out, unsigned int n)
 
       if (vncLogTimeStamp)
 	{
-          long tell = ftell(vncLog);
-
           static unsigned long rframe_curr = 0; // frame counter for verification
           unsigned int rframe;
 
@@ -473,7 +477,7 @@ ReadFromRFBServer(char *out, unsigned int n)
 
           if (appData.debugFrames) {
               fprintf(stderr, "read frame %u at time %.3f @ offset %ld\n",
-                      rframe, tv.tv_sec + tv.tv_usec / 1e6, tell);
+                      rframe, tv.tv_sec + tv.tv_usec / 1e6, log_written);
           }
 
       if(appData.movie)
@@ -492,6 +496,8 @@ ReadFromRFBServer(char *out, unsigned int n)
     {
       writeLogHeader (); /* writes the timestamp */
       fwrite (bufoutptr, 1, n, vncLog);
+      log_written += n*1;
+      fflush(vncLog);
     }
     bufoutptr += n;
     buffered -= n;
@@ -503,6 +509,8 @@ ReadFromRFBServer(char *out, unsigned int n)
     {
       writeLogHeader (); /* Writes the timestamp */
       fwrite (bufoutptr, 1, buffered, vncLog);
+      log_written += buffered*1;
+      fflush(vncLog);
     }
 
   out += buffered;
@@ -536,8 +544,11 @@ ReadFromRFBServer(char *out, unsigned int n)
     }
 
     memcpy(out, bufoutptr, n);
-    if (appData.record)
+    if (appData.record) {
       fwrite (bufoutptr, 1, n, vncLog);
+      log_written += n*1;
+      fflush(vncLog);
+    }
     bufoutptr += n;
     buffered -= n;
     return True;
@@ -563,11 +574,13 @@ ReadFromRFBServer(char *out, unsigned int n)
 	  return False;
 	}
       }
-      else
-	{
-	  if (appData.record)
-	    fwrite (out, 1, i, vncLog);
-	}
+      else {
+        if (appData.record) {
+	  fwrite (out, 1, i, vncLog);
+          log_written += i*1;
+          flush(vncLog);
+        }
+      }
       out += i;
       n -= i;
     }
