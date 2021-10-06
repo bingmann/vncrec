@@ -130,7 +130,7 @@ main(int argc, char **argv)
 
   /* Normally, Xt will send the initial framebuffer update request once
      the window is exposed. If it's hidden, that will never trigger. */
-  if (appData.hideWindow)
+  if (appData.hideWindow && appData.record)
     SendInitialFramebufferUpdateRequest();
 
   /* Now enter the main loop, processing VNC messages.  X events will
