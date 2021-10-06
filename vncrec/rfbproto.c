@@ -849,6 +849,16 @@ SendIncrementalFramebufferUpdateRequest()
 				      si.framebufferHeight, True);
 }
 
+/*
+ * SendInitialFramebufferUpdateRequest.
+ */
+
+Bool
+SendInitialFramebufferUpdateRequest()
+{
+  return SendFramebufferUpdateRequest(0, 0, si.framebufferWidth,
+				      si.framebufferHeight, False);
+}
 
 /*
  * SendFramebufferUpdateRequest.
